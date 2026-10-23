@@ -304,8 +304,13 @@ void Title_Input(s32 *result) {
 s32 Title_Run(s32 section) {
     s32 result = 1;
     s32 wait = 0;
+    /* USA shows the logo still for ~300 frames; EU packs omit that slot, so skip the long hold. */
+    s32 logoHold = 300;
 
     Title_Init(section);
+    if (gTitle->logo == NULL) {
+        logoHold = 0;
+    }
     ColorFade_StartIn(0, 0, 0, 0x14);
     while (1) {
         Gfx_BeginFrame();
@@ -335,7 +340,7 @@ s32 Title_Run(s32 section) {
         }
         if (gTitle->flags & TITLE_FADED_IN) {
             wait++;
-            if (wait > 300) {
+            if (wait > logoHold) {
                 ColorFade_StartOut(0, 0, 0, 0x14);
             }
         }
