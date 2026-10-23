@@ -6,7 +6,8 @@ BT3-Decompiled decompilation. The game's own code is compiled for the Vita, with
 (vitaGL), sound, touch and controls written for the handheld. It is not an emulator.
 
 This repository contains **no game data**. The game's files are copied from your own disc of the USA release to
-the memory card, see [Game files](#game-files).
+the memory card, see [Game files](#game-files). The European release is optional and only used for its languages,
+see [European languages](#european-languages-optional).
 
 This is an unofficial port. It is not affiliated with the Tenkaichi3Decomp project; please report problems with
 the Vita version here, not upstream.
@@ -55,8 +56,8 @@ Steps:
 
 ## Game files
 
-You need a disc image (`.iso`) of your own copy of the USA release, SLUS-21678. Other releases (PAL, Japanese) are
-not supported. From the image, copy `SLUS_216.78` and the `BIN` and `DATA` folders, so that the memory card has:
+You need a disc image (`.iso`) of your own copy of the USA release, SLUS-21678. From the image, copy
+`SLUS_216.78` and the `BIN` and `DATA` folders, so that the memory card has:
 
 ```
 ux0:data/bt3/disc/SLUS_216.78
@@ -73,6 +74,32 @@ ux0:data/bt3/disc/DATA/ZS3USOP.PSS        (and the other files of the DATA folde
 
 Then copy the `disc` folder to `ux0:data/bt3/` with VitaShell (USB or FTP). The game checks at start that the
 files are the unmodified USA release and tells you if they are not.
+
+### European languages (optional)
+
+Spanish, German, French and Italian come from the European disc (SLES-54945), as on the PC port: the USA files
+above stay in place, and only the language data is added. This repository never ships that data.
+
+The straightforward way is to use the PC port's setup, which already knows how to read the European image:
+
+1. Install a recent [Tenkaichi3Decomp](https://github.com/z3xox/Tenkaichi3Decomp/releases) on your computer
+   (0.1.37 or newer).
+2. Start `Tenkaichi3Decomp-setup` (`Tenkaichi3Decomp-setup.exe` on Windows) and choose your USA disc image.
+3. Add your European disc image too. On a fresh install the setup asks for it; if the game was already set up,
+   open the setup again and press **Add languages...** (or **Add languages and music...** on newer builds).
+4. Next to the PC program you should now have `gamedata/pzs3eu1/`. Newer setups also write
+   `gamedata/disc/DATA/ZS3EUOP.ADX` (the European opening song).
+
+Copy `gamedata/pzs3eu1` to `ux0:data/bt3/pzs3eu1` on the memory card. If `ZS3EUOP.ADX` is there, copy it into
+`ux0:data/bt3/disc/DATA/` next to the USA opening files.
+
+The first start that finds `pzs3eu1` shows a language list. Change the language later with a line such as
+`lang=it` (or `es`, `de`, `fr`, `en`) in `ux0:data/bt3/bt3.txt`, or delete `ux0:data/bt3/lang.txt` so the list
+appears again.
+
+If you are building from this tree and prefer not to install the PC release, the same files can be made with
+`python3 port/tools/extract_eu.py <SLES-54945.iso> --data <folder>`; copy `pzs3eu1` and `ZS3EUOP.ADX` from there
+as above.
 
 ## Controls
 
@@ -113,7 +140,8 @@ The **Normal** control type of the Vita version:
 - The port runs the Vita at its standard maximum clocks (CPU 444 MHz, GPU 222 MHz); no overclocking plugin is
   used or needed.
 - Optional settings go in `ux0:data/bt3/bt3.txt`, one per line: `wide=0` shows the PS2's original 4:3 picture,
-  `disc=<folder>` reads the game files from another folder.
+  `disc=<folder>` reads the game files from another folder. With European language data installed,
+  `lang=it` (or `es` / `de` / `fr` / `en`) picks the language.
 
 ## Building
 

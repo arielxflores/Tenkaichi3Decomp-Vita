@@ -1,6 +1,10 @@
 *.iso
 *.rvz
 /disc/
+/pzs3eu1/
+/vita_eu_out/
+lang.txt
+Tenkaichi3Decomp-Vita-vita*.zip
 /wii/
 /tools/
 /.venv/

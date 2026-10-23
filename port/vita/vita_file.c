@@ -10,6 +10,9 @@
  * An AFS archive: "AFS\0", the number of files, then (offset, size) per file; the data follows, each file on a
  * 2048-byte boundary. Reads go through sceIoPread, so the position is not shared state. The sound streams read
  * their archive members the same way (port/src/gs/snd_adx.c). Not supported: the PC build's mods folder.
+ *
+ * European languages (optional): when ux0:data/bt3/pzs3eu1/ holds the entries from SLES-54945 (same as the PC
+ * recomp), selected PZS3US1 members are read from those .bin files instead (vita_eu.c).
  */
 #include <ctype.h>
 #include <psp2/io/fcntl.h>
@@ -19,6 +22,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "vita_eu.h"
 
 #define SECTOR 2048
 enum { STAT_STOP = 1, STAT_READING = 2, STAT_READEND = 3, STAT_ERROR = 4 };
@@ -109,6 +113,7 @@ int ADXF_LoadPartitionNw(int ptid, char *fname, void *dir, void *ptinfo) {
     if (pt->table == NULL || sceIoPread(pt->fd, pt->table, pt->count * 8, 8) != (int)(pt->count * 8)) {
         Vita_Fatal("cannot read the file table of\n  %s", path);
     }
+    VitaEu_NotePartition(ptid, fname);
     return 0;
 }
 
@@ -119,15 +124,32 @@ int ADXF_GetPtStat(int ptid) {
 void *ADXF_OpenAfs(int ptid, int flid) {
     Partition *pt = &sPart[ptid & 7];
     PortFile *f;
+    char eu[320];
 
     if (pt->fd <= 0 || flid < 0 || (uint32_t)flid >= pt->count) {
         fprintf(stderr, "bt3: file not found: partition %d, index %d\n", ptid, flid);
         return NULL;
     }
     f = Port_LowAlloc(sizeof(PortFile));
-    f->fd = pt->fd;
-    f->base = pt->table[flid * 2];
-    f->size = pt->table[flid * 2 + 1];
+    memset(f, 0, sizeof(*f));
+    if (VitaEu_OverridePath(ptid, flid, eu, (int)sizeof(eu))) {
+        SceUID fd = sceIoOpen(eu, SCE_O_RDONLY, 0);
+        SceOff size;
+        if (fd < 0) {
+            Port_LowFree(f);
+            fprintf(stderr, "bt3: EU file not found: %s\n", eu);
+            return NULL;
+        }
+        size = sceIoLseek(fd, 0, SCE_SEEK_END);
+        f->fd = fd;
+        f->owned = 1;
+        f->base = 0;
+        f->size = (uint32_t)size;
+    } else {
+        f->fd = pt->fd;
+        f->base = pt->table[flid * 2];
+        f->size = pt->table[flid * 2 + 1];
+    }
     f->sizeSct = (int32_t)((f->size + SECTOR - 1) / SECTOR);
     f->stat = STAT_STOP;
     gVitaFileOpens++;
@@ -136,14 +158,32 @@ void *ADXF_OpenAfs(int ptid, int flid) {
 
 /* A file outside the archives, named relative to the disc's data directory. */
 void *ADXF_Open(char *fname, void *atr) {
-    char path[300];
+    char path[300], eu[320], up[64];
     PortFile *f;
     SceUID fd;
     SceOff size;
     size_t n;
+    const char *base;
+    const char *p;
 
     (void)atr;
     data_path(fname, path, sizeof(path));
+    /* European opening soundtrack (optional), same rule as the PC recomp. */
+    for (base = fname, p = fname; *p != '\0'; p++) {
+        if (*p == '/' || *p == '\\' || *p == ':') {
+            base = p + 1;
+        }
+    }
+    {
+        size_t i;
+        for (i = 0; base[i] != '\0' && base[i] != ';' && i + 1 < sizeof(up); i++) {
+            up[i] = (char)toupper((unsigned char)base[i]);
+        }
+        up[i] = '\0';
+    }
+    if (strcmp(up, "ZS3USOP.ADX") == 0 && VitaEu_OpeningAdxPath(eu, (int)sizeof(eu))) {
+        snprintf(path, sizeof(path), "%s", eu);
+    }
     fd = sceIoOpen(path, SCE_O_RDONLY, 0);
     if (fd < 0) {
         fprintf(stderr, "bt3: file not found: %s\n", path);
@@ -255,8 +295,27 @@ void *Vita_LoadWhole(const char *path, uint32_t *size) {
     if (sscanf(path, "afs:%d:%d", &ptid, &flid) == 2) {
         Partition *pt = &sPart[ptid & 7];
         uint32_t n;
+        char eu[320];
         if (pt->fd <= 0 || flid < 0 || (uint32_t)flid >= pt->count) {
             return NULL;
+        }
+        if (VitaEu_OverridePath(ptid, flid, eu, (int)sizeof(eu))) {
+            SceUID fd = sceIoOpen(eu, SCE_O_RDONLY, 0);
+            SceOff len;
+            if (fd < 0) {
+                return NULL;
+            }
+            len = sceIoLseek(fd, 0, SCE_SEEK_END);
+            n = (uint32_t)len;
+            p = malloc(n ? n : 1);
+            if (p == NULL || sceIoPread(fd, p, n, 0) != (int)n) {
+                free(p);
+                sceIoClose(fd);
+                return NULL;
+            }
+            sceIoClose(fd);
+            *size = n;
+            return p;
         }
         n = pt->table[flid * 2 + 1];
         p = malloc(n ? n : 1);
