@@ -13,8 +13,12 @@
  *                        wide=0            the console's 4:3 picture in the middle of the screen
  *                        heap=cdram        the game heap in graphics memory (see vita_mem.c)
  *                        report=1          speed figures every two seconds into the log
+ *                        lang=it           European language (en/es/de/fr/it) when pzs3eu1/ is present
  *                      the development build (build.py, BT3_VITA_DEV=1) reads every setting of read_settings
  *                      below: test fights, renderer switches, statistics; see docs/vita/development.md.
+ *   pzs3eu1/           optional: menu/HUD/text entries from the European disc (SLES-54945), same as the
+ *                      PC recomp. Made with port/tools/extract_eu.py, or copied from a PC install's gamedata.
+ *   lang.txt           chosen locale when European languages are installed (written by the language screen)
  *   log.txt            written by every run (log-vgl.txt by the development build), kept across runs
  */
 #include <psp2/ctrl.h>
@@ -32,6 +36,7 @@
 #include <string.h>
 #include <malloc.h>
 #include "debugScreen.h"
+#include "vita_eu.h"
 
 #define HOME "ux0:data/bt3"
 #ifdef PORT_VITA_SFX /* the development build has its own log, so that its runs and the release's can be kept side by side */
@@ -1011,12 +1016,28 @@ static void read_settings(void) {
 #ifdef PORT_VITA_RELEASE
         /* the released program: only the player's settings. The test runs leave theirs in the same file
            (mode=demo, film=...): a game started from its bubble goes to its title screen, not into a test fight */
-        if (strcmp(line, "disc") != 0 && strcmp(line, "heap") != 0 && strcmp(line, "wide") != 0 && strcmp(line, "report") != 0) {
+        if (strcmp(line, "disc") != 0 && strcmp(line, "heap") != 0 && strcmp(line, "wide") != 0 &&
+            strcmp(line, "report") != 0 && strcmp(line, "lang") != 0) {
             continue;
         }
 #endif
         if (strcmp(line, "disc") == 0) {
             snprintf(gVitaDisc, sizeof(gVitaDisc), "%s", eq);
+        } else if (strcmp(line, "lang") == 0) {
+            /* European languages (SLES-54945 data in pzs3eu1/). Quotes as in the PC's menu_lang= are accepted. */
+            char loc[16];
+            size_t n = 0;
+            const char *p = eq;
+            if (*p == '"' || *p == '\'') {
+                p++;
+            }
+            while (*p != '\0' && *p != '"' && *p != '\'' && *p != ' ' && n + 1 < sizeof(loc)) {
+                loc[n++] = (char)tolower((unsigned char)*p++);
+            }
+            loc[n] = '\0';
+            if (loc[0] != '\0') {
+                VitaEu_SetLocale(loc);
+            }
         } else if (strcmp(line, "float") == 0) {
             sFloatChoice = strcmp(eq, "fast") == 0;
         } else if (strcmp(line, "heap") == 0) {
@@ -1185,7 +1206,50 @@ static void read_settings(void) {
     fclose(fp);
 }
 
+/* First-run language list when European archives are present (same languages as the PC recomp). */
+static void language_screen(void) {
+    int count = VitaEu_LocaleCount();
+    int choice = 0, i;
+    const char *cur = VitaEu_Locale();
+
+    for (i = 0; i < count; i++) {
+        if (strcmp(VitaEu_LocaleAt(i), cur) == 0) {
+            choice = i;
+            break;
+        }
+    }
+    for (;;) {
+        psvDebugScreenPrintf("\e[2J\e[H");
+        psvDebugScreenPrintf("\e[33mLanguage / Idioma / Sprache / Langue / Lingua\e[39m\n\n");
+        psvDebugScreenPrintf("European disc data found (pzs3eu1).\n");
+        psvDebugScreenPrintf("UP / DOWN: choose   CROSS: confirm\n\n");
+        for (i = 0; i < count; i++) {
+            psvDebugScreenPrintf(i == choice ? "  \e[32m> %s\e[39m\n" : "    %s\n", VitaEu_LocaleName(i));
+        }
+        switch (wait_buttons(SCE_CTRL_UP | SCE_CTRL_DOWN | SCE_CTRL_CROSS | SCE_CTRL_LEFT | SCE_CTRL_RIGHT)) {
+            case SCE_CTRL_UP:
+            case SCE_CTRL_LEFT:
+                choice = (choice + count - 1) % count;
+                break;
+            case SCE_CTRL_DOWN:
+            case SCE_CTRL_RIGHT:
+                choice = (choice + 1) % count;
+                break;
+            default:
+                VitaEu_SetLocale(VitaEu_LocaleAt(choice));
+                logf_("vita: language %s (%s)\n", VitaEu_Locale(), VitaEu_LocaleName(choice));
+                psvDebugScreenPrintf("\e[2J\e[H");
+                return;
+        }
+    }
+}
+
 static void start_screen(void) {
+    if (VitaEu_NeedsPrompt()) {
+        language_screen();
+    } else if (VitaEu_Available()) {
+        logf_("vita: language %s (European archives in %s/pzs3eu1)\n", VitaEu_Locale(), HOME);
+    }
 #ifdef PORT_VITA_RELEASE
     /* The released program: no start screen. The game from its start (logos, title, menus). */
     sFloatChoice = 1;
@@ -1440,7 +1504,8 @@ int __wrap_main(int argc, char **argv) {
 #ifndef PORT_VITA_RELEASE
     setenv("BT3_TRACE", "600", 1); /* the fight's state every 600 blanks into out.txt: comparable with a PC run */
 #endif
-    read_settings();
+    VitaEu_Init(HOME);
+    read_settings(); /* lang= in bt3.txt overrides lang.txt */
     start_screen();
 #ifndef PORT_VITA_RELEASE /* (the released program shows nothing until the game's first picture; an error still shows) */
     psvDebugScreenPrintf("Reading the game's data tables from %s ...\n", gVitaDisc);

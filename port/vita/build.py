@@ -188,7 +188,7 @@ def port_sources():
               "plat_settings", "plat_stub", "plat_sys", "softfloat_ps2", "port_fast", "port_vufast"):
         out.append((S / (n + ".c"), "gs" if n in ("plat_movie", "plat_mpeg2") else "ee"))
     out += [(V / "vita_mem.c", "hard"), (V / "vita_file.c", "hard"), (V / "vita_main.c", "hard"), (V / "vita_float.c", "hard"),
-            (GEN / "vita_dat.c", "hard"), (S / "gs/gs_sony.c", "hard"),
+            (V / "vita_eu.c", "hard"), (GEN / "vita_dat.c", "hard"), (S / "gs/gs_sony.c", "hard"),
             (SAMPLES / "common/debugScreen.c", "hard"),
             (V / "vita_gfx.c", "hard"), (S / "gs/gs_core.c", "gs"), (S / "gs/gs_vu1.c", "gs"),
             (V / "vita_perf.c", "hard"), (V / "vita_vgl.c", "hard"), (V / "vita_touch.c", "hard"), (V / "vita_optart.c", "hard"),

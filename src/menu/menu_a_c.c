@@ -71,8 +71,22 @@ void Title_Init(s32 section) {
     gTitle->tex[14] = MTEX(res, 4);
     gTitle->tex[15] = MTEX(res, 5);
     gTitle->tex[16] = MTEX(res, 6);
-    TT_RES(14);
-    gTitle->logo = res;
+    /*
+     * European language packs (SLES-54945) keep the same title layout for slots 1..12 but leave the
+     * logo slot (14) empty (offset == end). The USA Title_Init always relocates it; skip when empty
+     * so Italian/Spanish/... can boot, and draw the background during the logo fade instead.
+     */
+    {
+        u32 *hdr = (u32 *)gTitle->res;
+        u32 off = hdr[0] >= 14 ? ((hdr[14] >> 2) << 2) : 0;
+        u32 end = hdr[0] >= 14 ? ((hdr[15] >> 2) << 2) : 0;
+        if (off < end) {
+            TT_RES(14);
+            gTitle->logo = res;
+        } else {
+            gTitle->logo = NULL;
+        }
+    }
     TT_RES(5);
     gTitle->tex[23] = MTEX(res, 0);
     TT_RES(6);
@@ -290,15 +304,24 @@ void Title_Input(s32 *result) {
 s32 Title_Run(s32 section) {
     s32 result = 1;
     s32 wait = 0;
+    /* USA shows the logo still for ~300 frames; EU packs omit that slot, so skip the long hold. */
+    s32 logoHold = 300;
 
     Title_Init(section);
+    if (gTitle->logo == NULL) {
+        logoHold = 0;
+    }
     ColorFade_StartIn(0, 0, 0, 0x14);
     while (1) {
         Gfx_BeginFrame();
         Pad_Update();
         Snd_Update();
         ColorFade_Update();
-        Sprite_DrawPicture(gTitle->logo, 0, 0, 0x80);
+        if (gTitle->logo != NULL) {
+            Sprite_DrawPicture(gTitle->logo, 0, 0, 0x80);
+        } else {
+            Sprite_DrawPicture(gTitle->bg, 0, 0, 0x80);
+        }
         ColorFade_Draw();
         Gfx_EndFrame(1);
         Dma_Flush();
@@ -317,7 +340,7 @@ s32 Title_Run(s32 section) {
         }
         if (gTitle->flags & TITLE_FADED_IN) {
             wait++;
-            if (wait > 300) {
+            if (wait > logoHold) {
                 ColorFade_StartOut(0, 0, 0, 0x14);
             }
         }
