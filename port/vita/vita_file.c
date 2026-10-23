@@ -82,6 +82,24 @@ int Port_FilePath(int ptid, int flid, const char *fname, char *out, int size) {
         return 1;
     }
     data_path(fname, out, (size_t)size);
+    /* Movie BGM goes through ADXT_StartFname → here, not ADXF_Open; swap in ZS3EUOP when present. */
+    {
+        char eu[320], up[64];
+        const char *base = fname, *p;
+        size_t i;
+        for (p = fname; *p != '\0'; p++) {
+            if (*p == '/' || *p == '\\' || *p == ':') {
+                base = p + 1;
+            }
+        }
+        for (i = 0; base[i] != '\0' && base[i] != ';' && i + 1 < sizeof(up); i++) {
+            up[i] = (char)toupper((unsigned char)base[i]);
+        }
+        up[i] = '\0';
+        if (strcmp(up, "ZS3USOP.ADX") == 0 && VitaEu_OpeningAdxPath(eu, (int)sizeof(eu))) {
+            snprintf(out, (size_t)size, "%s", eu);
+        }
+    }
     fd = sceIoOpen(out, SCE_O_RDONLY, 0);
     if (fd < 0) {
         return 0;
@@ -114,6 +132,7 @@ int ADXF_LoadPartitionNw(int ptid, char *fname, void *dir, void *ptinfo) {
         Vita_Fatal("cannot read the file table of\n  %s", path);
     }
     VitaEu_NotePartition(ptid, fname);
+    VitaEu_PatchTocSizes(ptid, pt->table, pt->count);
     return 0;
 }
 
@@ -125,11 +144,13 @@ void *ADXF_OpenAfs(int ptid, int flid) {
     Partition *pt = &sPart[ptid & 7];
     PortFile *f;
     char eu[320];
+    uint32_t usaSize;
 
     if (pt->fd <= 0 || flid < 0 || (uint32_t)flid >= pt->count) {
         fprintf(stderr, "bt3: file not found: partition %d, index %d\n", ptid, flid);
         return NULL;
     }
+    usaSize = pt->table[flid * 2 + 1];
     f = Port_LowAlloc(sizeof(PortFile));
     memset(f, 0, sizeof(*f));
     if (VitaEu_OverridePath(ptid, flid, eu, (int)sizeof(eu))) {
@@ -141,14 +162,28 @@ void *ADXF_OpenAfs(int ptid, int flid) {
             return NULL;
         }
         size = sceIoLseek(fd, 0, SCE_SEEK_END);
+        if (size <= 0) {
+            sceIoClose(fd);
+            Port_LowFree(f);
+            return NULL;
+        }
+        /*
+         * European archives are often a few KB larger than the USA AFS table entry. Callers that still
+         * size buffers from the table would overflow; keep the TOC in sync and log the swap.
+         */
         f->fd = fd;
         f->owned = 1;
         f->base = 0;
         f->size = (uint32_t)size;
+        pt->table[flid * 2 + 1] = f->size;
+        {
+            extern void Vita_Log(const char *fmt, ...);
+            Vita_Log("eu: afs:%d:%d -> %s (%u bytes, was %u)\n", ptid, flid, eu, f->size, usaSize);
+        }
     } else {
         f->fd = pt->fd;
         f->base = pt->table[flid * 2];
-        f->size = pt->table[flid * 2 + 1];
+        f->size = usaSize;
     }
     f->sizeSct = (int32_t)((f->size + SECTOR - 1) / SECTOR);
     f->stat = STAT_STOP;

@@ -184,6 +184,58 @@ void VitaEu_NotePartition(int ptid, const char *fname) {
     }
 }
 
+void VitaEu_PatchTocSizes(int ptid, uint32_t *table, uint32_t count) {
+    int bank, li, k, idx;
+    char path[320];
+    SceUID fd;
+    SceOff size;
+    extern void Vita_Log(const char *fmt, ...);
+
+    if (!sAvailable || table == NULL || sUs1Ptid < 0 || (ptid & 7) != sUs1Ptid) {
+        return;
+    }
+    li = locale_index(sLocale);
+    if (li < 0) {
+        return;
+    }
+    bank = kBanks[li];
+    if (bank < 0) {
+        return;
+    }
+    /* HUD + each menu archive the European disc duplicates per language. */
+    idx = eu_index_for_usa(HUD_FIRST, bank);
+    if (idx >= 0 && (uint32_t)HUD_FIRST < count) {
+        snprintf(path, sizeof(path), "%s/pzs3eu1/%05d.bin", sRoot, idx);
+        fd = sceIoOpen(path, SCE_O_RDONLY, 0);
+        if (fd >= 0) {
+            size = sceIoLseek(fd, 0, SCE_SEEK_END);
+            sceIoClose(fd);
+            if (size > 0) {
+                Vita_Log("eu: toc %d size %u -> %u (%s)\n", HUD_FIRST, table[HUD_FIRST * 2 + 1], (unsigned)size, path);
+                table[HUD_FIRST * 2 + 1] = (uint32_t)size;
+            }
+        }
+    }
+    for (k = 0; k < (int)(sizeof(kUsaFiles) / sizeof(kUsaFiles[0])); k++) {
+        int usa = kUsaFiles[k];
+        idx = eu_index_for_usa(usa, bank);
+        if (idx < 0 || (uint32_t)usa >= count) {
+            continue;
+        }
+        snprintf(path, sizeof(path), "%s/pzs3eu1/%05d.bin", sRoot, idx);
+        fd = sceIoOpen(path, SCE_O_RDONLY, 0);
+        if (fd < 0) {
+            continue;
+        }
+        size = sceIoLseek(fd, 0, SCE_SEEK_END);
+        sceIoClose(fd);
+        if (size > 0) {
+            Vita_Log("eu: toc %d size %u -> %u (%s)\n", usa, table[usa * 2 + 1], (unsigned)size, path);
+            table[usa * 2 + 1] = (uint32_t)size;
+        }
+    }
+}
+
 int VitaEu_OverridePath(int ptid, int flid, char *out, int size) {
     int idx, bank, li;
 
