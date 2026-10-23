@@ -94,14 +94,13 @@ Copy `gamedata/pzs3eu1` to `ux0:data/bt3/pzs3eu1` on the memory card. If `ZS3EUO
 `ux0:data/bt3/disc/DATA/` next to the USA opening files.
 
 The first start that finds `pzs3eu1` shows a language list. Change the language later by **holding SELECT
-for about a second** (in-game settings: language and widescreen), or with a line such as `lang=it` (or `es`,
+for about a second** (system-style dialog: language and widescreen), or with a line such as `lang=it` (or `es`,
 `de`, `fr`, `en`) in `ux0:data/bt3/bt3.txt`, or delete `ux0:data/bt3/lang.txt` so the list appears again. After
-changing language in the SELECT menu, restart the game so menu and story archives reload.
+changing language, restart so menus, story text and battle subtitles reload.
 
-Battle voice lines stay English or Japanese (the game's own voice option). In-fight script subtitle files are
-not part of the European language-bank layout the PC setup extracts, so those lines can remain English even
-with `pzs3eu1`. Story menus and saga episode text use the European packs (including AFS 464–471) when
-`pzs3eu1` is installed.
+Battle voice lines stay English or Japanese (the game's own voice option). In-fight subtitle text uses the
+European dialogue banks in `pzs3eu1` when present. Story menus and saga episode text use the European packs
+(including AFS 464–471) when `pzs3eu1` is installed.
 
 If you are building from this tree and prefer not to install the PC release, the same files can be made with
 `python3 port/tools/extract_eu.py <SLES-54945.iso> --data <folder>`; copy `pzs3eu1` and `ZS3EUOP.ADX` from there

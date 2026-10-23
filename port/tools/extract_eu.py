@@ -27,6 +27,10 @@ SECTOR = 2048
 # Menu/HUD (ui_text / menu_labels) plus story saga packs (USA AFS 464..471 = baseFile+0x10+subMenu).
 USA_FILES = (448, 449, 450, 451, 452, 453, 459, 460, 461, 463, 464, 465, 466, 467, 468, 469, 470, 471, 472)
 EU_FIRST, EU_STRIDE, HUD_FIRST, LANGUAGES = 451, 31, 5, 5
+# Battle script subtitle packs (USA LoadText 0x231+story). EU layout: 50-wide banks en/es/de/fr/it at
+# 661/711/761/811/861; USA story index is 4 ahead of the EU slot (Vita remaps with that shift).
+BTL_TEXT_EU_BASES = (661, 711, 761, 811, 861)
+BTL_TEXT_EU_STORIES = 45
 
 
 def entries():
@@ -34,7 +38,9 @@ def entries():
     out = [HUD_FIRST + bank for bank in range(LANGUAGES)]
     for usa in USA_FILES:
         out += [EU_FIRST + (usa - USA_FILES[0]) + bank * EU_STRIDE for bank in range(LANGUAGES)]
-    return sorted(out)
+    for base in BTL_TEXT_EU_BASES:
+        out += [base + story for story in range(BTL_TEXT_EU_STORIES)]
+    return sorted(set(out))
 
 
 def u32(data, at=0):
