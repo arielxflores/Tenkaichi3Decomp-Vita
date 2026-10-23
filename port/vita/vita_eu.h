@@ -8,6 +8,8 @@
 
 void VitaEu_Init(const char *root); /* e.g. ux0:data/bt3 */
 int VitaEu_Available(void);
+/* 1 when a European language other than English is active (menu/HUD bins are remapped). */
+int VitaEu_UsesMenuRemap(void);
 const char *VitaEu_Locale(void); /* "en", "es", "de", "fr", "it" */
 void VitaEu_SetLocale(const char *locale); /* persists to <root>/lang.txt */
 int VitaEu_NeedsPrompt(void); /* EU data present and no lang chosen yet */

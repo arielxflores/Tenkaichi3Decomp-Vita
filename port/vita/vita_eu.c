@@ -126,6 +126,12 @@ int VitaEu_Available(void) {
     return sAvailable;
 }
 
+int VitaEu_UsesMenuRemap(void) {
+    int li = locale_index(sLocale);
+
+    return sAvailable && li >= 0 && kBanks[li] >= 0;
+}
+
 const char *VitaEu_Locale(void) {
     return sLocale;
 }
