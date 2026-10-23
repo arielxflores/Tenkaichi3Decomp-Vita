@@ -69,9 +69,18 @@ int Port_PadRead(int socket, unsigned char *data) {
         {SCE_CTRL_TRIANGLE, B_TRIANGLE}, {SCE_CTRL_CIRCLE, B_CIRCLE}, {SCE_CTRL_CROSS, B_CROSS}, {SCE_CTRL_SQUARE, B_SQUARE}};
     SceCtrlData pad;
     unsigned btn = 0, i;
+    extern void Vita_SettingsPoll(void);
+    extern int Vita_SettingsOpen(void);
 
     if (socket != 0) {
         return 0;
+    }
+    Vita_SettingsPoll();
+    if (Vita_SettingsOpen()) {
+        memset(data, 0, 18);
+        data[0] = data[1] = 0xFF; /* all buttons released (active low) */
+        data[2] = data[3] = data[4] = data[5] = 0x80;
+        return 18;
     }
     memset(&pad, 0, sizeof(pad));
     pad.lx = pad.ly = pad.rx = pad.ry = 0x80;

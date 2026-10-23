@@ -18,7 +18,7 @@
  *                      below: test fights, renderer switches, statistics; see docs/vita/development.md.
  *   pzs3eu1/           optional: menu/HUD/text entries from the European disc (SLES-54945), same as the
  *                      PC recomp. Made with port/tools/extract_eu.py, or copied from a PC install's gamedata.
- *   lang.txt           chosen locale when European languages are installed (written by the language screen)
+ *   lang.txt           chosen locale when European languages are installed (language screen / hold SELECT)
  *   log.txt            written by every run (log-vgl.txt by the development build), kept across runs
  */
 #include <psp2/ctrl.h>

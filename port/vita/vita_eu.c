@@ -19,7 +19,8 @@ extern char gVitaDisc[];
 #define HUD_FIRST 5
 #define LANGUAGES 5
 
-static const int kUsaFiles[] = {448, 449, 450, 451, 452, 453, 459, 460, 461, 463, 472};
+/* Menu/HUD text packs, plus story-mode saga packs (baseFile+0x10+subMenu → AFS 464..471). */
+static const int kUsaFiles[] = {448, 449, 450, 451, 452, 453, 459, 460, 461, 463, 464, 465, 466, 467, 468, 469, 470, 471, 472};
 static const char *kLocales[] = {"en", "es", "de", "fr", "it"};
 static const char *kNames[] = {"English", "Espanol", "Deutsch", "Francais", "Italiano"};
 /* en keeps USA archives; es..it use European banks 1..4 (English bank 0 is unused, as on PC). */

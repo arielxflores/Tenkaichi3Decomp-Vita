@@ -24,7 +24,8 @@ SECTOR = 2048
 # The USA disc's menu archives with text and painted lettering (ui_text_extract.c kUtMenuFiles, menu_labels.c
 # kMlFiles): on the European disc archive 448 + k is entry 451 + k + 31 * language. The battle HUD (USA 5) is
 # entries 5 to 9, one per language. Languages in the discs' order: English, Spanish, German, French, Italian.
-USA_FILES = (448, 449, 450, 451, 452, 453, 459, 460, 461, 463, 472)
+# Menu/HUD (ui_text / menu_labels) plus story saga packs (USA AFS 464..471 = baseFile+0x10+subMenu).
+USA_FILES = (448, 449, 450, 451, 452, 453, 459, 460, 461, 463, 464, 465, 466, 467, 468, 469, 470, 471, 472)
 EU_FIRST, EU_STRIDE, HUD_FIRST, LANGUAGES = 451, 31, 5, 5
 
 
