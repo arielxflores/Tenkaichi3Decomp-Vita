@@ -27,10 +27,11 @@ SECTOR = 2048
 # Menu/HUD (ui_text / menu_labels) plus story saga packs (USA AFS 464..471 = baseFile+0x10+subMenu).
 USA_FILES = (448, 449, 450, 451, 452, 453, 459, 460, 461, 463, 464, 465, 466, 467, 468, 469, 470, 471, 472)
 EU_FIRST, EU_STRIDE, HUD_FIRST, LANGUAGES = 451, 31, 5, 5
-# Battle script subtitle packs (USA LoadText 0x231+story). EU layout: 50-wide banks en/es/de/fr/it at
-# 661/711/761/811/861; USA story index is 4 ahead of the EU slot (Vita remaps with that shift).
+# Battle script subtitle packs (USA LoadText file id 0x231+story → AFS 560+story). EU layout:
+# 50-wide banks en/es/de/fr/it at 661/711/761/811/861. Slots 0..44 are main lines (USA story 5+);
+# slots 45..49 hold the next language's early stories (USA 0..4).
 BTL_TEXT_EU_BASES = (661, 711, 761, 811, 861)
-BTL_TEXT_EU_STORIES = 45
+BTL_TEXT_EU_STORIES = 50
 
 
 def entries():

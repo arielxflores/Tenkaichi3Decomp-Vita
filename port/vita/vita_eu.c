@@ -18,12 +18,13 @@ extern char gVitaDisc[];
 #define EU_STRIDE 31
 #define HUD_FIRST 5
 #define LANGUAGES 5
-/* Battle script subtitles (BtlScript LoadText, USA 0x231+story). EU packs are 50-wide banks at
- * 661/711/761/811/861 (en/es/de/fr/it); USA story index is 4 ahead of the EU bank index. */
-#define BTL_TEXT_USA0 561
+/* Battle script subtitles (BtlScript LoadText file id 0x231+story → AFS flid 560+story).
+ * EU packs are 50-wide banks at 661/711/761/811/861 (en/es/de/fr/it). Main lines start at EU
+ * slot 0 = USA story 5; USA stories 0..4 sit at the previous bank's slots 45..49. */
+#define BTL_TEXT_FLID0 560
 #define BTL_TEXT_COUNT 50
-#define BTL_TEXT_SHIFT 4
-#define BTL_TEXT_EU_STORIES 45
+#define BTL_TEXT_SHIFT 5
+#define BTL_TEXT_EU_MAIN 45
 
 /* Menu/HUD text packs, plus story-mode saga packs (baseFile+0x10+subMenu → AFS 464..471). */
 static const int kUsaFiles[] = {448, 449, 450, 451, 452, 453, 459, 460, 461, 463, 464, 465, 466, 467, 468, 469, 470, 471, 472};
@@ -85,25 +86,27 @@ static int eu_index_for_usa(int usa, int bank) {
     return -1;
 }
 
-/* European battle-dialogue text for locale index (es..it). English keeps the USA file. */
-static int eu_btl_text_for_usa(int usa, int localeIndex) {
-    int story, euStory;
+/* European battle-dialogue text for locale index (es..it). English keeps the USA file.
+ * `flid` is the PZS3US1 AFS index (File_OpenById uses id - 1). */
+static int eu_btl_text_for_usa(int flid, int localeIndex) {
+    int story;
 
     if (localeIndex <= 0 || localeIndex >= (int)(sizeof(kLocales) / sizeof(kLocales[0]))) {
         return -1;
     }
-    if (usa < BTL_TEXT_USA0 || usa >= BTL_TEXT_USA0 + BTL_TEXT_COUNT) {
+    if (flid < BTL_TEXT_FLID0 || flid >= BTL_TEXT_FLID0 + BTL_TEXT_COUNT) {
         return -1;
     }
-    story = usa - BTL_TEXT_USA0;
+    story = flid - BTL_TEXT_FLID0;
     if (story < BTL_TEXT_SHIFT) {
-        return -1; /* first four USA stories have no matching EU language pack slot */
+        /* Early USA stories: packed at the end of the previous language's 50-wide bank. */
+        return kBtlTextEuBase[localeIndex - 1] + BTL_TEXT_EU_MAIN + story;
     }
-    euStory = story - BTL_TEXT_SHIFT;
-    if (euStory < 0 || euStory >= BTL_TEXT_EU_STORIES) {
+    story -= BTL_TEXT_SHIFT;
+    if (story < 0 || story >= BTL_TEXT_EU_MAIN) {
         return -1;
     }
-    return kBtlTextEuBase[localeIndex] + euStory;
+    return kBtlTextEuBase[localeIndex] + story;
 }
 
 void VitaEu_Init(const char *root) {
@@ -269,11 +272,11 @@ void VitaEu_PatchTocSizes(int ptid, uint32_t *table, uint32_t count) {
             table[usa * 2 + 1] = (uint32_t)size;
         }
     }
-    /* Battle script subtitle packs (USA 561+story → EU language bank). */
-    for (k = BTL_TEXT_SHIFT; k < BTL_TEXT_SHIFT + BTL_TEXT_EU_STORIES; k++) {
-        int usa = BTL_TEXT_USA0 + k;
-        idx = eu_btl_text_for_usa(usa, li);
-        if (idx < 0 || (uint32_t)usa >= count) {
+    /* Battle script subtitle packs (AFS flid 560+story → EU language bank). */
+    for (k = 0; k < BTL_TEXT_COUNT; k++) {
+        int flid = BTL_TEXT_FLID0 + k;
+        idx = eu_btl_text_for_usa(flid, li);
+        if (idx < 0 || (uint32_t)flid >= count) {
             continue;
         }
         snprintf(path, sizeof(path), "%s/pzs3eu1/%05d.bin", sRoot, idx);
@@ -284,7 +287,7 @@ void VitaEu_PatchTocSizes(int ptid, uint32_t *table, uint32_t count) {
         size = sceIoLseek(fd, 0, SCE_SEEK_END);
         sceIoClose(fd);
         if (size > 0) {
-            table[usa * 2 + 1] = (uint32_t)size;
+            table[flid * 2 + 1] = (uint32_t)size;
         }
     }
 }

@@ -1,25 +1,24 @@
 /*
- * Hold SELECT (~1 s, without L/R) for Vita system-style settings (sceMsgDialog), like the PS
- * button sheet: language and widescreen. Language goes to lang.txt (restart to reload menus);
- * widescreen to bt3.txt and applies immediately.
+ * Hold SELECT (~1 s, without L/R) for an Adrenaline-style pause menu over the game:
+ * dark full-screen sheet, list with cursor, CROSS confirm / CIRCLE back.
  *
- * Do not use psvDebugScreen here — it fights vitaGL mid-game and freezes with a blank display.
+ * Uses psvDebugScreen while the game is frozen inside PadRead (no vitaGL swaps), so it
+ * does not fight the renderer like an in-frame debug overlay would.
  */
 #include "vita_settings.h"
 #include "vita_eu.h"
+#include "debugScreen.h"
 #include <psp2/ctrl.h>
 #include <psp2/kernel/processmgr.h>
 #include <psp2/kernel/threadmgr.h>
-#include <psp2/message_dialog.h>
-#include <psp2/common_dialog.h>
 #include <psp2/power.h>
-#include <vitaGL.h>
+#include <psp2/display.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 
 #define HOME "ux0:data/bt3"
-#define HOLD_US (1000 * 1000) /* 1 second */
+#define HOLD_US (1000 * 1000)
 
 extern int gVitaWide;
 extern void Vita_Log(const char *fmt, ...);
@@ -27,13 +26,35 @@ extern void Vita_Log(const char *fmt, ...);
 static int sOpen;
 static unsigned long long sSelectDownUs;
 static int sSelectWasDown;
-static int sDialogReady;
 
 int Vita_SettingsOpen(void) {
     return sOpen;
 }
 
-/* Insert or replace name=value in bt3.txt (other lines kept). */
+static unsigned buttons(void) {
+    SceCtrlData pad;
+
+    memset(&pad, 0, sizeof(pad));
+    sceCtrlPeekBufferPositive(0, &pad, 1);
+    return pad.buttons;
+}
+
+static unsigned wait_buttons(unsigned mask) {
+    unsigned b;
+
+    while (buttons() & mask) {
+        sceKernelDelayThread(20000);
+    }
+    for (;;) {
+        b = buttons() & mask;
+        if (b != 0) {
+            return b;
+        }
+        sceKernelPowerTick(SCE_KERNEL_POWER_TICK_DISABLE_AUTO_SUSPEND);
+        sceKernelDelayThread(20000);
+    }
+}
+
 static void bt3_set(const char *name, const char *value) {
     char path[300], tmp[300], line[256], out[8192];
     FILE *fp;
@@ -73,59 +94,51 @@ static void bt3_set(const char *name, const char *value) {
     rename(tmp, path);
 }
 
-static void dialog_ensure(void) {
-    SceCommonDialogConfigParam cfg;
+/* Adrenaline-like dark sheet: title + list. cursor rows: 0 language, 1 widescreen, 2 resume. */
+static void draw_menu(int cursor, int lang, int wide, int langDirty, int editingLang) {
+    int count = VitaEu_LocaleCount();
+    int i;
 
-    if (sDialogReady) {
+    psvDebugScreenPrintf("\e[2J\e[H");
+    psvDebugScreenPrintf("\n\n");
+    psvDebugScreenPrintf("          \e[32m******************************\e[39m\n");
+    psvDebugScreenPrintf("          \e[32m*       BT3 SETTINGS        *\e[39m\n");
+    psvDebugScreenPrintf("          \e[32m******************************\e[39m\n\n");
+
+    if (editingLang) {
+        psvDebugScreenPrintf("          Language\n\n");
+        for (i = 0; i < count; i++) {
+            if (!VitaEu_Available() && i != 0) {
+                continue;
+            }
+            psvDebugScreenPrintf(i == lang ? "          \e[32m> %s\e[39m\n" : "            %s\n", VitaEu_LocaleName(i));
+        }
+        psvDebugScreenPrintf("\n          \e[33mUP/DOWN  CROSS: save  CIRCLE: back\e[39m\n");
+        if (langDirty) {
+            psvDebugScreenPrintf("\n          \e[33mSaved — restart to apply language.\e[39m\n");
+        }
         return;
     }
-    /* Message dialog is part of Common Dialog (no separate sysmodule id on VitaSDK). */
-    sceCommonDialogConfigParamInit(&cfg);
-    sceCommonDialogSetConfigParam(&cfg);
-    sDialogReady = 1;
-}
 
-/* Native message sheet; keeps swapping so the dialog paints over the game (vitaGL common-dialog path). */
-static int dialog_run(const char *msg, int buttonType, SceMsgDialogButtonsParam *btns) {
-    SceMsgDialogParam param;
-    SceMsgDialogUserMessageParam user;
-    SceMsgDialogResult result;
-    int st;
-
-    dialog_ensure();
-    sceMsgDialogParamInit(&param);
-    memset(&user, 0, sizeof(user));
-    user.msg = (const SceChar8 *)msg;
-    user.buttonType = buttonType;
-    user.buttonParam = btns;
-    param.userMsgParam = &user;
-    param.mode = SCE_MSG_DIALOG_MODE_USER_MSG;
-    if (sceMsgDialogInit(&param) < 0) {
-        Vita_Log("vita: settings MsgDialog init failed\n");
-        return -1;
+    psvDebugScreenPrintf(cursor == 0 ? "          \e[32m> Language: %s\e[39m\n" : "            Language: %s\n",
+                         VitaEu_Available() ? VitaEu_LocaleName(lang) : "(no pzs3eu1)");
+    psvDebugScreenPrintf(cursor == 1 ? "          \e[32m> Widescreen: %s\e[39m\n" : "            Widescreen: %s\n",
+                         wide ? "On" : "Off");
+    psvDebugScreenPrintf(cursor == 2 ? "          \e[32m> Resume game\e[39m\n" : "            Resume game\n");
+    psvDebugScreenPrintf("\n          \e[33mUP/DOWN  CROSS: OK  CIRCLE: close\e[39m\n");
+    if (langDirty) {
+        psvDebugScreenPrintf("\n          \e[33mLanguage saved — restart the game.\e[39m\n");
     }
-    for (;;) {
-        st = sceMsgDialogGetStatus();
-        if (st == SCE_COMMON_DIALOG_STATUS_FINISHED) {
-            break;
-        }
-        vglSwapBuffers(GL_TRUE);
-        sceKernelPowerTick(SCE_KERNEL_POWER_TICK_DISABLE_AUTO_SUSPEND);
-    }
-    memset(&result, 0, sizeof(result));
-    sceMsgDialogGetResult(&result);
-    sceMsgDialogTerm();
-    return result.buttonId;
 }
 
 static void run_overlay(void) {
     int count = VitaEu_LocaleCount();
     int lang = 0, i, wide = gVitaWide != 0;
+    int cursor = 0;
     int langDirty = 0;
+    int editingLang = 0;
     const char *cur = VitaEu_Locale();
-    char msg[480];
-    SceMsgDialogButtonsParam buttons;
-    int btn;
+    unsigned btn;
 
     for (i = 0; i < count; i++) {
         if (strcmp(VitaEu_LocaleAt(i), cur) == 0) {
@@ -135,36 +148,29 @@ static void run_overlay(void) {
     }
 
     sOpen = 1;
+    psvDebugScreenInit();
 
     for (;;) {
-        snprintf(msg, sizeof(msg),
-                 "Vita settings\n\nLanguage: %s\nWidescreen: %s\n\n"
-                 "Language needs a restart. Widescreen applies now.",
-                 VitaEu_Available() ? VitaEu_LocaleName(lang) : "(no pzs3eu1)",
-                 wide ? "On" : "Off (4:3)");
-        memset(&buttons, 0, sizeof(buttons));
-        buttons.msg1 = "Language";
-        buttons.msg2 = "Widescreen";
-        buttons.msg3 = "Close";
-        btn = dialog_run(msg, SCE_MSG_DIALOG_BUTTON_TYPE_3BUTTONS, &buttons);
-        if (btn == SCE_MSG_DIALOG_BUTTON_ID_BUTTON1 && VitaEu_Available()) {
-            /* Cycle languages with Prev / Next / Save */
-            for (;;) {
-                snprintf(msg, sizeof(msg),
-                         "Language\n\n%s\n\nRestart the game after Save to reload menus and story text.",
-                         VitaEu_LocaleName(lang));
-                memset(&buttons, 0, sizeof(buttons));
-                buttons.msg1 = "Prev";
-                buttons.msg2 = "Next";
-                buttons.msg3 = "Save";
-                btn = dialog_run(msg, SCE_MSG_DIALOG_BUTTON_TYPE_3BUTTONS, &buttons);
-                if (btn == SCE_MSG_DIALOG_BUTTON_ID_BUTTON1) {
-                    lang = (lang + count - 1) % count;
-                } else if (btn == SCE_MSG_DIALOG_BUTTON_ID_BUTTON2) {
-                    lang = (lang + 1) % count;
-                } else {
-                    /* Save or dismiss */
-                    if (btn == SCE_MSG_DIALOG_BUTTON_ID_BUTTON3) {
+        draw_menu(cursor, lang, wide, langDirty, editingLang);
+        btn = wait_buttons(SCE_CTRL_UP | SCE_CTRL_DOWN | SCE_CTRL_LEFT | SCE_CTRL_RIGHT | SCE_CTRL_CROSS |
+                           SCE_CTRL_CIRCLE | SCE_CTRL_SELECT);
+
+        if (editingLang) {
+            switch (btn) {
+                case SCE_CTRL_UP:
+                case SCE_CTRL_LEFT:
+                    if (VitaEu_Available()) {
+                        lang = (lang + count - 1) % count;
+                    }
+                    break;
+                case SCE_CTRL_DOWN:
+                case SCE_CTRL_RIGHT:
+                    if (VitaEu_Available()) {
+                        lang = (lang + 1) % count;
+                    }
+                    break;
+                case SCE_CTRL_CROSS:
+                    if (VitaEu_Available()) {
                         const char *loc = VitaEu_LocaleAt(lang);
                         if (strcmp(loc, VitaEu_Locale()) != 0) {
                             VitaEu_SetLocale(loc);
@@ -172,32 +178,55 @@ static void run_overlay(void) {
                             Vita_Log("vita: settings language %s (restart to apply)\n", loc);
                         }
                     }
+                    editingLang = 0;
                     break;
+                default: /* CIRCLE / SELECT */
+                    editingLang = 0;
+                    break;
+            }
+            continue;
+        }
+
+        switch (btn) {
+            case SCE_CTRL_UP:
+                cursor = (cursor + 2) % 3;
+                break;
+            case SCE_CTRL_DOWN:
+                cursor = (cursor + 1) % 3;
+                break;
+            case SCE_CTRL_LEFT:
+            case SCE_CTRL_RIGHT:
+                if (cursor == 1) {
+                    wide = !wide;
+                    gVitaWide = wide;
+                    bt3_set("wide", wide ? "1" : "0");
+                    Vita_Log("vita: settings widescreen %d\n", wide);
+                } else if (cursor == 0 && VitaEu_Available()) {
+                    editingLang = 1;
                 }
-            }
-        } else if (btn == SCE_MSG_DIALOG_BUTTON_ID_BUTTON2) {
-            snprintf(msg, sizeof(msg), "Widescreen (16:9)?\n\nCurrent: %s", wide ? "On" : "Off");
-            btn = dialog_run(msg, SCE_MSG_DIALOG_BUTTON_TYPE_YESNO, NULL);
-            if (btn == SCE_MSG_DIALOG_BUTTON_ID_YES) {
-                wide = 1;
-            } else if (btn == SCE_MSG_DIALOG_BUTTON_ID_NO) {
-                wide = 0;
-            }
-            gVitaWide = wide;
-            bt3_set("wide", wide ? "1" : "0");
-            Vita_Log("vita: settings widescreen %d\n", wide);
-        } else {
-            /* Close or dialog error */
-            break;
+                break;
+            case SCE_CTRL_CROSS:
+                if (cursor == 0) {
+                    editingLang = 1;
+                } else if (cursor == 1) {
+                    wide = !wide;
+                    gVitaWide = wide;
+                    bt3_set("wide", wide ? "1" : "0");
+                    Vita_Log("vita: settings widescreen %d\n", wide);
+                } else {
+                    goto done;
+                }
+                break;
+            default: /* CIRCLE / SELECT */
+                goto done;
         }
     }
 
-    if (langDirty) {
-        dialog_run("Language saved.\n\nClose the game and open it again to apply.",
-                   SCE_MSG_DIALOG_BUTTON_TYPE_OK, NULL);
-    }
-
+done:
     sOpen = 0;
+    psvDebugScreenPrintf("\e[2J\e[H");
+    /* Give the display back; next game frame restores vitaGL. */
+    sceDisplayWaitVblankStart();
 }
 
 void Vita_SettingsPoll(void) {

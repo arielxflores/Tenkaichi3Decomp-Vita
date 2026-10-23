@@ -94,9 +94,9 @@ Copy `gamedata/pzs3eu1` to `ux0:data/bt3/pzs3eu1` on the memory card. If `ZS3EUO
 `ux0:data/bt3/disc/DATA/` next to the USA opening files.
 
 The first start that finds `pzs3eu1` shows a language list. Change the language later by **holding SELECT
-for about a second** (system-style dialog: language and widescreen), or with a line such as `lang=it` (or `es`,
-`de`, `fr`, `en`) in `ux0:data/bt3/bt3.txt`, or delete `ux0:data/bt3/lang.txt` so the list appears again. After
-changing language, restart so menus, story text and battle subtitles reload.
+for about a second** (Adrenaline-style pause menu: language and widescreen), or with a line such as `lang=it`
+(or `es`, `de`, `fr`, `en`) in `ux0:data/bt3/bt3.txt`, or delete `ux0:data/bt3/lang.txt` so the list appears
+again. After changing language, restart so menus, story text and battle subtitles reload.
 
 Battle voice lines stay English or Japanese (the game's own voice option). In-fight subtitle text uses the
 European dialogue banks in `pzs3eu1` when present. Story menus and saga episode text use the European packs
