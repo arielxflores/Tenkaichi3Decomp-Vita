@@ -191,3 +191,4 @@
 #define Ref_StgVu_RotateX StgVu_RotateX
 #define Ref_StgVu_RotateY StgVu_RotateY
 #define Ref_StgVu_RotateZ StgVu_RotateZ
+#define Ref_ObjSeam_TransformVtx ObjSeam_TransformVtx
