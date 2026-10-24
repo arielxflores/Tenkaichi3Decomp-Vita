@@ -25,7 +25,8 @@ SECTOR = 2048
 # kMlFiles): on the European disc archive 448 + k is entry 451 + k + 31 * language. The battle HUD (USA 5) is
 # entries 5 to 9, one per language. Languages in the discs' order: English, Spanish, German, French, Italian.
 # Menu/HUD (ui_text / menu_labels) plus story saga packs (USA AFS 464..471 = baseFile+0x10+subMenu).
-USA_FILES = (448, 449, 450, 451, 452, 453, 459, 460, 461, 463, 464, 465, 466, 467, 468, 469, 470, 471, 472)
+# 454..458: Dragon World Tour bracket packs (one per tournament); localized on the EU disc per language bank.
+USA_FILES = (448, 449, 450, 451, 452, 453, 454, 455, 456, 457, 458, 459, 460, 461, 463, 464, 465, 466, 467, 468, 469, 470, 471, 472)
 EU_FIRST, EU_STRIDE, HUD_FIRST, LANGUAGES = 451, 31, 5, 5
 # Battle script subtitle packs (USA LoadText file id 0x231+story → AFS 560+story). EU layout:
 # 50-wide banks en/es/de/fr/it at 661/711/761/811/861. Slots 0..44 are main lines (USA story 5+);
