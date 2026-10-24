@@ -110,6 +110,30 @@ void TourMenu_Init(s32 section) {
     gTourMenu->tex[29] = MTEX(res, 1);
     Flash_Create(&gTourMenu->flash[0], MPACK_AT(gTourMenu->res, 15), gTourMenu->tex);
     Flash_Play(&gTourMenu->flash[0], 1);
+#ifdef PORT_VITA
+    /*
+     * USA scratch buffers (0xF000 / 0x41000) fit invites 0..3 (AFS 964..967). Yamcha (invite 4 →
+     * AFS 968) is ~278 KiB packed / ~671 KiB raw: File_LoadSync ignores the size argument and
+     * writes the whole file, so those fixed buffers overflow and crash when that invitation is
+     * pending (tour clock hours 5..6). Size the buffers from the file instead.
+     */
+    gTourMenu->imageFile = NULL;
+    gTourMenu->imageRes = NULL;
+    if (gTourMenu->flags & TOURMENU_INVITE) {
+        gTourMenu->imageFile = File_LoadSync(gTourMenu->invite + 0x3C4, NULL, 0);
+        gTourMenu->imageRes = Sprite_Unpack(gTourMenu->imageFile, NULL, NULL);
+        res = gTourMenu->imageRes;
+        Res_RelocateOffsets(&res, res, res);
+        gTourMenu->texB[4] = MTEX(res, 0);
+        gTourMenu->texB[3] = MTEX(res, 1);
+        TM_RES(16);
+        gTourMenu->texB[2] = MTEX(res, 0);
+        gTourMenu->texB[5] = MTEX(res, 1);
+        TM_RES(17);
+        gTourMenu->texB[1] = MTEX(res, 0);
+        gTourMenu->texB[0] = MTEX(res, 1);
+    }
+#else
     gTourMenu->imageFile = Heap_Alloc(0xF000, 0x40, 0, 2);
     gTourMenu->imageRes = Heap_Alloc(0x41000, 0x20, 0, 2);
     if (gTourMenu->flags & TOURMENU_INVITE) {
@@ -126,6 +150,7 @@ void TourMenu_Init(s32 section) {
         gTourMenu->texB[1] = MTEX(res, 0);
         gTourMenu->texB[0] = MTEX(res, 1);
     }
+#endif
     Flash_Create(&gTourMenu->flash[1], MPACK_AT(gTourMenu->res, 18), gTourMenu->texB);
     TM_RES(22);
     IconWin_Init(MPACK_AT(gTourMenu->res, 21), res);

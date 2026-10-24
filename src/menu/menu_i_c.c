@@ -172,9 +172,9 @@ s32 FirstRun_Main(void) {
     BootCard_Run(2);
     res = Sprite_Unpack(MPACK_AT(gMenuArc0, 3), NULL, NULL);
 #ifdef PORT_VITA
-    { /* (a test run that starts on a given screen skips the logos too) */
-        extern int gVitaStartMode;
-        if (gVitaStartMode <= 0) {
+    { /* startmode= test runs, or skiplogo=1 from settings, skip logos + copyright */
+        extern int gVitaStartMode, gVitaSkipLogos;
+        if (gVitaStartMode <= 0 && !gVitaSkipLogos) {
             Logo_ShowAll(res);
         }
     }
@@ -190,9 +190,9 @@ s32 FirstRun_Main(void) {
     }
     FirstRun_WaitPartition(2);
 #ifdef PORT_VITA
-    { /* a test run that starts on a given screen (bt3.txt startmode=) skips the opening movie */
-        extern int gVitaStartMode;
-        if (gVitaStartMode <= 0) {
+    { /* startmode= or skipintro=1 skips the opening movie */
+        extern int gVitaStartMode, gVitaSkipIntro;
+        if (gVitaStartMode <= 0 && !gVitaSkipIntro) {
             Movie_PlayOpening();
         }
     }

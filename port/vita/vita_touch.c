@@ -933,6 +933,8 @@ unsigned Vita_TouchPad(void) {
 
 int gVitaDump;      /* bt3.txt dump=1: src/sys/file.c File_LoadSyncEx copies each file it loads to dump/<id>.bin */
 int gVitaStartMode; /* bt3.txt startmode=<n>: the menus begin on screen n (src/menu/menu_a_b.c) */
+int gVitaSkipLogos; /* bt3.txt skiplogo=1: skip boot logos + copyright (FirstRun_Main) */
+int gVitaSkipIntro; /* bt3.txt skipintro=1: skip opening movie (FirstRun_Main) */
 
 void Vita_DumpFile(int id, void *data, int size) {
     char path[96];

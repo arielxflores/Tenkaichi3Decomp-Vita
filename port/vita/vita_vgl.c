@@ -61,6 +61,10 @@ extern void Vita_Log(const char *fmt, ...);
 /* The picture on the 960 x 544 screen: all of it (the game projects its 3D for that shape, src/battle/btl_cam.c
    with Port_WideFactor; menus and films are stretched to it), or the console's 4:3 in the middle (wide=0). */
 int gVitaWide = 1;
+/* bt3.txt hudstyle=0 edges (HUD panels at screen sides when wide), =1 centre (keep 4:3 HUD in the middle). */
+int gVitaHudStyle;
+/* bt3.txt menu43=1: with widescreen on, menus stay 4:3 with side bars (fights still wide). */
+int gVitaMenu43;
 int gVitaPbufMb;  /* bt3.txt pbuf=<MB>: the parameter buffer, 0 vitaGL's default (16 MB) */
 /* the size drawn at: 640 x 368, which the Vita's display stretches to its 960 x 544 (a GPU test: the graphics chip
    was still working 40 ms after the last draw of a picture, with the fighters' shader made cheap or not: the
@@ -82,6 +86,28 @@ static int sViewW = SCR_W_FIGHT;
 #define VIEW_W sViewW
 #define VIEW_H SCR_H
 #define VIEW_X ((SCR_W - VIEW_W) / 2)
+
+/* Widescreen view width: full screen, or 4:3 with bars. Menus can force 4:3 while fights stay wide. */
+static void apply_view_w(void) {
+    extern int gPortMenuMode;
+    int use43 = !gVitaWide || (gVitaMenu43 && gPortMenuMode);
+    sViewW = use43 ? SCR_W * 725 / 960 : SCR_W;
+}
+
+void Vita_RefreshView(void) {
+    apply_view_w();
+    glViewport(VIEW_X, 0, VIEW_W, VIEW_H);
+}
+
+/* Current draw buffer size (960x544 in menus, 640x368 in fights when menuhi=1). */
+void Vita_GetScreenSize(int *w, int *h) {
+    if (w) {
+        *w = sScrW;
+    }
+    if (h) {
+        *h = sScrH;
+    }
+}
 #define MAX_VERTS 45000
 #define MAX_TEX 384
 #define TEX_BUCKETS 1024
@@ -1468,7 +1494,7 @@ int GsGpu_Init(void) {
     glLoadIdentity();
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
-    sViewW = gVitaWide ? SCR_W : SCR_W * 725 / 960;
+    apply_view_w();
     glViewport(VIEW_X, 0, VIEW_W, VIEW_H);
     glDisable(GL_CULL_FACE);
     if (!(gVglSafe & 16)) {
@@ -2354,6 +2380,13 @@ static void rt_sync(void) {
     }
     __sync_synchronize();
 }
+
+/* SELECT overlay and similar paths: wait for the render thread, then use the display buffer. */
+void Vita_GlSync(void) {
+    rt_sync();
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
 static void rt_put_draw(const FlushIn *in) {
     uint32_t nv = in->kind == 0 ? (uint32_t)in->vertCount * (uint32_t)sizeof(V) : 0;
     uint32_t ni = in->kind != 1 && in->idx != NULL ? (uint32_t)in->idxCount * 2u : 0;
@@ -3690,7 +3723,7 @@ static void wp_emit_clear(void) {
     sWpClrN = 0;
     sWpClrWhole = 0;
 }
-static int sAnchor;
+static int sAnchor; /* 0 none, 1 left, 2 right, 3 centre, 4 by position — set by GsGpu_Native 0x10..0x14 */
 extern int Port_IsWide(void), Port_AspectMilli(void);
 extern int gPortMenuMode; /* port/src/headless.c: the menus are running */
 static void GsGpu_Draw_impl(int type, int ctx, const GsVertex *v);
@@ -4323,6 +4356,9 @@ page_draw:
         }
         if ((type == 6 && !d.tme && y1 - y0 >= 400.0f) || x1 - x0 >= 480.0f) {
             pivot = -1.0f;
+        } else if (gVitaHudStyle != 0) {
+            /* Centre: keep the whole HUD in the middle 4:3, ignore left/right panel markers. */
+            pivot = 256.0f;
         } else if (sAnchor == 4) {
             float cx = (x0 + x1) * 0.5f;
             pivot = x1 <= 300.0f || cx < 180.0f ? 0.0f : x0 >= 212.0f || cx > 332.0f ? 512.0f : 256.0f;
@@ -5347,7 +5383,7 @@ static void scr_resized(int w, int h) {
     int i;
     sScrW = w;
     sScrH = h;
-    sViewW = gVitaWide ? SCR_W : SCR_W * 725 / 960;
+    apply_view_w();
     for (i = 0; i < 3; i++) {
         if (sOlTex[i] != 0 && gxm_color_surfaces_addr[i] != NULL) {
             tex_redescribe(sOlTex[i], gxm_color_surfaces_addr[i], SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR, w, h);
@@ -5381,11 +5417,16 @@ static void swap_sized(void) {
     int menu = gVitaMenuHi && gPortMenuMode;
     int w = menu ? SCR_W_MENU : SCR_W_FIGHT, h = menu ? SCR_H_MENU : SCR_H_FIGHT;
     int change = w != sScrW || h != sScrH;
+    int viewBefore = sViewW;
     if (change) {
         rt_sync();
         vglSwapResolution(w, h);
     }
     wt_swap();
+    apply_view_w(); /* menu43 / wide: 4:3 bars can change without a resolution swap */
+    if (!change && sViewW != viewBefore) {
+        glViewport(VIEW_X, 0, VIEW_W, VIEW_H);
+    }
     if (change) {
         scr_resized(w, h);
     }
@@ -6337,6 +6378,10 @@ void GsGpu_FrameEnd(void) {
             sLogFrames--;
         }
         frame_begin();
+    }
+    { /* SELECT overlay after the frame (and rt_sync above): never from Port_PadRead mid-draw. */
+        extern void Vita_SettingsPresent(void);
+        Vita_SettingsPresent();
     }
     t114_list_end(!gVitaGsSkip);
 }
@@ -9105,8 +9150,8 @@ __attribute__((hot)) void GsGpu_DrawVu6(int ctx, const float *vertices, uint32_t
     vu_misc(u, ctx, 0.0f, 2.0f);
     vu_draw(2, 0, ctx, vertices, count, u);
 }
-/* Markers the HUD code puts into the list (PC port): which side of the screen the 2D pieces that follow belong to. */
-static int sAnchor; /* 0 none, 1 left, 2 right, 3 centre, 4 by position */
+/* Markers the HUD code puts into the list (PC port): which side of the screen the 2D pieces that follow belong to.
+   Uses the file-scope sAnchor above (same one the widescreen narrow path reads). */
 void GsGpu_Native(int effect) {
     ag_close(); /* the additive group before anything else */
     if (effect == 1) {
