@@ -251,6 +251,16 @@ void HistSel_Init(s32 section) {
 
         gHistSel->itemCount = 0;
         cleared = 0;
+#ifdef PORT
+        /* PC build: saves made before the fix in HistResult_BuildRewards can hold a saga with episodes open that is
+           not on the list. It is listed here, as new, and announced, as the result screen would have done. */
+        for (i = 0; i < 8; i++) {
+            if (gSaveData->slot[i].val[0] != 0 && !(gSaveData->slot[i].flags & MSLOT_LISTED)) {
+                gSaveData->slot[i].flags |= MSLOT_LISTED | MSLOT_NEW;
+                gSaveData->unlockFlags |= MUNLOCK_HIST_NEW_SAGA;
+            }
+        }
+#endif
         for (i = 0; i < 9; i++) {
             SaveSlot *slot = &gSaveData->slot[i];
 

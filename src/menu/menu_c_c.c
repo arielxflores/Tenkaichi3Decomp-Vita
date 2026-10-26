@@ -69,6 +69,14 @@ void HistResult_BuildRewards(void) {
 
     memset(gHistResult->reward, 0, 0x88);
     gHistResult->rewardCount = 0;
+#ifdef PORT
+    /* PC build: the loop below looks through all of unlock[] for the sub menu before it has set the later entries
+       (an original bug: it reads what happens to be on the stack). On the console that is never the sub menu's
+       number; here it can be, and then a battle that opens the first episode of a new saga does not list the saga:
+       won battles against Vegeta left the Frieza Saga's first battle open in a saga that was not on the list
+       (reported twice, reproduced 2026-10-08). */
+    unlock[0] = unlock[1] = unlock[2] = -1;
+#endif
     for (i = 0; i < 3; i++) {
         unlock[i] = -1;
         id = prog->reward.episode[i];
