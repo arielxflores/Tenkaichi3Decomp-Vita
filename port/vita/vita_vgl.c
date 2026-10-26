@@ -5193,6 +5193,7 @@ static int sDepthByteIsFog;    /* the drawing thread: what the depth page's top 
 static int sTblRun;            /* the drawing thread: the GS primitive before was a strip of this table pass */
 static uint64_t sTblRegs[6];
 static struct { uint32_t hash; unsigned last; int used; } sClut[16]; /* (the drawing thread: which table each slot holds) */
+static uint32_t sClutPx[16][256]; /* (the slots' entries: a table is reused only when every entry is the same) */
 static GLuint sClutTex[16];                                           /* (the thread that draws: the slots' textures) */
 typedef struct TblOp { State d; int src, slot, upload; float zmax; uint32_t cbp; uint32_t px[256]; } TblOp;
 static GLuint fx_prog(const char *frag, int len, const char *what) {
@@ -5597,10 +5598,14 @@ static int clut_slot(uint32_t cbp, uint32_t *px, int *upload) {
     for (i = 0; i < 256; i++) {
         uint32_t n = (i & 0xE7) | ((i & 8) << 1) | ((i & 0x10) >> 1);
         px[i] = raw[n];
-        hash = (hash ^ px[i]) * 16777619u;
+        hash = (hash ^ px[i] ^ (px[i] >> 16)) * 16777619u; /* (the top bits folded in: the alpha is there) */
     }
+    /* Found by the hash, taken only if every entry is the same (z3xox's fix in the PC build, 52b675c): by the hash
+       alone the object glow's table and the glare's ramp, which differ only in alpha, could be one, and the
+       fighters' glow was drawn through the glare's ramp, the whole picture white (teen Gohan's third costume on
+       Namek). */
     for (k = 0; k < 16; k++) {
-        if (sClut[k].used && sClut[k].hash == hash) {
+        if (sClut[k].used && sClut[k].hash == hash && memcmp(sClutPx[k], px, 256 * sizeof(uint32_t)) == 0) {
             sClut[k].last = gGsFrame;
             *upload = 0;
             return k;
@@ -5612,6 +5617,7 @@ static int clut_slot(uint32_t cbp, uint32_t *px, int *upload) {
     sClut[old].used = 1;
     sClut[old].hash = hash;
     sClut[old].last = gGsFrame;
+    memcpy(sClutPx[old], px, 256 * sizeof(uint32_t));
     *upload = 1;
     return old;
 }
