@@ -173,6 +173,7 @@
 #define Ref_Vu0Screen_LoadMtx Vu0Screen_LoadMtx
 #define Ref_Vu0Screen_SetMulMtx Vu0Screen_SetMulMtx
 #define Ref_Vu0Screen_StoreMtx Vu0Screen_StoreMtx
+#define Ref_ObjSeam_TransformVtx ObjSeam_TransformVtx
 #define Ref_Vu0_SinCos Vu0_SinCos
 #define Ref_Vu0_Stub0 Vu0_Stub0
 #define Ref_Vu0_Stub1 Vu0_Stub1

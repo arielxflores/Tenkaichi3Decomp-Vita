@@ -6,6 +6,7 @@
 #include "vita_float.c"
 
 uint32_t Host_DivNearest(uint32_t a, uint32_t b) { (void)a; (void)b; return 0; } /* fast model only: not run here */
+void Port_SeamExact(uint32_t x, uint32_t y, uint32_t z, uint32_t fx, uint32_t fy) { (void)x; (void)y; (void)z; (void)fx; (void)fy; } /* (the renderer's: not here) */
 
 int main(void) {
     int op;

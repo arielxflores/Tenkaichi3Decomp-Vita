@@ -703,6 +703,333 @@ static void op_qmfc2(int t, int fs) {
     gRefVu0.gpr[t] = VF(fs);
 }
 
+/* ================================================================================================================
+ * 0x10FFD0 ObjSeam_TransformVtx(vtx, work, mtx, ofs): skins, lights and projects one seam vertex of a model.
+ * Hand-written VU0 macro code of the game, translated here instruction for instruction (the comments give the
+ * address and the instruction). The screen matrix is in vf24..27 (set by the caller's surroundings); the routine
+ * leaves vf1..16 and vf19 changed, as on the PS2 (its caller runs Vu0_InitAxisRegs afterwards).
+ *   vtx:  +0x00 position (w = weight of the first of the two nodes), +0x10 normal, +0x20 uv;
+ *         written: +0x30 GS XYZ (12.4; w = 0xFFFF8000 when the point is outside), +0x50 uv * Q, +0x60 (shade, 0, 1) * Q
+ *   work: +0x80 light matrix, +0xC0 k (w = 0.5); written: +0x00 light * mtx[0], +0x40 light * mtx[1]
+ * BT3_SEAM_CHECK=<path of SLUS_216.78>: every call is also run by a small interpreter from the instruction words
+ * of the original program, and what the two write (memory and registers) is compared.
+ * ============================================================================================================== */
+static uint32_t ftoiBits(uint32_t a, int frac) {
+    uint32_t m = (a & 0x7FFFFF) | 0x800000, v;
+    int e = (int)((a >> 23) & 0xFF) - 127 + frac;
+
+    if (((a >> 23) & 0xFF) == 0 || e < 0) {
+        return 0;
+    }
+    if (e >= 31) {
+        return (a & SIGN) ? 0x80000000u : 0x7FFFFFFFu; /* saturates */
+    }
+    v = e >= 23 ? m << (e - 23) : m >> (23 - e);
+    return (a & SIGN) ? 0u - v : v;
+}
+
+static void op_vftoi(int m, int ft, int fs, int frac) {
+    uint32_t r[4];
+    int i;
+
+    for (i = 0; i < 4; i++) {
+        r[i] = ftoiBits(VF(fs).u[i], frac);
+    }
+    put(ft, r, m);
+}
+
+static void op_vmfir(int m, int ft, int vi) {
+    uint32_t r[4];
+    int i;
+
+    for (i = 0; i < 4; i++) {
+        r[i] = (uint32_t)(int32_t)(int16_t)gRefVu0.vi[vi];
+    }
+    put(ft, r, m);
+}
+
+static void seam_c(void *a0, void *a1, const void *a2, const void *a3) {
+    static const uint32_t k4096[4] = {0x45800000u, 0x45800000u, 0, 0}; /* z, w: the upper half of $v0, not known */
+    int i, out;
+
+    put(19, k4096, M_XYZW);                    /* 10FFD0..E0  $v0 = 4096.0f twice; qmtc2 $v0, vf19 */
+    gRefVu0.vi[1] = 0x8000;                    /* 10FFE4..E8  ctc2 0x8000, vi1 */
+    for (i = 0; i < 8; i++) {
+        op_lqc2(1 + i, AT(a2, i * 16));        /* 10FFF0..0C  lqc2 vf1..vf8, 0x00..0x70(a2) */
+    }
+    for (i = 0; i < 4; i++) {
+        op_lqc2(9 + i, AT(a1, 0x80 + i * 16)); /* 110010..1C  lqc2 vf9..vf12, 0x80..0xB0(a1) */
+    }
+    for (i = 0; i < 3; i++) {                  /* 110020..4C  vf13 + i = light * vf(1 + i) */
+        op_vmulabc(M_XYZW, 9, 1 + i, X);
+        op_vmaddabc(M_XYZW, 10, 1 + i, Y);
+        op_vmaddabc(M_XYZW, 11, 1 + i, Z);
+        op_vmaddbc(M_XYZW, 13 + i, 12, 1 + i, W);
+    }
+    op_sqc2(13, AT(a1, 0x00));                 /* 110050..5C */
+    op_sqc2(14, AT(a1, 0x10));
+    op_sqc2(15, AT(a1, 0x20));
+    op_sqc2(12, AT(a1, 0x30));
+    for (i = 0; i < 3; i++) {                  /* 110060..8C  the same with vf5..vf7 */
+        op_vmulabc(M_XYZW, 9, 5 + i, X);
+        op_vmaddabc(M_XYZW, 10, 5 + i, Y);
+        op_vmaddabc(M_XYZW, 11, 5 + i, Z);
+        op_vmaddbc(M_XYZW, 13 + i, 12, 5 + i, W);
+    }
+    op_sqc2(13, AT(a1, 0x40));                 /* 110090..9C */
+    op_sqc2(14, AT(a1, 0x50));
+    op_sqc2(15, AT(a1, 0x60));
+    op_sqc2(12, AT(a1, 0x70));
+    op_lqc2(13, AT(a0, 0x10));                 /* 1100A0  normal */
+    op_lqc2(16, AT(a0, 0x00));                 /* 1100A4  position */
+    for (i = 0; i < 4; i++) {
+        op_lqc2(9 + i, AT(a1, i * 16));        /* 1100A8..B4 */
+    }
+    op_vmulabc(M_XYZW, 9, 13, X);              /* 1100B8 */
+    op_vmaddabc(M_XYZW, 10, 13, Y);
+    op_vmaddabc(M_XYZW, 11, 13, Z);
+    op_vmaddbc(M_XYZW, 14, 12, 0, W);          /* 1100C4  vmaddw vf14, vf12, vf0w */
+    for (i = 0; i < 4; i++) {
+        op_lqc2(9 + i, AT(a1, 0x40 + i * 16)); /* 1100C8..D4 */
+    }
+    op_vmulabc(M_XYZW, 9, 13, X);              /* 1100D8 */
+    op_vmaddabc(M_XYZW, 10, 13, Y);
+    op_vmaddabc(M_XYZW, 11, 13, Z);
+    op_vmaddbc(M_XYZW, 15, 12, 0, W);          /* 1100E4 */
+    op_vsub(M_XYZW, 14, 14, 15);               /* 1100E8 */
+    op_vmulbc(M_XYZW, 14, 14, 16, W);          /* 1100EC  vmulw vf14, vf14, vf16w */
+    op_vadd(M_XYZ, 14, 15, 14);                /* 1100F0 */
+    op_lqc2(13, AT(a1, 0xC0));                 /* 1100F4 */
+    op_vmulbc(M_XYZ, 14, 14, 13, W);           /* 1100F8 */
+    op_vaddbc(M_XYZ, 14, 14, 13, W);           /* 1100FC */
+    op_vadd(M_X, 15, 0, 14);                   /* 110100 */
+    op_vadd(M_Y, 15, 0, 0);                    /* 110104 */
+    op_vaddbc(M_Z, 15, 0, 0, W);               /* 110108 */
+    op_lqc2(9, AT(a3, 0x00));                  /* 11010C */
+    op_lqc2(10, AT(a3, 0x10));
+    op_vsub(M_XYZW, 11, 16, 9);                /* 110114 */
+    op_vsub(M_XYZW, 12, 16, 10);
+    op_vmulabc(M_XYZW, 1, 11, X);              /* 11011C */
+    op_vmaddabc(M_XYZW, 2, 11, Y);
+    op_vmaddabc(M_XYZW, 3, 11, Z);
+    op_vmaddbc(M_XYZW, 13, 4, 0, W);
+    op_vmulabc(M_XYZW, 5, 12, X);              /* 11012C */
+    op_vmaddabc(M_XYZW, 6, 12, Y);
+    op_vmaddabc(M_XYZW, 7, 12, Z);
+    op_vmaddbc(M_XYZW, 14, 8, 0, W);
+    op_vsub(M_XYZW, 9, 13, 14);                /* 11013C */
+    op_vmulbc(M_XYZW, 9, 9, 16, W);
+    op_vadd(M_XYZW, 9, 14, 9);
+    op_vmulabc(M_XYZW, 24, 9, X);              /* 110148  the screen matrix */
+    op_vmaddabc(M_XYZW, 25, 9, Y);
+    op_vmaddabc(M_XYZW, 26, 9, Z);
+    op_vmaddbc(M_XYZW, 9, 27, 9, W);
+    op_vdiv(0, W, 9, W);                       /* 110158  Q = 1 / w */
+    op_vmulq(M_XYZ, 9, 9);                     /* 110160 */
+    op_vftoi(M_XYZW, 10, 9, 4);                /* 110164  vftoi4 */
+    {   /* (the port: the position before it is rounded to the GS's 1/16 pixel, for the triangles drawn from it) */
+        /* (the floats as their bits: this file is built with the game's software float, which passes a float
+           otherwise than the PC's code takes it) */
+        extern void Port_SeamExact(uint32_t x, uint32_t y, uint32_t z, uint32_t fx, uint32_t fy); /* port/src/gs/gs_core.c */
+        Port_SeamExact(gRefVu0.vf[10].u[0], gRefVu0.vf[10].u[1], gRefVu0.vf[10].u[2], gRefVu0.vf[9].u[0], gRefVu0.vf[9].u[1]);
+    }
+    gRefVu0.status = 0;                        /* 110170  ctc2 $zero, vi16 */
+    op_vsub(M_XYW, 0, 9, 0);                   /* 110174  flags only: x, y, w - 1 */
+    op_vsub(M_XY, 0, 19, 9);                   /* 110178  flags only: 4096 - x, 4096 - y */
+    out = (gRefVu0.status & 0xC0) != 0;        /* 11018C..A4  sticky zero or sign: outside */
+    if (out) {
+        op_vmfir(M_W, 10, 1);                  /* 1101B0  vmfir.w vf10, vi1 */
+    }
+    op_lqc2(11, AT(a0, 0x20));                 /* 1101B4  uv */
+    op_vmulq(M_XYZ, 12, 11);                   /* 1101B8 */
+    op_vmulq(M_XYZ, 14, 15);                   /* 1101BC */
+    op_sqc2(12, AT(a0, 0x50));                 /* 1101C0 */
+    op_sqc2(14, AT(a0, 0x60));
+    op_sqc2(10, AT(a0, 0x30));                 /* 1101CC */
+}
+
+/* The check: the routine's 128 instruction words, read from the original program, executed one by one. Only the
+   instructions this routine uses are known. The arithmetic of each instruction is the library's (the same as
+   above), so this checks the translation, not the number model. */
+#include <stdio.h>
+#include <stdlib.h>
+static uint32_t sSeamCode[128];
+
+static int seam_code_load(const char *path) {
+    FILE *fp = fopen(path, "rb");
+    unsigned char h[0x40], ph[0x20];
+    uint32_t phoff, i, n;
+    int ok = 0;
+
+    if (fp == NULL) {
+        return 0;
+    }
+    if (fread(h, 1, sizeof(h), fp) == sizeof(h) && h[0] == 0x7F && h[1] == 'E') {
+        memcpy(&phoff, h + 0x1C, 4);
+        n = h[0x2C] | h[0x2D] << 8;
+        for (i = 0; i < n && !ok; i++) {
+            uint32_t off, vaddr, filesz;
+            fseek(fp, (long)(phoff + i * 0x20), SEEK_SET);
+            if (fread(ph, 1, sizeof(ph), fp) != sizeof(ph)) {
+                break;
+            }
+            memcpy(&off, ph + 4, 4);
+            memcpy(&vaddr, ph + 8, 4);
+            memcpy(&filesz, ph + 16, 4);
+            if (vaddr <= 0x10FFD0 && 0x10FFD0 + sizeof(sSeamCode) <= vaddr + filesz) {
+                fseek(fp, (long)(off + (0x10FFD0 - vaddr)), SEEK_SET);
+                ok = fread(sSeamCode, 4, 128, fp) == 128;
+            }
+        }
+    }
+    fclose(fp);
+    return ok;
+}
+
+static int seam_interp(void *a0, void *a1, const void *a2, const void *a3) {
+    void *reg[32];      /* the four pointer arguments, by register number */
+    uint64_t g[32];     /* the other general registers */
+    int pc = 0, next, steps;
+
+    memset(reg, 0, sizeof(reg));
+    memset(g, 0, sizeof(g));
+    reg[4] = a0;
+    reg[5] = a1;
+    reg[6] = (void *)a2;
+    reg[7] = (void *)a3;
+    for (steps = 0; steps < 1000; steps++) {
+        uint32_t w = sSeamCode[pc], op = w >> 26, rs = (w >> 21) & 31, rt = (w >> 16) & 31, rd = (w >> 11) & 31, sa = (w >> 6) & 31;
+        int16_t imm = (int16_t)(w & 0xFFFF);
+        int slot = 0, target = -1;
+
+        next = pc + 1;
+        if (w == 0) {
+            /* nop */
+        } else if (op == 0x0F) {
+            g[rt] = (uint64_t)(int64_t)(int32_t)((uint32_t)(uint16_t)imm << 16);              /* lui */
+        } else if (op == 0x0D) {
+            g[rt] = g[rs] | (uint16_t)imm;                                                    /* ori */
+        } else if (op == 0x0C) {
+            g[rt] = g[rs] & (uint16_t)imm;                                                    /* andi */
+        } else if (op == 0x09) {
+            g[rt] = (uint64_t)(int64_t)(int32_t)((uint32_t)g[rs] + (uint32_t)(int32_t)imm);   /* addiu */
+        } else if (op == 0 && (w & 63) == 0x38) {
+            g[rd] = g[rt] << sa;                                                              /* dsll */
+        } else if (op == 0 && (w & 63) == 0x00) {
+            g[rd] = (uint64_t)(int64_t)(int32_t)((uint32_t)g[rt] << sa);                      /* sll */
+        } else if (op == 0 && (w & 63) == 0x08) {
+            slot = 1;                                                                         /* jr $ra: after the next one */
+            target = 128;
+        } else if (op == 0x04) {
+            slot = 1;                                                                         /* beq */
+            target = g[rs] == g[rt] ? pc + 1 + imm : pc + 2;
+        } else if (op == 0x36) {
+            op_lqc2((int)rt, AT(reg[rs], imm));                                               /* lqc2 */
+        } else if (op == 0x3E) {
+            op_sqc2((int)rt, AT(reg[rs], imm));                                               /* sqc2 */
+        } else if (op == 0x12 && rs == 0x05) {                                                /* qmtc2: 128 bits, the upper 64 unknown */
+            uint32_t v[4] = {(uint32_t)g[rt], (uint32_t)(g[rt] >> 32), 0, 0};
+            put((int)rd, v, M_XYZW);
+        } else if (op == 0x12 && rs == 0x06) {                                                /* ctc2 */
+            if (rd == 16) {
+                gRefVu0.status = (uint32_t)g[rt];
+            } else if (rd < 16) {
+                gRefVu0.vi[rd] = (uint16_t)g[rt];
+            } else {
+                return 0;
+            }
+        } else if (op == 0x12 && rs == 0x02) {                                                /* cfc2 */
+            if (rd != 16) {
+                return 0;
+            }
+            g[rt] = gRefVu0.status;
+        } else if (op == 0x12 && (w & 0x02000000)) {
+            int m = (int)((w >> 21) & 15), ft = (int)rt, fs = (int)rd, fd = (int)sa, bc = (int)(w & 3), fn = (int)(w & 63);
+            if (fn < 0x3C) {
+                if (fn < 4) { op_vaddbc(m, fd, fs, ft, bc); }
+                else if (fn >= 0x08 && fn < 0x0C) { op_vmaddbc(m, fd, fs, ft, bc); }
+                else if (fn >= 0x18 && fn < 0x1C) { op_vmulbc(m, fd, fs, ft, bc); }
+                else if (fn == 0x1C) { op_vmulq(m, fd, fs); }
+                else if (fn == 0x28) { op_vadd(m, fd, fs, ft); }
+                else if (fn == 0x2C) { op_vsub(m, fd, fs, ft); }
+                else { return 0; }
+            } else {
+                int idx = (int)(sa << 2) | bc;
+                if (idx >= 0x08 && idx < 0x0C) { op_vmaddabc(m, fs, ft, bc); }
+                else if (idx >= 0x18 && idx < 0x1C) { op_vmulabc(m, fs, ft, bc); }
+                else if (idx == 0x15) { op_vftoi(m, ft, fs, 4); }
+                else if (idx == 0x38) { op_vdiv(fs, (int)((w >> 21) & 3), ft, (int)((w >> 23) & 3)); }
+                else if (idx == 0x3D) { op_vmfir(m, ft, fs); }
+                else if (idx == 0x3B || idx == 0x2F) { /* vwaitq, vnop */ }
+                else { return 0; }
+            }
+        } else {
+            return 0;
+        }
+        if (slot) { /* the instruction after a branch runs first */
+            uint32_t d = sSeamCode[pc + 1];
+            if (d == 0) {
+                /* nop */
+            } else if ((d >> 26) == 0x3E) {
+                op_sqc2((int)((d >> 16) & 31), AT(reg[(d >> 21) & 31], (int16_t)(d & 0xFFFF)));
+            } else {
+                return 0;
+            }
+            next = target;
+        }
+        if (next >= 128) {
+            return 1;
+        }
+        pc = next;
+    }
+    return 0;
+}
+
+void Ref_ObjSeam_TransformVtx(void *vtx, void *work, const void *mtx, const void *ofs) {
+    static int mode = -1; /* 0 = no check, 1 = check, 2 = the check cannot run */
+    static unsigned calls, bad;
+
+    if (mode < 0) {
+        const char *path = getenv("BT3_SEAM_CHECK");
+        mode = path == NULL ? 0 : seam_code_load(path) ? 1 : 2;
+        if (mode == 2) {
+            fprintf(stderr, "bt3: seam check: cannot read the routine from %s\n", path);
+        }
+    }
+    if (mode == 1) {
+        static RefVu0State before, afterC;
+        unsigned char v0[0x70], w0[0xD0], vC[0x70], wC[0xD0];
+        int ran, same;
+
+        before = gRefVu0;
+        memcpy(v0, vtx, sizeof(v0));
+        memcpy(w0, work, sizeof(w0));
+        seam_c(vtx, work, mtx, ofs);
+        afterC = gRefVu0;
+        memcpy(vC, vtx, sizeof(vC));
+        memcpy(wC, work, sizeof(wC));
+        gRefVu0 = before;
+        memcpy(vtx, v0, sizeof(v0));
+        memcpy(work, w0, sizeof(w0));
+        ran = seam_interp(vtx, work, mtx, ofs);
+        same = ran && memcmp(vC, vtx, sizeof(vC)) == 0 && memcmp(wC, work, sizeof(wC)) == 0 &&
+               memcmp(afterC.vf, gRefVu0.vf, sizeof(afterC.vf)) == 0 && memcmp(&afterC.acc, &gRefVu0.acc, sizeof(afterC.acc)) == 0 &&
+               afterC.q == gRefVu0.q && afterC.status == gRefVu0.status && memcmp(afterC.vi, gRefVu0.vi, sizeof(afterC.vi)) == 0;
+        calls++;
+        if (!same) {
+            bad++;
+            if (bad <= 5) {
+                fprintf(stderr, "bt3: seam check: call %u differs (%s)\n", calls, ran ? "outputs" : "the interpreter met an instruction it does not know");
+            }
+        }
+        if (calls == 1 || calls % 20000 == 0) {
+            fprintf(stderr, "bt3: seam check: %u vertices through the original instructions and the C version, %u differ\n", calls, bad);
+        }
+        return; /* the interpreter's results are in place */
+    }
+    seam_c(vtx, work, mtx, ofs);
+}
+
 void Ref_Vu0_ResetState(void) {
     memset(&gRefVu0, 0, sizeof(gRefVu0));
     gRefVu0.vf[0].u[W] = 0x3F800000u;
