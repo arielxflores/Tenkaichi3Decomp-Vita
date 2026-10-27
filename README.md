@@ -32,8 +32,11 @@ the Vita version here, not upstream.
 Fights run at the PS2 version's 30 fps. A few stages with heavy effects drop below that at times, most noticeably
 Kame House (its reflective sea), where it can go down to about 26 fps.
 
-Not available: playing against another person. The Versus Menu's second entry is named "Multiplayer" for that, but
-it still leads to the PS2's two-controller mode, which the Vita cannot use; ad-hoc and online play are not implemented.
+Two players: on a PS TV (or a Vita with a second controller paired), the second DualShock is player 2, and the
+Versus Menu's "Multiplayer" entry is the PS2's two-controller mode. Ad-hoc and online play between two Vitas are not
+implemented yet.
+
+What changed in each version: [CHANGELOG.md](CHANGELOG.md).
 
 ## Installation
 
@@ -92,12 +95,20 @@ The **Normal** control type of the Vita version:
 | Rear touch pad, lower left / lower right quarter | L3 / R3 |
 | START | Pause |
 
+On a PS TV, or with a DualShock paired, the controller's own L2, R2, L3 and R3 buttons are used.
+
 - The rear touch pad's quarters are those of PS4 Remote Play, so the triggers and rear buttons of a grip attachment
   for it, such as HORI's Remote Play Assist Attachment, work as L2, R2, L3 and R3.
-- **Options → Controller → Touch Buttons** sets, for each of L2, R2, L3 and R3, where it is touched: its quarter of
-  the rear pad, a corner of the front screen (L2 / R2 the bottom corners, L3 / R3 the top ones), or nowhere (Off).
-  If your fingers rest on the rear pad, put the buttons they press by mistake on the front or Off. SELECT + L / R
-  also give L2 / R2.
+- **Options → Controller → Vita Settings** has four settings:
+  - **Touch**: for each of L2, R2, L3 and R3, where it is touched: its quarter of the rear pad, a corner of the
+    front screen (L2 / R2 the bottom corners, L3 / R3 the top ones), or nowhere (Off). A finger resting on the rear
+    pad's lower half stops counting as L3 / R3 after a second, so the hands holding the Vita cannot hold R3 (which
+    stops the fighter from moving); lift it and touch again to press it. SELECT + L / R also give L2 / R2.
+  - **Clashes**: **Square** (the default) wins beam struggles and rush clashes by pressing Square again and again,
+    instead of turning the left stick; the prompt shows Square. **Stick** turns the stick, as on the PS2 (the d-pad
+    works too).
+  - **2nd Pad**: a second controller plays as player 2 (on by default).
+  - **Mods**: the files in `ux0:data/bt3/mods/` are used (on by default; see [Mods](#mods)).
 - **Options → Controller → Control Type → Custom** assigns the actions to other buttons, as on the PS2. The pause
   menu's skill list shows each command with the buttons of the control type in use, and L3 / R3 as buttons like L1,
   not as the PS2's sticks.
@@ -105,10 +116,48 @@ The **Normal** control type of the Vita version:
   fingers to go back. A tap skips a film.
 - Holding START + SELECT for two seconds closes the game (press START on the screen that follows).
 
+## Mods
+
+Files in `ux0:data/bt3/mods/` are used instead of the disc's, laid out as for the PC version of Tenkaichi3Decomp:
+
+```
+ux0:data/bt3/mods/pzs3us1/00042.bin      file 42 of DATA/PZS3US1.AFS (pzs3us0, pzs3us2 for the other archives)
+ux0:data/bt3/mods/disc/DATA/<NAME>       a file of the disc's DATA folder, a whole .AFS archive included
+```
+
+The number of an archive's file may also be written without leading zeros and with another extension
+(`42.pak`). A mod can also have a folder of its own (a pack), laid out the same way inside, or holding the `DATA`
+folder of a modded disc as it is:
+
+```
+ux0:data/bt3/mods/<Pack>/pzs3us1/00042.bin
+ux0:data/bt3/mods/<Pack>/DATA/PZS3US1.AFS
+```
+
+Packs are used in the order of their names, after the loose files (the first file found for a slot is the one
+used). A pack whose name starts with `_` is skipped. The folders are read when the game starts; **Vita Settings →
+Mods** shows what is in use and turns it all off without deleting anything (from the next start).
+
+Mods that change only the disc's data files work. Mods that change the game's program, like Team BT4's
+Budokai Tenkaichi 4, cannot: the program is compiled into the port from the unmodified USA release, and those
+mods' data files are made for their own program. A pack holding a changed `SLUS_216.78` or `BIN/DBZP.BIN` is left
+out, with a message when the game starts. A disc image (`.iso`) is not read: copy a modded disc's files into a
+pack instead.
+
+## Troubleshooting
+
+- **"The game's files were not found"**: `SLUS_216.78` and the `BIN` and `DATA` folders must be in
+  `ux0:data/bt3/disc/` (a folder named `disk`, or one more folder level in between, is found too). An `.iso` cannot
+  be read as it is: extract those three items from it with 7-Zip.
+- **The picture fills only part of the screen**: the Sharpscale plugin is set to a resolution other than
+  "Original"; set it back to Original.
+- **The game stops** (the picture freezes, the music plays on): the game writes `ux0:data/bt3/hang.txt` when its
+  picture stops for a few seconds. Attaching it and `log.txt` to a bug report helps a lot.
+
 ## Notes
 
-- Saves (a virtual memory card) and settings are kept in `ux0:data/bt3/`: `saves/`, `bt3_settings.txt` and
-  `touch.txt` (Touch Buttons). `log.txt` there describes the last runs, which helps with bug reports.
+- Saves (a virtual memory card) and settings are kept in `ux0:data/bt3/`: `saves/`, `bt3_settings.txt` (Clashes,
+  2nd Pad, Mods) and `touch.txt` (Touch). `log.txt` there describes the last runs, which helps with bug reports.
 - The first start takes a little longer: the shaders are compiled and kept in `ux0:data/bt3/shcache/`.
 - The port runs the Vita at its standard maximum clocks (CPU 444 MHz, GPU 222 MHz); no overclocking plugin is
   used or needed.
@@ -131,7 +180,10 @@ changes the Vita needed in the shared code, most of them inside `#ifdef PORT_VIT
 
 - [z3xox](https://github.com/z3xox) and the contributors of
   [Tenkaichi3Decomp](https://github.com/z3xox/Tenkaichi3Decomp), the PC port this one is built on, and the
-  authors of the BT3-Decompiled decompilation it uses
+  authors of the BT3-Decompiled decompilation it uses; z3xox's later fixes are ported here (the seam models,
+  the story mode's saga list, the palette tables) along with the PC version's Square option for clashes
+- [Matteo Santoro](https://github.com/Matt-code-d) for the Dragon World Tour fix (Yamcha's invitation) and
+  [limeking614-dev](https://github.com/limeking614-dev) for the PS TV controller support, from their forks
 - Spike, the developer of Dragon Ball Z: Budokai Tenkaichi 3
 - [Rinnegatamante](https://github.com/Rinnegatamante) for vitaGL and vitaShaRK, and [bythos14](https://github.com/bythos14)
   for SceShaccCgExt

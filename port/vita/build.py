@@ -36,6 +36,7 @@ SAMPLES = pathlib.Path(os.environ.get("VITA_SAMPLES", SDK.parent / "samples"))  
 TITLE_ID = "BTTD00008" if DEV else "BTTD00010"
 TITLE = "BT3 (development)" if DEV else "Dragon Ball Z: BT3"
 VPK = "Tenkaichi3Decomp-Vita-dev.vpk" if DEV else "Tenkaichi3Decomp-Vita.vpk"
+APP_VER = "01.10"  # the version the LiveArea and VitaShell show (README "Changes")
 
 # A few names exist both in the game's side and in the SDK's libraries with other meanings: the internals of the
 # PS2's maths library (port/third_party/newlib_libm), the PS2 C library's character table, and the generic soft-float
@@ -323,7 +324,7 @@ def vpk():
     subprocess.run([P + "strip", "-g", str(OUT / "bt3.elf")], check=True)
     run("vita-elf-create", OUT / "bt3.elf", OUT / "bt3.velf")
     run("vita-make-fself", "-c", OUT / "bt3.velf", OUT / "eboot.bin")
-    run("vita-mksfoex", "-s", f"TITLE_ID={TITLE_ID}", "-d", "ATTRIBUTE2=12", TITLE, OUT / "param.sfo")
+    run("vita-mksfoex", "-s", f"TITLE_ID={TITLE_ID}", "-s", f"APP_VER={APP_VER}", "-d", "ATTRIBUTE2=12", TITLE, OUT / "param.sfo")
     extra = []
     for f in sorted(x for x in SCE_SYS.rglob("*") if x.is_file()):
         extra += ["-a", f"{f}=sce_sys/{f.relative_to(SCE_SYS).as_posix()}"]
