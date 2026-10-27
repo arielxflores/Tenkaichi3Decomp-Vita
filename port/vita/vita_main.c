@@ -19,6 +19,7 @@
  */
 #include <psp2/ctrl.h>
 #include <psp2/display.h>
+#include <psp2/io/dirent.h>
 #include <psp2/io/fcntl.h>
 #include <psp2/io/stat.h>
 #include <psp2/kernel/processmgr.h>
@@ -30,6 +31,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <malloc.h>
 #include "debugScreen.h"
 
@@ -990,6 +992,79 @@ void __wrap_exit(int code) {
 }
 
 /* bt3.txt: name=value lines; '#' starts a comment. */
+/* Where the disc's files are. gVitaDisc (ux0:data/bt3/disc, or disc= of bt3.txt) when SLUS_216.78 is there; else the
+   places players put them by mistake: ux0:data/bt3/disk, ux0:data/bt3 itself, or a folder inside either (an image
+   unpacked into a folder of its own name), two levels down at most. When none has the files, a message says where they
+   go and what was found instead (an .iso among it: it has to be unpacked). */
+static int has_slus(const char *dir) {
+    char path[300];
+    SceIoStat st;
+    snprintf(path, sizeof(path), "%s/SLUS_216.78", dir);
+    return sceIoGetstat(path, &st) >= 0 && !SCE_S_ISDIR(st.st_mode);
+}
+
+static int find_below(const char *dir, int depth, char *out, size_t size) {
+    SceUID d;
+    SceIoDirent e;
+    int found = 0;
+    if (has_slus(dir)) {
+        snprintf(out, size, "%s", dir);
+        return 1;
+    }
+    if (depth == 0 || (d = sceIoDopen(dir)) < 0) {
+        return 0;
+    }
+    memset(&e, 0, sizeof(e));
+    while (!found && sceIoDread(d, &e) > 0) {
+        char sub[300];
+        if (!SCE_S_ISDIR(e.d_stat.st_mode) || e.d_name[0] == '.' || strcasecmp(e.d_name, "saves") == 0 ||
+            strcasecmp(e.d_name, "shcache") == 0 || strcasecmp(e.d_name, "mods") == 0 || strcasecmp(e.d_name, "dump") == 0) {
+            continue;
+        }
+        snprintf(sub, sizeof(sub), "%s/%s", dir, e.d_name);
+        found = find_below(sub, depth - 1, out, size);
+    }
+    sceIoDclose(d);
+    return found;
+}
+
+static void find_disc(void) {
+    char found[256], seen[400];
+    SceUID d;
+    SceIoDirent e;
+    int n = 0, iso = 0;
+    if (has_slus(gVitaDisc)) {
+        return;
+    }
+    if (strcmp(gVitaDisc, HOME "/disc") == 0 && (find_below(HOME "/disk", 1, found, sizeof(found)) || find_below(HOME, 2, found, sizeof(found)))) {
+        logf_("vita: the disc's files are in %s (not %s)\n", found, gVitaDisc);
+        snprintf(gVitaDisc, sizeof(gVitaDisc), "%s", found);
+        return;
+    }
+    seen[0] = '\0';
+    if ((d = sceIoDopen(HOME)) >= 0) {
+        memset(&e, 0, sizeof(e));
+        while (sceIoDread(d, &e) > 0) {
+            size_t l = strlen(e.d_name);
+            if (e.d_name[0] == '.' || (!SCE_S_ISDIR(e.d_stat.st_mode) && !(l > 4 && strcasecmp(e.d_name + l - 4, ".iso") == 0))) {
+                continue;
+            }
+            iso |= !SCE_S_ISDIR(e.d_stat.st_mode);
+            if (n++ < 8 && strlen(seen) + l + 4 < sizeof(seen)) {
+                strcat(seen, "  ");
+                strcat(seen, e.d_name);
+                strcat(seen, SCE_S_ISDIR(e.d_stat.st_mode) ? "/\n" : "\n");
+            }
+        }
+        sceIoDclose(d);
+    }
+    Vita_Fatal("The game's files were not found. From your own disc of the\n"
+               "USA release (SLUS-21678), copy SLUS_216.78 and the folders\n"
+               "BIN and DATA into\n  %s/\n\n%s%s%s",
+               gVitaDisc, n ? "In " HOME " there is:\n" : "", seen,
+               iso ? "\nAn .iso can't be read as it is: open it with 7-Zip on\na PC and extract those three items (see the README)." : "");
+}
+
 static void read_settings(void) {
     FILE *fp = fopen(HOME "/bt3.txt", "r");
     char line[400];
@@ -1172,6 +1247,10 @@ static void read_settings(void) {
                 *c = (char)toupper((unsigned char)*c);
             }
             setenv(env, eq, 1);
+        } else if (strcmp(line, "soak") == 0) { /* battle after battle, never the end (port/src/headless.c Port_SoakNext) */
+            if (atoi(eq) != 0) {
+                setenv("BT3_SOAK", "1", 1);
+            }
         } else if (strcmp(line, "startmode") == 0) { /* the menus start on this screen (62 the options) */
             extern int gVitaStartMode;
             gVitaStartMode = atoi(eq);
@@ -1336,8 +1415,9 @@ static int watchdog_thread(SceSize args, void *argp) {
             static char out[3000];
             int n = 0, i;
             SceUID fd;
-            n += snprintf(out + n, sizeof(out) - (size_t)n, "vita: WATCHDOG: no picture for %u s (picture %u); log %u written, %u kept, %u lost\n", still / 2, gGsFrame,
-                          sLogTail, sLogHead, sLogLost);
+            extern int gVitaInMenus;
+            n += snprintf(out + n, sizeof(out) - (size_t)n, "vita: WATCHDOG: no picture for %u s (picture %u) after %u s of play, in the %s; log %u written, %u kept, %u lost\n",
+                          still / 2, gGsFrame, (unsigned)((now_us() - sStart) / 1000000), gVitaInMenus ? "menus" : "fight", sLogTail, sLogHead, sLogLost);
             Vita_VglState(out + n, (int)sizeof(out) - n);
             n += (int)strlen(out + n);
             for (i = 0; i < 8 && n < (int)sizeof(out) - 300; i++) {
@@ -1446,6 +1526,7 @@ int __wrap_main(int argc, char **argv) {
 #ifndef PORT_VITA_RELEASE /* (the released program shows nothing until the game's first picture; an error still shows) */
     psvDebugScreenPrintf("Reading the game's data tables from %s ...\n", gVitaDisc);
 #endif
+    find_disc();
     Vita_LoadGameData(gVitaDisc);
     Vita_MapMemory(sHeapCdram);
     logf_("vita: %s floats, game heap at 0x%08X, disc folder %s, %s\n", gPortFastFloat ? "hardware" : "exact", (unsigned)gVitaHeapBase, gVitaDisc,

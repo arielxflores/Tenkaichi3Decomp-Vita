@@ -2113,7 +2113,23 @@ unsigned long long gVitaWall[6];
 unsigned long long gVitaWallK[4][2]; /* draw submissions by kind: stage, fighters, other models, GS primitives: microseconds, count */
 static inline void *wt_map(GLenum t, GLenum a) { unsigned long long t0 = sceKernelGetProcessTimeWide(); void *r = glMapBuffer(t, a); gVitaWall[1] += sceKernelGetProcessTimeWide() - t0; return r; }
 static volatile int gVitaDrawWhere;
-static inline void wt_swap(void) { unsigned long long t0 = sceKernelGetProcessTimeWide(); rt_sync(); gVitaDrawWhere = 3; pace_swap(0); vglSwapBuffers(GL_FALSE); pace_swap(1); gVitaDrawWhere = 0; gVitaWall[0] += sceKernelGetProcessTimeWide() - t0; }
+/* (the watchdog: vitaGL's free memory as last looked at, once a second, by the drawing thread: the watchdog itself
+   calls nothing of vitaGL, which may be what is stuck) */
+static volatile unsigned sMemVramK, sMemRamK, sMemSeen;
+static inline void wt_swap(void) {
+    unsigned long long t0 = sceKernelGetProcessTimeWide();
+    rt_sync();
+    gVitaDrawWhere = 3;
+    pace_swap(0);
+    vglSwapBuffers(GL_FALSE);
+    pace_swap(1);
+    gVitaDrawWhere = 0;
+    gVitaWall[0] += sceKernelGetProcessTimeWide() - t0;
+    if (++sMemSeen % 60 == 0) {
+        sMemVramK = (unsigned)(vglMemFree(VGL_MEM_VRAM) >> 10);
+        sMemRamK = (unsigned)(vglMemFree(VGL_MEM_RAM) >> 10);
+    }
+}
 /* What one draw of a batch reads (flush_impl): its state and its data. */
 typedef struct FlushIn {
     State s;
@@ -2270,9 +2286,20 @@ static volatile int sRtSleep;              /* the render thread waits on sRtSema
 static SceUID sRtSema = -1;
 int gVitaRtCore = -1;                      /* for the log: where the render thread runs (-1: none) */
 static volatile int sRtWhere;                /* (the watchdog) where the drawing and render threads are: 1 waiting for the render thread, 2 waiting for room, 3 the swap, 4 a picture for the log; 1 a draw, 2 kept parts, 3 asleep */
+volatile unsigned gVitaShown; /* pictures the display has taken (pace_cb): the watchdog sees whether the chip goes on */
+static uint32_t sDpIboUsed; /* (below: the kept parts' indices) */
 void Vita_VglState(char *b, int n) {
-    snprintf(b, (size_t)n, "vita: WATCHDOG:   drawing thread at %d; render thread %s at %d: handed over %u, done %u (written %u), %s\n", gVitaDrawWhere, sRtOn ? "on" : "off",
-             sRtWhere, sRtHead, sRtTail, sRtW, sRtSleep ? "marked asleep" : "not marked asleep");
+    extern void Gs_QueueState(char *b, int n);
+    int k;
+    k = snprintf(b, (size_t)n, "vita: WATCHDOG:   drawing thread at %d; render thread %s at %d: handed over %u, done %u (written %u), %s\n", gVitaDrawWhere, sRtOn ? "on" : "off",
+                 sRtWhere, sRtHead, sRtTail, sRtW, sRtSleep ? "marked asleep" : "not marked asleep");
+    if (k > 0 && k < n) {
+        k += snprintf(b + k, (size_t)(n - k), "vita: WATCHDOG:   pictures shown %u, drawn %u; textures %d; free %u KB video, %u KB main (%u pictures ago); kept parts %u KB, fighters %u, stage %u\n",
+                      gVitaShown, sMemSeen, sTexCount, sMemVramK, sMemRamK, sMemSeen % 60, (unsigned)(sDpIboUsed >> 10), (unsigned)sFtUsed, (unsigned)sStageUsed);
+    }
+    if (k > 0 && k < n) {
+        Gs_QueueState(b + k, n - k);
+    }
 }
 unsigned long long gVitaRt[8];             /* for the log: packets, bytes; waits for the ring to empty, us; waits for room, us; us busy making them; made by the drawing thread itself */
 static inline uint32_t a16(uint32_t n) { return (n + 15u) & ~15u; }
@@ -9547,6 +9574,7 @@ static void pace_swap(int phase) { /* the drawing thread, around the swap */
    this returns) */
 static void pace_cb(void *fb) {
     extern int Vita_InBattle(void);
+    gVitaShown++;
     unsigned long long t = sceKernelGetProcessTimeWide();
     unsigned vc = (unsigned)sceDisplayGetVcount(), T, seq = 0;
     int i, k = -1, paced = 0, missed = 0, prompt = t > sCbRet + 300; /* (prompt: not held back by the picture before: the chip finished it just now) */

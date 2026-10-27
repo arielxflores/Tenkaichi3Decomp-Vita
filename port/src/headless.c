@@ -41,6 +41,12 @@ int __wrap_Progress_Main(int arg) {
             return r;
         }
     }
+#ifdef PORT_VITA
+    if (getenv("BT3_SOAK") != NULL && path == NULL) { /* (Vita, the test runs' soak=1) one battle after another, never the end */
+        extern int Port_SoakNext(int first);
+        return Port_SoakNext(sBattles++ == 0);
+    }
+#endif
     if (sBattles++ > 0) {
         printf("bt3: battle finished\n");
         exit(0);
@@ -110,6 +116,48 @@ int __wrap_Progress_Main(int arg) {
     fflush(stdout);
     return 0;
 }
+
+#ifdef PORT_VITA
+/* The test runs' soak (bt3.txt soak=1, the development build): battles without end, to find what goes wrong after a
+   long time. In turn a COM against COM duel and a team battle of three against three with a quarter of the health,
+   whose fighters are knocked out and replaced quickly (a new model loaded each time), over the attract demo's
+   characters, those with a seam (Videl, the Great Saiyaman, Hercule and others) and the demo's stages. */
+int Port_SoakNext(int first) {
+    static const int kChara[] = {0xA, 0x93, 0x38, 0x2A, 0x6C, 0x37, 0x19, 0x5C, 0x39, 0x27, 0x60, 0x6E, 0x17, 0x6F, 0x86,
+                                 0x49, 0x5B, 0, 0x1E, 0x32, 0x72, 5, 0x25};
+    static const int kStage[] = {0x1D, 6, 2, 1, 0x10, 0x19, 5};
+    static int n;
+    extern unsigned Rand_Range(unsigned n);
+    extern void BattleSetup_SetRule(int screenMode, int mode, int bgm, int timeLimit, int announcer, int stage, int unk10);
+    extern void BattleSetup_SetSide(int sideNo, int control, int pad, int memberCount, int unk1FC, int unk200, int lead, void *bits);
+    extern void BattleSetup_SetMember(int sideNo, int idx, int chara, int costume, int variant, int cpuLevel, float health, void *items);
+    extern void BattleSetup_Finish(void);
+    extern int CpuLevel_FromSetting(unsigned setting);
+    extern void Vita_Log(const char *fmt, ...);
+    const int nc = (int)(sizeof(kChara) / sizeof(kChara[0]));
+    int team = n & 1, members = team ? 3 : 1, stage = kStage[n % (int)(sizeof(kStage) / sizeof(kStage[0]))], i, k;
+
+    if (first) {
+        extern int File_LoadPartitionNw(int pt);
+        extern int File_WaitPartition(int pt);
+        File_LoadPartitionNw(2);
+        File_WaitPartition(2);
+    }
+    Battle_ClearWork();
+    BattleSetup_SetRule(0, 0, (int)Rand_Range(9) + 8, 0, 1, stage, 1);
+    for (i = 0; i < 2; i++) {
+        BattleSetup_SetSide(i, 2, i, members, 1, 1, 0, NULL);
+        for (k = 0; k < members; k++) {
+            BattleSetup_SetMember(i, k, kChara[(n * 5 + i * 3 + k * 7) % nc], 0, 0, CpuLevel_FromSetting(2), team ? 25.0f : 40.0f, NULL);
+        }
+    }
+    BattleSetup_Finish();
+    Vita_Log("soak: battle %d, %s on stage %d: %d against %d\n", n, team ? "three against three" : "a duel", stage,
+             kChara[(n * 5) % nc], kChara[(n * 5 + 3) % nc]);
+    n++;
+    return 0;
+}
+#endif
 
 /* Overlay_Load reads the menu overlay to its PS2 address: there is nothing to read on PC (size 0). */
 int sceOpen(char *name, int flags) { (void)name; (void)flags; return 3; }

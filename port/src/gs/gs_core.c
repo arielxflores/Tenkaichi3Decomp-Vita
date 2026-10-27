@@ -2200,6 +2200,7 @@ enum { GR_WRAP, GR_GIFP, GR_GIFC, GR_REG, GR_VU, GR_SKIP, GR_FBP, GR_FRAMEEND, G
 typedef struct Vu2 { uint64_t texv[2]; uint32_t texa[2], prim[2], ctx[2]; uint32_t pad[2]; } Vu2; /* GR_VU2: program 0's two layers (48 bytes) */
 static uint8_t sGr[GR_SIZE] __attribute__((aligned(64)));
 static volatile unsigned sGrHead, sGrTail; /* bytes taken by the back end / put by the front end (count on and on) */
+static volatile int sGrCurType = -1; /* the record the back end is doing (the watchdog) */
 unsigned gGrWaits;                         /* for the log: times the front end found the queue full */
 
 int Port_InGr(const void *p) {
@@ -3560,6 +3561,7 @@ static void *gr_thread(void *arg) {
             while (h != t) {
                 const GRec *r = (const GRec *)(const void *)&sGr[h % GR_SIZE];
                 unsigned size = r->size;
+                sGrCurType = r->type; /* (the watchdog) */
                 __builtin_prefetch(&sGr[(h + size) % GR_SIZE]);
                 __builtin_prefetch(&sGr[(h + size + 64) % GR_SIZE]);
                 if (gVitaZoneOn & 1) {
@@ -3584,6 +3586,12 @@ static void *gr_thread(void *arg) {
         }
     }
     return NULL;
+}
+
+/* For the watchdog (port/vita/vita_main.c): where the lists' two queues are. Reads only. */
+void Gs_QueueState(char *b, int n) {
+    snprintf(b, (size_t)n, "vita: WATCHDOG:   lists queued %u, unfinished %d (drawn %d); back end queue %u of %u bytes taken, record %d being done; frame %u\n",
+             sQCount, sLists, sDrawnLists, sGrHead, sGrTail, sGrCurType, sFrame);
 }
 
 /* Blocks until the render thread has nothing to do. */
