@@ -200,6 +200,34 @@ static unsigned long long now_us(void) {
     return sceKernelGetProcessTimeWide();
 }
 
+/* The console's count of vertical blanks, as a number that does not wrap. The system's own count (sceDisplayGetVcount)
+   goes round at 65536, 18 min 13 s after the game starts: the waits for "blank N" (here and in vita_vgl.c) then
+   waited for a blank that never came, and the picture stopped with the sound going on (a soak test at 1091 s, and
+   the freezes "after about 20 minutes" players told of). Only the low 16 bits of the system's count are used: each
+   reading moves this count on by how far those went round since the last one (from any thread). It only goes
+   forward: a reading a little behind the last (another thread read a later one meanwhile) is given as that much
+   behind, and a gap of more than 18 minutes (away in the LiveArea) counts short, which nothing minds. */
+static volatile unsigned long long sVcState; /* high half: our count; low half: the system's count last read, and bit 16 once set */
+unsigned Vita_Vcount(void) {
+    unsigned raw = (unsigned)sceDisplayGetVcount() & 0xFFFFu;
+    unsigned long long o, n;
+    do {
+        unsigned last, ext, d;
+        o = __atomic_load_n(&sVcState, __ATOMIC_ACQUIRE);
+        last = (unsigned)o & 0xFFFFu;
+        ext = (unsigned)(o >> 32);
+        d = ((unsigned)o & 0x10000u) ? (raw - last) & 0xFFFFu : 1000u; /* (the first: from 1000) */
+        if (d >= 0xFF00u) {
+            return ext - (0x10000u - d);
+        }
+        if (d == 0) {
+            return ext;
+        }
+        n = ((unsigned long long)(ext + d) << 32) | 0x10000u | raw;
+    } while (!__atomic_compare_exchange_n(&sVcState, &o, n, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE));
+    return (unsigned)(n >> 32);
+}
+
 /* The log: written into memory by whoever logs, and to the file by a thread of its own on the second core, ten
    times a second (a line written straight to the memory card took the game's thread 1-3 ms: the 120 lines every
    two seconds were a fifth of its time). log_sync writes what waits at once (fatal messages, the end). */
@@ -386,8 +414,19 @@ void Vita_VBlank(unsigned vblanks) {
         static unsigned long long vbT;
         static int have;
         unsigned long long now = now_us();
-        unsigned vc = (unsigned)sceDisplayGetVcount();
+        unsigned vc = Vita_Vcount();
         long long late;
+        {   /* (for the log: where the system's own count goes round) */
+            static unsigned lastRaw, wraps;
+            unsigned raw = (unsigned)sceDisplayGetVcount();
+            if (lastRaw == 0) {
+                logf_("vita: the system's count of blanks at the first frame: %u (ours %u)\n", raw, vc);
+            } else if (raw < lastRaw && wraps < 8) {
+                wraps++;
+                logf_("vita: the system's count of blanks went from %u to %u at %u ms (ours %u)\n", lastRaw, raw, (unsigned)((now - sStart) / 1000), vc);
+            }
+            lastRaw = raw ? raw : 1;
+        }
         {   /* Back from the LiveArea (the PS button) or from sleep: the whole program was put aside, its threads
                stopped, more than a second between two of the game's blanks of which it hardly ran. The system can come
                back with its own clocks (the LiveArea's are lower): ours are set again, and the grid of blanks starts
@@ -442,12 +481,20 @@ void Vita_VBlank(unsigned vblanks) {
         if ((int)(vc - nextVc) < 0) {
             extern volatile unsigned char gProfGame;
             gProfGame = 1;
-            while ((int)((unsigned)sceDisplayGetVcount() - nextVc) < 0) {
-                sceDisplayWaitVblankStart();
+            {   /* (never more than the two blanks of a frame and a little: a grid out of reach starts anew) */
+                int guard = 0;
+                while ((int)(Vita_Vcount() - nextVc) < 0) {
+                    if (++guard > 8) {
+                        logf_("vita: waited %d blanks for blank %u (the count at %u): the grid starts anew\n", guard - 1, nextVc, Vita_Vcount());
+                        nextVc = Vita_Vcount();
+                        break;
+                    }
+                    sceDisplayWaitVblankStart();
+                }
             }
             gProfGame = 0;
             vbT = now_us();
-            vbAt = (unsigned)sceDisplayGetVcount();
+            vbAt = Vita_Vcount();
             late = -1;
         } else {
             late = (long long)now - ((long long)vbT + (long long)(int)(nextVc - vbAt) * 16683);
@@ -466,7 +513,7 @@ void Vita_VBlank(unsigned vblanks) {
         }
         nextVc++;
         sStallEndT = now_us();
-        sStallEndVc = (unsigned)sceDisplayGetVcount();
+        sStallEndVc = Vita_Vcount();
         Vita_Pace((int)late); /* (vita_gfx.c: is the next frame drawn?) */
         sLateSum += late > 0 ? (unsigned)late : 0;
     }

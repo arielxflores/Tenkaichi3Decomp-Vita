@@ -9590,7 +9590,8 @@ static void pace_cb(void *fb) {
     extern int Vita_InBattle(void);
     gVitaShown++;
     unsigned long long t = sceKernelGetProcessTimeWide();
-    unsigned vc = (unsigned)sceDisplayGetVcount(), T, seq = 0;
+    extern unsigned Vita_Vcount(void);
+    unsigned vc = Vita_Vcount(), T, seq = 0;
     int i, k = -1, paced = 0, missed = 0, prompt = t > sCbRet + 300; /* (prompt: not held back by the picture before: the chip finished it just now) */
     PaceRec *r = NULL;
 
@@ -9713,7 +9714,14 @@ static void pace_cb(void *fb) {
     }
     if (sPaceOn && (int)(vc + 1 - T) < 0) { /* put up for blank T: after the one before it has begun */
         unsigned long long w0 = sceKernelGetProcessTimeWide();
-        while ((int)((unsigned)sceDisplayGetVcount() - (T - 1)) < 0) {
+        int guard = 0;
+        while ((int)(Vita_Vcount() - (T - 1)) < 0) {
+            if (++guard > 8) { /* (a blank out of reach is not waited for: the next one, and the pace measured anew) */
+                T = Vita_Vcount() + 1;
+                sPaceN = 0;
+                sPaceD = 0;
+                break;
+            }
             sceDisplayWaitVblankStart();
         }
         gPace[4] += (unsigned)(sceKernelGetProcessTimeWide() - w0);
