@@ -532,6 +532,60 @@ void Vita_VBlank(unsigned vblanks) {
         }
         sLastState = state;
     }
+#ifndef PORT_VITA_RELEASE
+    {   /* Tests: each fight's fighters and the forms they can turn into (the log), and with bt3.txt demoxform=<s> the
+           first player turns into its forms in turn every <s> seconds of the fight (transformation's cost: the reports
+           of super saiyan 3 Goku and other transformations dropping the picture rate) */
+        extern void *BtlChar_Get(int player);
+        extern int BtlParam_GetSlotId(void *chr, int slot);
+        extern int BtlCtrl_Transform(int player, int id);
+        extern int BtlCharApi_GetChara(int objId);
+        static int lastState = -9, lastChara[2] = {-1, -1}, next;
+        static unsigned long long fightT, lastX;
+        static const char *xs;
+        int p, k;
+        if (xs == NULL) {
+            xs = getenv("BT3_DEMO_XFORM") != NULL ? getenv("BT3_DEMO_XFORM") : "";
+        }
+        if (state == 3 && lastState != 3) {
+            fightT = t;
+            lastX = t;
+        }
+        lastState = (int)state;
+        for (p = 0; p < 2 && state == 3; p++) {
+            void *chr = BtlChar_Get(p);
+            int c = chr != NULL ? BtlCharApi_GetChara(p) : -1;
+            if (chr != NULL && c != lastChara[p]) {
+                logf_("vita: fighter %d is character %d (0x%02x) at %u ms; its forms: %d %d %d %d\n", p, c, c, (unsigned)((t - sStart) / 1000),
+                      BtlParam_GetSlotId(chr, 0), BtlParam_GetSlotId(chr, 1), BtlParam_GetSlotId(chr, 2), BtlParam_GetSlotId(chr, 3));
+                lastChara[p] = c;
+            }
+        }
+        if (xs[0] != '\0' && atoi(xs) > 0 && state == 3 && t - lastX > (unsigned long long)atoi(xs) * 1000000ull) {
+            void *chr = BtlChar_Get(0);
+            if (chr != NULL) {
+                for (k = 0; k < 4; k++) { /* the next form there is */
+                    int slot = (next + k) & 3, id = BtlParam_GetSlotId(chr, slot);
+                    if (id != 0xFF && id >= 0) {
+                        int ok = BtlCtrl_Transform(0, id);
+                        logf_("vita: test: fighter 0 (character %d) told to turn into %d (form %d), %s, %u ms into the fight\n", BtlCharApi_GetChara(0), id, slot,
+                              ok ? "taken" : "not now", (unsigned)((t - fightT) / 1000));
+                        if (ok) {
+                            next = slot + 1;
+                            lastX = t;
+                        } else { /* (busy: again in a second) */
+                            lastX = t - (unsigned long long)(atoi(xs) - 1) * 1000000ull;
+                        }
+                        break;
+                    }
+                }
+                if (k == 4) {
+                    lastX = t;
+                }
+            }
+        }
+    }
+#endif
     {   /* the sweep (sSweepSec) */
         static unsigned long long sFightT;
         static int sSweepDone, sShots;
@@ -1312,7 +1366,7 @@ static void read_settings(void) {
             extern int gVitaDump;
             gVitaDump = atoi(eq);
         } else if (strcmp(line, "demostage") == 0 || strcmp(line, "demochara1") == 0 || strcmp(line, "demochara2") == 0 ||
-                   strcmp(line, "demoduel") == 0) { /* the test fight: stage, fighters, a duel with intros */
+                   strcmp(line, "demoduel") == 0 || strcmp(line, "demoxform") == 0) { /* the test fight: stage, fighters, a duel with intros */
             char env[32];
             snprintf(env, sizeof(env), "BT3_DEMO_%s", line + 4);
             for (char *c = env; *c; c++) {
