@@ -15,9 +15,14 @@
  *   mods/pzs3us1/00042.bin       member 42 of PZS3US1.AFS (the folder is the archive's name; any extension, the
  *                                number may have fewer digits: 42.pak works too)
  *   mods/disc/DATA/<NAME>        a file of the disc's DATA folder (a film, or a whole archive: PZS3US1.AFS)
+ *   mods/<Pack>/...              a mod's own folder, laid out the same way inside (or <Pack>/DATA/<NAME>: a modded
+ *                                disc's DATA folder as it is); packs in the order of their names, after the loose
+ *                                files; _<Pack> is not used
  * The folders are looked through once at start (no probe of the memory card on every read). The setting "mods"
  * (Options > Controller > Vita Settings, on unless set to 0) turns them off without deleting them; it takes effect
- * at the next start. The game's program (SLUS_216.78, BIN/DBZP.BIN) cannot be modded: it is compiled into the port.
+ * at the next start. The game's program (SLUS_216.78, BIN/DBZP.BIN) cannot be modded: it is compiled into the port;
+ * a pack with its own, changed copy of it (Budokai Tenkaichi 4 and other mods of the program) is left out, and the
+ * start tells of it (Vita_ModsStart).
  */
 #include <ctype.h>
 #include <psp2/io/dirent.h>
@@ -28,6 +33,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 #define SECTOR 2048
 enum { STAT_STOP = 1, STAT_READING = 2, STAT_READEND = 3, STAT_ERROR = 4 };
@@ -52,12 +58,19 @@ static Partition sPart[8];
 
 /* ---- mods ---- */
 #define MODS_DIR "ux0:data/bt3/mods"
-typedef struct ModFile { uint16_t ptid; uint32_t flid; char name[48]; } ModFile; /* a member (ptid < 8) or a DATA file (ptid 8) */
+#define MOD_DIRS 96
+#define MOD_PACKS 24
+typedef struct ModFile { uint16_t ptid, dir; uint32_t flid; char name[48]; } ModFile; /* a member (ptid < 8) or a DATA file (ptid 8), in folder `dir` */
 static ModFile *sMods;
 static int sModN, sModCap, sModsOn = -1;
+static char sModDir[MOD_DIRS][176]; /* the folders the files were found in */
+static int sModDirN;
+static char sPack[MOD_PACKS][64]; /* the packs in use, in their order */
+static int sPackN, sPacksDone;
+static char sModNotice[700]; /* what start shows (packs left out), empty: nothing */
 unsigned gVitaModFiles; /* for the log */
 
-static void mod_add(int ptid, uint32_t flid, const char *name) {
+static void mod_add(int ptid, int dir, uint32_t flid, const char *name) {
     if (sModN == sModCap) {
         ModFile *m = realloc(sMods, (size_t)(sModCap ? sModCap * 2 : 64) * sizeof(ModFile));
         if (m == NULL) {
@@ -67,39 +80,35 @@ static void mod_add(int ptid, uint32_t flid, const char *name) {
         sModCap = sModCap ? sModCap * 2 : 64;
     }
     sMods[sModN].ptid = (uint16_t)ptid;
+    sMods[sModN].dir = (uint16_t)dir;
     sMods[sModN].flid = flid;
     snprintf(sMods[sModN].name, sizeof(sMods[0].name), "%s", name);
     sModN++;
 }
 
-/* The files of one folder of mods/: members by their number, or (ptid 8) DATA files by their name. */
+/* The files of one folder of mods: members by their number, or (ptid 8) DATA files by their name. */
 static void mod_scan(const char *dir, int ptid) {
-    SceUID d = sceIoDopen(dir);
+    SceUID d;
     SceIoDirent e;
     int n = 0;
-    if (d < 0) {
+    if (sModDirN >= MOD_DIRS || (d = sceIoDopen(dir)) < 0) {
         return;
     }
+    snprintf(sModDir[sModDirN], sizeof(sModDir[0]), "%s", dir);
     memset(&e, 0, sizeof(e));
     while (sceIoDread(d, &e) > 0) {
-        if (SCE_S_ISDIR(e.d_stat.st_mode) || e.d_name[0] == '.') {
+        if (SCE_S_ISDIR(e.d_stat.st_mode) || e.d_name[0] == '.' || strlen(e.d_name) >= sizeof(sMods[0].name)) {
             continue;
         }
         if (ptid < 8) {
             char *end;
             unsigned long v = strtoul(e.d_name, &end, 10);
             if (end != e.d_name && (*end == '\0' || *end == '.')) {
-                mod_add(ptid, (uint32_t)v, e.d_name);
+                mod_add(ptid, sModDirN, (uint32_t)v, e.d_name);
                 n++;
             }
         } else {
-            char up[48];
-            size_t i;
-            for (i = 0; i + 1 < sizeof(up) && e.d_name[i] != '\0'; i++) {
-                up[i] = (char)toupper((unsigned char)e.d_name[i]);
-            }
-            up[i] = '\0';
-            mod_add(8, 0, up);
+            mod_add(8, sModDirN, 0, e.d_name);
             n++;
         }
     }
@@ -108,21 +117,202 @@ static void mod_scan(const char *dir, int ptid) {
         extern void Vita_Log(const char *fmt, ...);
         Vita_Log("mods: %d file(s) in %s\n", n, dir);
         gVitaModFiles += (unsigned)n;
+        sModDirN++;
     }
+}
+
+/* two files the same, byte for byte (a pack's copy of the game's program against the disc's) */
+static int same_file(const char *a, const char *b) {
+    SceUID fa = sceIoOpen(a, SCE_O_RDONLY, 0), fb = sceIoOpen(b, SCE_O_RDONLY, 0);
+    int same = fa >= 0 && fb >= 0 && sceIoLseek(fa, 0, SCE_SEEK_END) == sceIoLseek(fb, 0, SCE_SEEK_END);
+    static uint8_t ba[32768], bb[32768];
+    SceOff at = 0;
+    while (same) {
+        int na = sceIoPread(fa, ba, sizeof(ba), at), nb = sceIoPread(fb, bb, sizeof(bb), at);
+        if (na != nb || na < 0) {
+            same = 0;
+        } else if (na == 0) {
+            break;
+        } else {
+            same = memcmp(ba, bb, (size_t)na) == 0;
+            at += na;
+        }
+    }
+    if (fa >= 0) {
+        sceIoClose(fa);
+    }
+    if (fb >= 0) {
+        sceIoClose(fb);
+    }
+    return same;
+}
+
+/* A pack whose own copy of the game's program differs from the disc's (a mod made by changing the program, as
+   Budokai Tenkaichi 4 is): its files are made for that program, which this port does not have (the USA disc's is
+   built into it), so the pack is left out. The program's files: SLUS_216.78 (or any other PS2 program at the pack's
+   top: SLES_, SLPS_, SCUS_ ..., *.ELF) and BIN/DBZP.BIN. Returns the file that differs, or NULL. */
+static const char *pack_program(const char *pack, char *what, size_t size) {
+    extern char gVitaDisc[];
+    char a[300], b[300];
+    SceUID d;
+    SceIoDirent e;
+    const char *bad = NULL;
+    if ((d = sceIoDopen(pack)) >= 0) {
+        memset(&e, 0, sizeof(e));
+        while (bad == NULL && sceIoDread(d, &e) > 0) {
+            size_t l = strlen(e.d_name);
+            if (SCE_S_ISDIR(e.d_stat.st_mode) ||
+                !((l == 11 && e.d_name[4] == '_' && e.d_name[8] == '.' && toupper((unsigned char)e.d_name[0]) == 'S') ||
+                  (l > 4 && strcasecmp(e.d_name + l - 4, ".elf") == 0))) {
+                continue;
+            }
+            snprintf(a, sizeof(a), "%s/%s", pack, e.d_name);
+            snprintf(b, sizeof(b), "%s/SLUS_216.78", gVitaDisc);
+            if (!same_file(a, b)) {
+                snprintf(what, size, "%s", e.d_name);
+                bad = what;
+            }
+        }
+        sceIoDclose(d);
+    }
+    snprintf(a, sizeof(a), "%s/BIN/DBZP.BIN", pack);
+    if (bad == NULL && (d = sceIoOpen(a, SCE_O_RDONLY, 0)) >= 0) {
+        sceIoClose(d);
+        snprintf(b, sizeof(b), "%s/BIN/DBZP.BIN", gVitaDisc);
+        if (!same_file(a, b)) {
+            snprintf(what, size, "BIN/DBZP.BIN");
+            bad = what;
+        }
+    }
+    return bad;
+}
+
+static int name_cmp(const void *a, const void *b) {
+    return strcasecmp((const char *)a, (const char *)b);
+}
+
+/* The packs: each folder of mods/ other than the archives' (pzs3us0, ...) and disc, laid out as mods/ is (its own
+   pzs3us1/00042.bin, disc/DATA/<NAME>), or holding a disc's DATA folder as it is (<pack>/DATA/PZS3US1.AFS: the files
+   of a modded disc copied over). Used in the order of their names, after the loose files of mods/ (the first file
+   found for a member is the one used); a folder whose name begins with _ or - is not used. */
+static void packs_find(void) {
+    extern void Vita_Log(const char *fmt, ...);
+    static char names[MOD_PACKS * 2][64];
+    int n = 0, i, left = 0, iso = 0;
+    SceUID d;
+    SceIoDirent e;
+    if (sPacksDone) {
+        return;
+    }
+    sPacksDone = 1;
+    if ((d = sceIoDopen(MODS_DIR)) < 0) {
+        return;
+    }
+    memset(&e, 0, sizeof(e));
+    while (sceIoDread(d, &e) > 0) {
+        size_t l = strlen(e.d_name);
+        if (!SCE_S_ISDIR(e.d_stat.st_mode)) {
+            iso |= l > 4 && strcasecmp(e.d_name + l - 4, ".iso") == 0;
+            continue;
+        }
+        if (e.d_name[0] == '.' || e.d_name[0] == '_' || e.d_name[0] == '-' || strcasecmp(e.d_name, "disc") == 0 || strcasecmp(e.d_name, "DATA") == 0 ||
+            strncasecmp(e.d_name, "pzs3", 4) == 0 || l >= sizeof(names[0]) || n >= MOD_PACKS * 2) {
+            continue;
+        }
+        snprintf(names[n++], sizeof(names[0]), "%s", e.d_name);
+    }
+    sceIoDclose(d);
+    qsort(names, (size_t)n, sizeof(names[0]), name_cmp);
+    for (i = 0; i < n && sPackN < MOD_PACKS; i++) {
+        char dir[176], what[64];
+        snprintf(dir, sizeof(dir), MODS_DIR "/%s", names[i]);
+        if (pack_program(dir, what, sizeof(what)) != NULL) {
+            size_t k = strlen(sModNotice);
+            Vita_Log("mods: %s left out: its %s is not the USA disc's (a mod of the game's program)\n", dir, what);
+            if (left++ < 4 && k + 120 < sizeof(sModNotice)) {
+                snprintf(sModNotice + k, sizeof(sModNotice) - k, "  %s (its %s)\n", names[i], what);
+            }
+            continue;
+        }
+        snprintf(sPack[sPackN++], sizeof(sPack[0]), "%s", names[i]);
+    }
+    if (left > 0) {
+        char head[sizeof(sModNotice)];
+        snprintf(head, sizeof(head),
+                 "These mods in %s were left out:\n\n%s\n"
+                 "They change the game's program, which this port has built in\n"
+                 "(the USA disc's): their files are made for their own program\n"
+                 "and do not work without it. Mods like Budokai Tenkaichi 4 are\n"
+                 "of this kind. Mods that change only the disc's DATA files work.\n\n"
+                 "Put _ in front of a folder's name to leave it out without this\nmessage.",
+                 MODS_DIR, sModNotice);
+        snprintf(sModNotice, sizeof(sModNotice), "%s", head);
+    } else if (iso) {
+        snprintf(sModNotice, sizeof(sModNotice),
+                 "There is an .iso file in %s: a disc image is not read\n"
+                 "there. Copy the files of a modded disc into a folder of its\n"
+                 "own instead (mods/<name>/DATA/PZS3US1.AFS and so on).", MODS_DIR);
+    }
+    Vita_Log("mods: %d pack(s) in use, %d left out\n", sPackN, left);
 }
 
 static int mods_on(void) {
     if (sModsOn < 0) {
         extern int Port_Setting(const char *name, int def);
         extern void Vita_Log(const char *fmt, ...);
+        int i;
         sModsOn = Port_Setting("mods", 1) != 0;
         if (sModsOn) {
+            packs_find();
             mod_scan(MODS_DIR "/disc/DATA", 8);
+            mod_scan(MODS_DIR "/DATA", 8); /* (a disc's DATA folder put straight into mods/) */
+            for (i = 0; i < sPackN; i++) {
+                char dir[176];
+                snprintf(dir, sizeof(dir), MODS_DIR "/%s/disc/DATA", sPack[i]);
+                mod_scan(dir, 8);
+                snprintf(dir, sizeof(dir), MODS_DIR "/%s/DATA", sPack[i]);
+                mod_scan(dir, 8);
+            }
         } else {
             Vita_Log("mods: off (setting)\n");
         }
     }
     return sModsOn;
+}
+
+/* the folders of mods of an archive (`name`: its name in lower case), the loose ones' first */
+static void mods_scan_archive(const char *name, int ptid) {
+    char dir[176];
+    int i;
+    snprintf(dir, sizeof(dir), MODS_DIR "/%s", name);
+    mod_scan(dir, ptid);
+    for (i = 0; i < sPackN; i++) {
+        snprintf(dir, sizeof(dir), MODS_DIR "/%s/%s", sPack[i], name);
+        mod_scan(dir, ptid);
+    }
+}
+
+/* At start, before the game (vita_main.c): the packs looked through, and what was left out shown until a button is
+   pressed (the text screen is up then). */
+const char *Vita_ModsStart(void) {
+    mods_on();
+    return sModNotice[0] != '\0' ? sModNotice : NULL;
+}
+
+/* For Vita Settings' guide line: the mods in use, in at most `size` characters. */
+void Vita_ModsSummary(char *out, int size) {
+    int i, k;
+    if (!mods_on()) {
+        snprintf(out, (size_t)size, "not looked for");
+        return;
+    }
+    k = snprintf(out, (size_t)size, "%d file%s", sModN, sModN == 1 ? "" : "s");
+    for (i = 0; i < sPackN && k < size; i++) {
+        k += snprintf(out + k, (size_t)(size - k), "%s%s", i == 0 ? " (" : ", ", sPack[i]);
+    }
+    if (sPackN > 0 && k < size) {
+        snprintf(out + k, (size_t)(size - k), ")");
+    }
 }
 
 /* the mods/ path of member `flid` of partition `ptid`, or of DATA file `name` (upper case); 0: none */
@@ -132,12 +322,9 @@ static int mod_path(int ptid, uint32_t flid, const char *name, char *out, size_t
         return 0;
     }
     for (i = 0; i < sModN; i++) {
-        if (ptid < 8 && sMods[i].ptid == ptid && sMods[i].flid == flid) {
-            snprintf(out, size, MODS_DIR "/%s/%s", sPart[ptid].name, sMods[i].name);
-            return 1;
-        }
-        if (ptid == 8 && sMods[i].ptid == 8 && strcmp(sMods[i].name, name) == 0) {
-            snprintf(out, size, MODS_DIR "/disc/DATA/%s", sMods[i].name);
+        if ((ptid < 8 && sMods[i].ptid == ptid && sMods[i].flid == flid) ||
+            (ptid == 8 && sMods[i].ptid == 8 && strcasecmp(sMods[i].name, name) == 0)) {
+            snprintf(out, size, "%s/%s", sModDir[sMods[i].dir], sMods[i].name);
             return 1;
         }
     }
@@ -223,9 +410,7 @@ int ADXF_LoadPartitionNw(int ptid, char *fname, void *dir, void *ptinfo) {
         }
         pt->name[i] = '\0';
         if (mods_on()) {
-            char dir[96];
-            snprintf(dir, sizeof(dir), MODS_DIR "/%s", pt->name);
-            mod_scan(dir, ptid & 7);
+            mods_scan_archive(pt->name, ptid & 7);
         }
     }
     if (sceIoPread(pt->fd, head, 8, 0) != 8 || memcmp(head, "AFS\0", 4) != 0 || head[1] == 0 || head[1] > 0x100000) {
@@ -252,7 +437,7 @@ void *ADXF_OpenAfs(int ptid, int flid) {
         return NULL;
     }
     {   /* a mod of this member: its own file */
-        char path[160];
+        char path[300];
         if (mod_path(ptid & 7, (uint32_t)flid, NULL, path, sizeof(path))) {
             SceUID fd = sceIoOpen(path, SCE_O_RDONLY, 0);
             if (fd >= 0) {
@@ -427,7 +612,7 @@ void *Vita_LoadWhole(const char *path, uint32_t *size) {
     if (sscanf(path, "afs:%d:%d", &ptid, &flid) == 2) {
         Partition *pt = &sPart[ptid & 7];
         uint32_t n;
-        char mod[160];
+        char mod[300];
         if (pt->fd <= 0 || flid < 0 || (uint32_t)flid >= pt->count) {
             return NULL;
         }

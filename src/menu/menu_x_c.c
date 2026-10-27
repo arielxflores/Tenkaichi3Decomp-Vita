@@ -305,6 +305,7 @@ extern void Vita_Pad2SettingSet(int on);
 extern int Port_Setting(const char *name, int def);
 extern void Port_SettingSave(const char *name, int value);
 extern void Port_SettingsWrite(void);
+extern void Vita_ModsSummary(char *out, int size);
 static s32 sVitaSetLevel; /* 0 closed, 1..6 above */
 static s32 sVitaSetItem;  /* the setting chosen on level 1 */
 static s32 sVitaTouchBtn; /* the button chosen on level 2 */
@@ -328,8 +329,27 @@ static void Option_VitaSetGuide(void) {
             sprintf(text, "Clashes: %s\nwins beam and rush clashes.", Port_ClashSquare() ? "pressing Square fast" : "turning the left stick");
         } else if (v == 2) {
             sprintf(text, "2nd Pad: a second controller\nis player 2 (PS TV): %s.", Vita_Pad2Setting() ? "ON" : "OFF");
+        } else if (Option_VitaModsOn()) {
+            s32 k, line = 0, sp = -1;
+            Vita_ModsSummary(more, 50);
+            sprintf(text, "Mods (ux0:data/bt3/mods): ON.\nIn use: %s.", more);
+            for (k = 0; text[k] != '\0'; k++) { /* (lines of up to 34 letters, broken at spaces) */
+                if (text[k] == '\n') {
+                    line = 0;
+                    sp = -1;
+                    continue;
+                }
+                if (text[k] == ' ') {
+                    sp = k;
+                }
+                if (++line > 34 && sp >= 0) {
+                    text[sp] = '\n';
+                    line = k - sp;
+                    sp = -1;
+                }
+            }
         } else {
-            sprintf(text, "Mods: files in ux0:data/bt3/mods\nreplace the disc's: %s.", Option_VitaModsOn() ? "ON" : "OFF");
+            sprintf(text, "Mods: files in ux0:data/bt3/mods\nreplace the disc's: OFF.");
         }
         break;
     case 2: /* the button under the cursor, and where it is now */

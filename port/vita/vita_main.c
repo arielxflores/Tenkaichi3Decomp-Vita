@@ -1549,6 +1549,7 @@ int __wrap_main(int argc, char **argv) {
     psvDebugScreenInit();
     sceIoMkdir("ux0:data", 0777);
     sceIoMkdir(HOME, 0777);
+    sceIoMkdir(HOME "/mods", 0777); /* (where mods go: vita_file.c) */
     sLog = fopen(HOME "/log" SFX, "a");
     logf_("\n======== new run ========\n");
     {   /* the parts of a log split before (logsplit=): this run's own, if any, are made anew */
@@ -1600,6 +1601,16 @@ int __wrap_main(int argc, char **argv) {
 #endif
     find_disc();
     Vita_LoadGameData(gVitaDisc);
+    {   /* mods (vita_file.c): the packs left out are told of before the game starts */
+        extern const char *Vita_ModsStart(void);
+        const char *note = Vita_ModsStart();
+        if (note != NULL) {
+            logf_("vita: mods notice shown\n");
+            psvDebugScreenPrintf("\n\e[33m%s\e[39m\n\nPress CROSS to go on.\n", note);
+            wait_buttons(SCE_CTRL_CROSS);
+            psvDebugScreenPrintf("\e[H\e[2J");
+        }
+    }
     Vita_MapMemory(sHeapCdram);
     logf_("vita: %s floats, game heap at 0x%08X, disc folder %s, %s\n", gPortFastFloat ? "hardware" : "exact", (unsigned)gVitaHeapBase, gVitaDisc,
           getenv("BT3_REPLAY") != NULL ? getenv("BT3_REPLAY") : "attract-demo fight");
