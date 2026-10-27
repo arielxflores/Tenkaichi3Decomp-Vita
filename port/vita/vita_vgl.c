@@ -7087,11 +7087,25 @@ const void *gVglPlan; /* gs_core.c sets it for the strip being drawn (the back e
    the back end must wait for the chip before anything is written over (a record in the queue says so). */
 unsigned gVitaChipGen = 1;
 unsigned gVglConstGen; /* counts the times the back end took new strip constants */
+/* Also in a fight, when the fighters' copies have nearly filled their buffers: each fighter brought in (a team
+   battle's next member, a transformation, a fusion) adds its model, and the ones gone stay. Full, the new ones were
+   drawn the slow way, every frame: a team battle fell to 10-12 pictures a second from the third change of fighter.
+   Everything is let go then and made again from the next picture (a moment's stutter); not more than once in ten
+   seconds, so that two models too large for the buffers together do not make it every picture. */
+#define DP_IBO_BYTES (4u << 20)
 int Vita_ChipResetDue(void) {
     extern int Vita_InBattle(void);
     static int was;
-    int now = Vita_InBattle(), r = 0;
-    if (was && !now && (sStageUsed != 0 || sFtUsed != 0)) {
+    static unsigned lastFull;
+    int now = Vita_InBattle(), r = 0, full = 0;
+    if (now && (sFtUsed > FT_VERTS - FT_VERTS / 8 || sFtIdxUsed > FT_IDX - FT_IDX / 8 || sDpIboUsed > DP_IBO_BYTES - DP_IBO_BYTES / 8) &&
+        (lastFull == 0 || gGsFrame - lastFull > 600)) {
+        full = 1;
+        lastFull = gGsFrame;
+        Vita_Log("vgl: frame %u: the chip's copies nearly full (fighters %u of %u vertices, %u of %u indices; kept parts %u KB): let go\n",
+                 gGsFrame, (unsigned)sFtUsed, (unsigned)FT_VERTS, (unsigned)sFtIdxUsed, (unsigned)FT_IDX, (unsigned)(sDpIboUsed >> 10));
+    }
+    if (((was && !now) || full) && (sStageUsed != 0 || sFtUsed != 0)) {
         memset(sStageCache, 0, sizeof(sStageCache));
         sStageUsed = 0;
         memset(sFtCache, 0, sizeof(sFtCache));
