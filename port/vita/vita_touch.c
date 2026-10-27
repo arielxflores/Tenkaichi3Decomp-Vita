@@ -21,6 +21,7 @@
  * Nothing of the game is changed: the touches become buttons in the controller packet (vita_gfx.c Port_PadRead).
  */
 #include <psp2/io/stat.h>
+#include <psp2/kernel/processmgr.h>
 #include <psp2/touch.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -773,9 +774,45 @@ unsigned Vita_TouchPad(void) {
         }
     }
     if (rear_btns != 0) { /* (each quarter its button, or nothing: the others do not grow into it) */
+        /* A finger resting on the lower half (L3 / R3) is let go after a second: the hands holding the Vita touch
+           the rear pad there, and R3 held stops the fighter from moving and dashing (BtlInput_TestAction 1 and 3),
+           which players took for a dead stick. The game wants L3 / R3 pressed and released (a transformation: R3
+           let go within 13 of its frames) or held with a direction for 12 frames, never held for a second. L2 / R2
+           (charging, dashing) are held as long as the finger is there. A touch counts again once it is lifted. */
+        static struct { uint8_t id, used; unsigned long long t; } held[SCE_TOUCH_MAX_REPORT];
+        unsigned long long now = sceKernelGetProcessTimeWide();
+        int k;
         sceTouchPeek(SCE_TOUCH_PORT_BACK, &back, 1);
+        for (k = 0; k < SCE_TOUCH_MAX_REPORT; k++) {
+            int on = 0;
+            for (i = 0; i < (int)back.reportNum && i < SCE_TOUCH_MAX_REPORT; i++) {
+                on |= held[k].used && back.report[i].id == held[k].id;
+            }
+            if (!on) {
+                held[k].used = 0; /* (lifted) */
+            }
+        }
         for (i = 0; i < (int)back.reportNum && i < SCE_TOUCH_MAX_REPORT; i++) {
             int left = back.report[i].x < (sBackInfo.minAaX + sBackInfo.maxAaX) / 2, upper = back.report[i].y < (sBackInfo.minAaY + sBackInfo.maxAaY) / 2;
+            unsigned long long since = now;
+            for (k = 0; k < SCE_TOUCH_MAX_REPORT; k++) {
+                if (held[k].used && held[k].id == back.report[i].id) {
+                    since = held[k].t;
+                    break;
+                }
+            }
+            if (k == SCE_TOUCH_MAX_REPORT) { /* a new touch: from now */
+                for (k = 0; k < SCE_TOUCH_MAX_REPORT && held[k].used; k++) {
+                }
+                if (k < SCE_TOUCH_MAX_REPORT) {
+                    held[k].used = 1;
+                    held[k].id = back.report[i].id;
+                    held[k].t = now;
+                }
+            }
+            if (!upper && now - since > 1000000ull) {
+                continue; /* resting there */
+            }
             btn |= (upper ? (left ? B_L2 : B_R2) : (left ? B_L3 : B_R3)) & rear_btns;
         }
     }
