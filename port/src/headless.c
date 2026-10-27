@@ -119,7 +119,8 @@ int __wrap_Progress_Main(int arg) {
 
 #ifdef PORT_VITA
 /* The test runs' soak (bt3.txt soak=1, the development build): battles without end, to find what goes wrong after a
-   long time. In turn a COM against COM duel and a team battle of three against three with a quarter of the health,
+   long time (the attract demo's rule: no menu between them). In turn a COM against COM duel and a team battle of
+   three against three with a quarter of the health,
    whose fighters are knocked out and replaced quickly (a new model loaded each time), over the attract demo's
    characters, those with a seam (Videl, the Great Saiyaman, Hercule and others) and the demo's stages. */
 int Port_SoakNext(int first) {
@@ -144,7 +145,9 @@ int Port_SoakNext(int first) {
         File_WaitPartition(2);
     }
     Battle_ClearWork();
-    BattleSetup_SetRule(0, 0, (int)Rand_Range(9) + 8, 0, 1, stage, 1);
+    /* (the attract demo's rule, mode 7: a fight that ends by itself and goes back without the end-of-fight menu; mode 0
+       stopped there, waiting for a press) */
+    BattleSetup_SetRule(0, 7, (int)Rand_Range(9) + 8, 5, 4, stage, 0);
     for (i = 0; i < 2; i++) {
         BattleSetup_SetSide(i, 2, i, members, 1, 1, 0, NULL);
         for (k = 0; k < members; k++) {

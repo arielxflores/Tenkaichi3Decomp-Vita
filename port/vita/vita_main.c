@@ -388,6 +388,31 @@ void Vita_VBlank(unsigned vblanks) {
         unsigned long long now = now_us();
         unsigned vc = (unsigned)sceDisplayGetVcount();
         long long late;
+        {   /* Back from the LiveArea (the PS button) or from sleep: the whole program was put aside, its threads
+               stopped, more than a second between two of the game's blanks of which it hardly ran. The system can come
+               back with its own clocks (the LiveArea's are lower): ours are set again, and the grid of blanks starts
+               anew from here. */
+            static unsigned long long lastT, lastRun;
+            SceKernelThreadInfo ti;
+            memset(&ti, 0, sizeof(ti));
+            ti.size = sizeof(ti);
+            if (sceKernelGetThreadInfo(sceKernelGetThreadId(), &ti) >= 0) {
+                if (lastT != 0 && now - lastT > 1000000 && (ti.runClocks - lastRun) * 4 < now - lastT) {
+                    int cpu = scePowerGetArmClockFrequency(), bus = scePowerGetBusClockFrequency(), gpu = scePowerGetGpuClockFrequency(),
+                        xbar = scePowerGetGpuXbarClockFrequency();
+                    scePowerSetArmClockFrequency(444);
+                    scePowerSetBusClockFrequency(222);
+                    scePowerSetGpuClockFrequency(222);
+                    scePowerSetGpuXbarClockFrequency(166);
+                    have = 0;
+                    logf_("vita: back after %u ms away (the LiveArea or sleep); the clocks were %d / %d / %d / %d MHz, set again to %d / %d / %d / %d\n",
+                          (unsigned)((now - lastT) / 1000), cpu, bus, gpu, xbar, scePowerGetArmClockFrequency(), scePowerGetBusClockFrequency(),
+                          scePowerGetGpuClockFrequency(), scePowerGetGpuXbarClockFrequency());
+                }
+                lastRun = ti.runClocks;
+            }
+            lastT = now;
+        }
         {   /* the game's thread stopped between two of its blanks without running: the whole program
                held up from outside (1.3 s of a fight at 64 s, with no thread of it busy) */
             static unsigned long long endRun;

@@ -37,11 +37,13 @@ typedef struct Partition {
     uint32_t count;
     uint32_t *table; /* offset, size per file */
     char name[16];   /* the archive's name in lower case, without ".afs": its folder under mods/ */
+    char path[300];  /* where it was opened (to open it again) */
 } Partition;
 
 typedef struct PortFile {
     SceUID fd;
     int owned; /* a loose file: closed with the handle */
+    int pt;    /* else the archive it is in (its descriptor is the partition's, opened again if it goes bad) */
     uint32_t base, size;
     int32_t sizeSct, posSct, stat;
 } PortFile;
@@ -212,6 +214,7 @@ int ADXF_LoadPartitionNw(int ptid, char *fname, void *dir, void *ptinfo) {
     if (pt->fd < 0) {
         Vita_Fatal("archive not found:\n  %s\n(error 0x%08X)", path, (unsigned)pt->fd);
     }
+    snprintf(pt->path, sizeof(pt->path), "%s", path);
     {   /* its name, for its folder of mods */
         const char *b = strrchr(path, '/') != NULL ? strrchr(path, '/') + 1 : path;
         size_t i;
@@ -270,6 +273,7 @@ void *ADXF_OpenAfs(int ptid, int flid) {
     f = Port_LowAlloc(sizeof(PortFile));
     f->fd = pt->fd;
     f->owned = 0;
+    f->pt = ptid & 7;
     f->posSct = 0;
     f->base = pt->table[flid * 2];
     f->size = pt->table[flid * 2 + 1];
@@ -324,6 +328,22 @@ int ADXF_GetFsizeSct(void *h) {
     return ((PortFile *)h)->sizeSct;
 }
 
+/* An archive's descriptor that has gone bad (a read failed): opened again. A memory card adapter's driver can let the
+   descriptors of a program go after the system has put it aside (the PS button, sleep); the reads came back empty and
+   the game took zeros for its files. 1 when it was opened again. */
+static int pt_reopen(Partition *pt, int err) {
+    extern void Vita_Log(const char *fmt, ...);
+    SceUID fd;
+    if (pt->path[0] == '\0' || (fd = sceIoOpen(pt->path, SCE_O_RDONLY, 0)) < 0) {
+        Vita_Log("vita: reading %s failed (0x%08X), and it cannot be opened again\n", pt->path, (unsigned)err);
+        return 0;
+    }
+    Vita_Log("vita: reading %s failed (0x%08X): opened again\n", pt->path, (unsigned)err);
+    sceIoClose(pt->fd);
+    pt->fd = fd;
+    return 1;
+}
+
 /* Reads nsct sectors at the current position; the part of the last sector behind the end of the file is zero. */
 int ADXF_ReadNw(void *h, int nsct, void *buf) {
     PortFile *f = h;
@@ -344,7 +364,14 @@ int ADXF_ReadNw(void *h, int nsct, void *buf) {
     }
     {
         unsigned long long t0 = sceKernelGetProcessTimeWide(), dt;
+        if (!f->owned) {
+            f->fd = sPart[f->pt].fd; /* (the archive's, which may have been opened again) */
+        }
         got = have != 0 ? sceIoPread(f->fd, buf, have, (SceOff)f->base + pos) : 0;
+        if (got != (int)have && have != 0 && !f->owned && pt_reopen(&sPart[f->pt], got)) {
+            f->fd = sPart[f->pt].fd;
+            got = sceIoPread(f->fd, buf, have, (SceOff)f->base + pos);
+        }
         dt = sceKernelGetProcessTimeWide() - t0;
         gVitaFileReads++;
         gVitaFileUs += dt;
@@ -409,7 +436,12 @@ void *Vita_LoadWhole(const char *path, uint32_t *size) {
         }
         n = pt->table[flid * 2 + 1];
         p = malloc(n ? n : 1);
-        if (p == NULL || sceIoPread(pt->fd, p, n, pt->table[flid * 2]) != (int)n) {
+        if (p != NULL && n != 0 && sceIoPread(pt->fd, p, n, pt->table[flid * 2]) != (int)n && !(pt_reopen(pt, -1) &&
+                                                                                       sceIoPread(pt->fd, p, n, pt->table[flid * 2]) == (int)n)) {
+            free(p);
+            return NULL;
+        }
+        if (p == NULL) {
             free(p);
             return NULL;
         }
