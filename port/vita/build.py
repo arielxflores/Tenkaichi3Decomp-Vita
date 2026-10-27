@@ -68,8 +68,8 @@ R2L_ARGS = ["-x", "cpp-output", "--target=arm-none-eabi", "-mfloat-abi=soft", "-
 
 
 def r2l(text):
-    """The game's preprocessed text with call arguments evaluated right to left (ptr32.r2l) and the PS2's rule for
-    shift counts written out (port/vita/srcfix.py). Returns (text, shifts rewritten)."""
+    """The game's preprocessed text with call arguments evaluated right to left (ptr32.r2l), the PS2's rule for shift
+    counts and its float division by zero written out (port/vita/srcfix.py). Returns (text, shifts rewritten)."""
     if os.environ.get("BT3_CLANG_PY"):
         sys.path.insert(0, os.environ["BT3_CLANG_PY"])
     import clang.cindex as ci
@@ -80,6 +80,7 @@ def r2l(text):
             ci.Config.set_library_file(lib)
     import ptr32, srcfix
     data, n = srcfix.shifts(ptr32.r2l(text.encode("latin-1"), R2L_ARGS), R2L_ARGS)
+    data, _ = srcfix.divs(data, R2L_ARGS)
     return data.decode("latin-1"), n
 
 

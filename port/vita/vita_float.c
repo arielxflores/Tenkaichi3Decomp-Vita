@@ -196,10 +196,15 @@ uint64_t PortD_ul2d(uint64_t v) { return q((double)v); }
 
 /* ---- the C maths functions that are not built from the PS2's library sources (port/src/plat_libm.c on PC):
    not called by the simulation. ---- */
-float Port_ceilf(float a) { return ceilf(a); }
-float Port_expf(float a) { return expf(a); }
-float Port_logf(float a) { return logf(a); }
-float Port_fmodf(float a, float b) { return fmodf(a, b); }
+/* (no NaN and no infinity handed back to the game: the PS2's largest number of that sign, as its float unit gives) */
+static float ps2(float r) {
+    uint32_t v = u(r);
+    return EXP(v) == 255 ? f((v & 0x7FFFFFu) != 0 ? FMAX : (v & SIGN) | FMAX) : r;
+}
+float Port_ceilf(float a) { return ps2(ceilf(a)); }
+float Port_expf(float a) { return ps2(expf(a)); }
+float Port_logf(float a) { return ps2(logf(a)); }
+float Port_fmodf(float a, float b) { return ps2(fmodf(a, b)); }
 /* pow with double arguments: one caller in the game (the replay menu's digits, src/menu/menu_za_d.c). */
 uint64_t PortD_pow(uint64_t a, uint64_t b) { return q(pow(d(a), d(b))); }
 

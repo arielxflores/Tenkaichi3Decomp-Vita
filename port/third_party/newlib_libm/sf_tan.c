@@ -32,7 +32,12 @@
 	if(ix <= 0x3f490fda) return __kernel_tanf(x,z,1);
 
     /* tan(Inf or NaN) is NaN */
+#ifdef PORT_VITA
+	/* (Vita, hardware floats) such a pattern is a number on the PS2, and x - x is 0 there */
+	else if (!FLT_UWORD_IS_FINITE(ix)) return 0.0f;
+#else
 	else if (!FLT_UWORD_IS_FINITE(ix)) return x-x;		/* NaN */
+#endif
 
     /* argument reduction needed */
 	else {

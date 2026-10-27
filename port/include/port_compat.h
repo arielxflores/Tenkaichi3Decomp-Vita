@@ -40,4 +40,26 @@ extern unsigned char gPortHw[], gPortGsReg[];
 /* C library calls of the game that must not go to the host's versions (see port/src/plat_mem.c). */
 #define malloc Port_Malloc
 
+#ifdef PORT_VITA
+/* PS Vita: the game's float division (port/vita/srcfix.py divs() writes every `a / b` of floats in the game's text
+   as __port_fdiv(a, b), and `a /= b` as __port_fdiv_to(&(a), b)). The game's code runs on the Vita's float unit,
+   where x / 0 is an infinity and 0 / 0 a NaN; the PS2's gives the largest number, of the sign of the two operands
+   (a divisor that is a denormal is a zero there). Neither exists on the PS2, and the game's loops are not made for
+   them: a NaN or an infinity that reached a fighter's height, an angle being wrapped or a path's length made a loop
+   that never ends (the game stood still, the music played on). */
+static inline __attribute__((always_inline)) float __port_fdiv(float a, float b) {
+    union { float f; unsigned u; } x, y;
+    y.f = b;
+    if (__builtin_expect((y.u & 0x7F800000u) == 0, 0)) {
+        x.f = a;
+        x.u = ((x.u ^ y.u) & 0x80000000u) | 0x7F7FFFFFu;
+        return x.f;
+    }
+    return a / b;
+}
+static inline __attribute__((always_inline)) float __port_fdiv_to(float *p, float b) {
+    return *p = __port_fdiv(*p, b);
+}
+#endif
+
 #endif

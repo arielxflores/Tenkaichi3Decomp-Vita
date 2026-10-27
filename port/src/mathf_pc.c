@@ -33,6 +33,17 @@ static float from(uint32_t u) {
 float Mathf_WrapAngle(float angle, float half) {
     uint32_t a = bits(angle), h = bits(half);
     uint32_t range = RefVu0_AddBits(h, h);
+#ifdef PORT_VITA
+    /* (Vita) The game's own code runs on the float unit, where a NaN or an infinity can come about (none exists on the
+       PS2). Either, or a number so large that adding the range no longer changes it, kept the loops below going for
+       ever: the game stood still with the music playing. Such an angle is taken as 0; a merely large one is first
+       brought near the range (a quotient's worth of steps the loops would take one by one). */
+    if (((a >> 23) & 0xFF) == 0xFF) {
+        a = 0;
+    } else if (((a >> 23) & 0xFF) > ((range >> 23) & 0xFF) + 20) {
+        a = bits((float)__builtin_fmod((double)from(a), (double)from(range)));
+    }
+#endif
 
     while (RefVu0_LtBits(a, range)) {
         a = RefVu0_AddBits(a, range);

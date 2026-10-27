@@ -1410,6 +1410,13 @@ s32 BtlMove_PushOut(BtlMoveChr *chr) {
 f32 BtlMove_CalcVerticalSpeed(f32 height, f32 extra) {
     f32 v = 0.0f;
 
+#ifdef PORT_VITA
+    /* (Vita: hardware floats) a NaN, an infinity or a height the loop cannot step through (it ends on the change of
+       sign) kept the game in this loop for ever; the PS2 has neither of the first two */
+    if (!(height > -100000.0f && height < 100000.0f)) {
+        height = 0.0f;
+    }
+#endif
     for (;;) {
         if (0.0f < height) {
             height -= v;
@@ -1473,6 +1480,11 @@ void BtlMove_BeginRiseToOpponent(BtlMoveChr *chr) {
 f32 BtlMove_CalcJumpSpeed(f32 height) {
     f32 v = 0.0f;
 
+#ifdef PORT_VITA
+    if (!(height > -100000.0f && height < 100000.0f)) { /* (as BtlMove_CalcVerticalSpeed) */
+        height = 0.0f;
+    }
+#endif
     for (;;) {
         height -= v;
         v += BTL_KMH(50.0f);
