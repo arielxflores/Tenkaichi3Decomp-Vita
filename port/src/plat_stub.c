@@ -90,7 +90,12 @@ int sceDbcInit() { return 1; }
 int scePad2Init() { return 1; }
 static int sPadSockets;
 int scePad2CreateSocket() { return sPadSockets++; }
+#ifdef PORT_VITA /* the second controller is there while a pad is paired for player 2 (PS TV; limeking614-dev's fork) */
+extern int Vita_Pad2Present(void);
+int scePad2GetState(int socket) { return socket == 1 && !Vita_Pad2Present() ? 0 : 1; }
+#else
 int scePad2GetState() { return 1; }            /* connected and ready */
+#endif
 /* A DualShock 2's button profile: every digital button, both sticks, every pressure-sensitive button. */
 int scePad2GetButtonProfile(int socket, unsigned char *profile) {
     (void)socket;
