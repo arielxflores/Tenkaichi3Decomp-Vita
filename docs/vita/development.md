@@ -34,6 +34,9 @@ all of them. The full list, each with a comment, is `read_settings` in `port/vit
 | `perf=0` | No processor counters (libperf), to measure the speed as the release has it |
 | `safe=<bits>`, `safe2=<bits>` | Parts of the renderer switched off or done the plain way, to find the cause of a fault (`gVglSafe` and `gVglSafe2` in `port/vita/vita_vgl.c`) |
 | `dump=1` | A copy of each file the game loads whole, in `ux0:data/bt3/dump/` |
+| `drawlog=<a>-<b>`, `drawlogverts=<n>` | Each draw of frames (lists) a..b in the log: its path, state and size; with `drawlogverts`, the vertices of its GS draws of n vertices or more |
+| `bislist=<n>`, `bisfrom=<i>`, `bisto=<j>`, `biskind=<mask>`, `bisinv=1` | In frame n, the draws i..j-1 of the kinds in mask (1 GS primitives, 2 the stage's batches, 4 the fighters' batches, 8 / 16 the stage's / fighters' kept parts) left out, or (`bisinv`) only those drawn: with `film`, which draw makes a wrong picture |
+| `zlayer=<n>` | Depth steps a stage layer laid on the stage leads by (default 2; 0: none) |
 
 Most of the remaining settings switch one optimisation of the renderer off (`fastlane=0`, `stx=0`, `wtc=0`, ...)
 so that its effect can be measured or a picture compared with and without it.

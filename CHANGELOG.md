@@ -18,6 +18,8 @@ New
 Fixed
 
 - The game no longer freezes after about 18 minutes of play (the picture stopped while the music went on).
+- The space stage near Frieza's ship: parts of the red planet's clouds no longer vanish for a frame while the fighters
+  move (it looked like flickering patches).
 - The "ObjSeam" crash with Videl, the Great Saiyaman, Hercule and other characters (Majin Buu saga, Galactic
   Crisis, Makyo Star, some special attacks).
 - Freezes from invalid maths results the PS2 never produces.
@@ -33,9 +35,7 @@ Fixed
 
 Known issues
 
-- On the space stage near Frieza's ship (the red planet) and on Namek (the ground under the water), parts of the
-  clouds or the water are sometimes missing for a frame while the fighters move, which looks like flickering
-  patches. Being worked on.
-- Not reproduced yet: a flicker on the mission select screen and the title screen's text looking sliced. A short
-  video of either helps a lot.
+- Not reproduced yet: on Namek, the ground under the water flickering while the fighters move; a flicker on the
+  mission select screen; the title screen's text looking sliced. A short video of any of them (and where in the
+  fight it happens) helps a lot.
 - Ad-hoc and online play between two Vitas are not implemented yet.
