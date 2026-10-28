@@ -30,3 +30,12 @@ Fixed
 - A finger resting on the rear touch pad no longer holds L3 or R3.
 - Setup: the game's files are found in more folder layouts, and the error lists what was found.
 - When the picture stops, the game writes `ux0:data/bt3/hang.txt` for bug reports.
+
+Known issues
+
+- On the space stage near Frieza's ship (the red planet) and on Namek (the ground under the water), parts of the
+  clouds or the water are sometimes missing for a frame while the fighters move, which looks like flickering
+  patches. Being worked on.
+- Not reproduced yet: a flicker on the mission select screen and the title screen's text looking sliced. A short
+  video of either helps a lot.
+- Ad-hoc and online play between two Vitas are not implemented yet.
