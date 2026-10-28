@@ -1297,6 +1297,28 @@ static void read_settings(void) {
         } else if (strcmp(line, "zlead") == 0) { /* depth steps a GS primitive leads by (0: none, as before) */
             extern int gVitaZLead;
             gVitaZLead = atoi(eq);
+        } else if (strcmp(line, "drawlogverts") == 0) { /* with drawlog: the vertices of its GS draws of n vertices or more */
+            extern int gVitaDrawLogVerts;
+            gVitaDrawLogVerts = atoi(eq);
+        } else if (strcmp(line, "drawlog") == 0) { /* each draw of lists a..b into the log: drawlog=a-b (vita_vgl.c bis_draw) */
+            extern int gVitaDrawLogFrom, gVitaDrawLogTo;
+            gVitaDrawLogFrom = atoi(eq);
+            gVitaDrawLogTo = strchr(eq, '-') != NULL ? atoi(strchr(eq, '-') + 1) : gVitaDrawLogFrom;
+        } else if (strcmp(line, "bisinv") == 0) { /* 1: only the draws bisfrom..bisto-1 of the kinds biskind drawn (the others of the list left out) */
+            extern int gVitaBisInv;
+            gVitaBisInv = atoi(eq) != 0;
+        } else if (strcmp(line, "bislist") == 0 || strcmp(line, "bisfrom") == 0 || strcmp(line, "bisto") == 0 || strcmp(line, "biskind") == 0) {
+            extern int gVitaBisList, gVitaBisFrom, gVitaBisTo, gVitaBisKind; /* draws of a list left out (vita_vgl.c bis_draw) */
+            *(line[3] == 'l' ? &gVitaBisList : line[3] == 'f' ? &gVitaBisFrom : line[3] == 't' ? &gVitaBisTo : &gVitaBisKind) = atoi(eq);
+        } else if (strcmp(line, "bit7px") == 0) { /* 0: the stencil's copy of alpha bit 7 left as it was under a primitive whose alpha crosses 0x80 */
+            extern int gVitaBit7Px;
+            gVitaBit7Px = atoi(eq);
+        } else if (strcmp(line, "afail") == 0) { /* the alpha test's AFAIL modes (vita_vgl.c gVitaAFail; 0: no test, as before) */
+            extern int gVitaAFail;
+            gVitaAFail = atoi(eq);
+        } else if (strcmp(line, "zclamp") == 0) { /* 0: a model's vertex beyond the depth range cut off by the GPU, as before */
+            extern int gVitaZClamp;
+            gVitaZClamp = atoi(eq);
         } else if (strcmp(line, "introwait") == 0) { /* 0: only the first blanks of the intro wait (warm=) */
             gVitaIntroWait = atoi(eq);
         } else if (strcmp(line, "planes") == 0) { /* 0: an upload into part of the 32-bit pixels compared by all of them, as before */

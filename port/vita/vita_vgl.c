@@ -203,6 +203,27 @@ static uint32_t sFtSlotNext; /* places given in the order strips are first writt
 static const float *sFtSlots;
 static int sFtSlotsUsed; /* places 0..n-1 hold something (the rest is not sent) */ /* the batch being drawn: its strips' own uniforms (96) */
 static uint32_t sFtUsed;
+/* The GS has no near or far plane: a model's vertex whose depth is beyond the buffer's range is drawn there, its
+   depth held at the range's end. A GPU cuts such a triangle off at the plane instead. bt3.txt zclamp=1: the model and
+   stage shaders (and vu_transform) hold a vertex's depth inside the range; a vertex behind the eye (w < 0) is still
+   cut. Off by default: no scene was seen to need it (the red planet's flicker was the layers' depth, zl_u). */
+int gVitaZClamp = 0;
+static char *zclamp_src(const char *src, const char *after, const char *add, GLint *len) {
+    const char *at = strstr(src, after);
+    size_t n = strlen(src), k, m = strlen(add);
+    char *o;
+    if (!gVitaZClamp || at == NULL || (o = (char *)malloc(n + m + 1)) == NULL) {
+        *len = (GLint)n;
+        return NULL;
+    }
+    k = (size_t)(at - src) + strlen(after);
+    memcpy(o, src, k);
+    memcpy(o + k, add, m);
+    memcpy(o + k + m, src + k, n - k + 1);
+    *len = (GLint)(n + m);
+    return o;
+}
+#define ZCLAMP_V "    if (vPos.w > 0.0f) { vPos.z = clamp(vPos.z, -vPos.w, vPos.w); }\n"
 static const char kVertFt[] =
     "uniform float4 uF[20];\n" /* what the strips of a batch share */
     "uniform float4 uS[192];\n" /* each strip's own, 16 places of 12: bones 0..9, light, colour */
@@ -704,8 +725,10 @@ static void shader_init(void) {
         GLuint vs2 = glCreateShader(GL_CG_VERTEX_SHADER_EXT), p2;
         static const char *const names[9] = {"uR0", "uR1", "uR2", "uR3", "uK1", "uK2", "uMode", "uTest", "uTex"};
         int k, good = 1;
-        src = kVertStage; len = (GLint)sizeof(kVertStage) - 1; ok = 0;
+        char *zc = zclamp_src(kVertStage, "    vPos = sv * uK1 + sv.w * uK2;\n", ZCLAMP_V, &len);
+        src = zc != NULL ? zc : kVertStage; ok = 0;
         glShaderSource(vs2, 1, &src, &len);
+        free(zc);
         glCompileShader(vs2);
         glGetShaderiv(vs2, GL_COMPILE_STATUS, &ok);
         if (!ok) {
@@ -742,8 +765,10 @@ static void shader_init(void) {
         GLuint vs3 = glCreateShader(GL_CG_VERTEX_SHADER_EXT), p3;
         static const char *const names[5] = {"uF", "uMode", "uTest", "uTex", "uS"};
         int k, good = 1;
-        src = kVertFt; len = (GLint)sizeof(kVertFt) - 1; ok = 0;
+        char *zc = zclamp_src(kVertFt, "    vPos = sv * uF[16] + sv.w * uF[17];\n", ZCLAMP_V, &len);
+        src = zc != NULL ? zc : kVertFt; ok = 0;
         glShaderSource(vs3, 1, &src, &len);
+        free(zc);
         glCompileShader(vs3);
         glGetShaderiv(vs3, GL_COMPILE_STATUS, &ok);
         if (!ok) {
@@ -790,7 +815,9 @@ static void shader_init(void) {
         int k;
         for (k = 0; k < 2; k++) {
             GLuint vsd = glCreateShader(GL_CG_VERTEX_SHADER_EXT);
-            src = srcs[k]; len = lens[k]; ok = 0;
+            char *zc = zclamp_src(srcs[k], k == 0 ? "    vPos = sv * U[16] + sv.w * U[17];\n" : "    vPos = sv * U[4] + sv.w * U[5];\n", ZCLAMP_V, &len);
+            src = zc != NULL ? zc : srcs[k]; ok = 0;
+            (void)lens;
             Vita_Log("vgl: start: the direct %s vertex shader\n", k == 0 ? "fighter" : "stage");
             glShaderSource(vsd, 1, &src, &len);
             glCompileShader(vsd);
@@ -924,8 +951,12 @@ static void vu_shader_init(void) {
     GLint len, ok = 0;
     char log[400];
 
-    src = kVertVu; len = (GLint)sizeof(kVertVu) - 1;
-    glShaderSource(vs, 1, &src, &len);
+    {
+        char *zc = zclamp_src(kVertVu, "    float z = 2.0f * s.z / uC[17].z - s.w;\n", "    if (s.w > 0.0f) { z = clamp(z, -s.w, s.w); }\n", &len);
+        src = zc != NULL ? zc : kVertVu;
+        glShaderSource(vs, 1, &src, &len);
+        free(zc);
+    }
     glCompileShader(vs);
     glGetShaderiv(vs, GL_COMPILE_STATUS, &ok);
     if (!ok) {
@@ -2140,7 +2171,38 @@ typedef struct FlushIn {
     const float *stageM;      /* kind 1: 24 floats */
     const uint32_t *stageIx;  /* kind 1 */
     const float *ft, *ftSlots; /* kind 2: 80 floats; 48 per place taken */
+    unsigned frame;           /* (the list it belongs to: the draw log and bisection, below) */
 } FlushIn;
+/* ---- A list's draws one by one (test runs): bt3.txt drawlog=a-b puts each draw of lists a..b into the log (its
+   path, state and size), and bislist=n bisfrom=i bisto=j biskind=m leaves out the draws i..j-1 of list n whose
+   kind is in m (1 GS primitives, 2 the stage's strips, 4 the fighters' strips, 8 the stage's kept parts, 16 the
+   fighters' kept parts): which draw makes a wrong picture. ---- */
+int gVitaDrawLogVerts = 1 << 30, gVitaDrawLogFrom = -1, gVitaDrawLogTo = -1, gVitaBisList = -1, gVitaBisFrom, gVitaBisTo, gVitaBisKind = 31, gVitaBisInv;
+static unsigned sBisFrame = ~0u;
+static int sBisN;
+static int bis_draw(unsigned frame, int cat, const State *s, int count, int extra, const float *bb) {
+    int idx, skip;
+    if (frame != sBisFrame) {
+        sBisFrame = frame;
+        sBisN = 0;
+    }
+    idx = sBisN++;
+    skip = (int)frame == gVitaBisList && (cat & gVitaBisKind) && (idx >= gVitaBisFrom && idx < gVitaBisTo) != gVitaBisInv;
+    if (gVitaBisInv && idx == 0) {
+        skip = 0; /* (the list's clear, always) */
+    }
+    if ((int)frame >= gVitaDrawLogFrom && (int)frame <= gVitaDrawLogTo) {
+        char b[80];
+        b[0] = 0;
+        if (bb != NULL) {
+            snprintf(b, sizeof(b), " box %.3f %.3f %.3f %.3f", bb[0], bb[1], bb[2], bb[3]);
+        }
+        Vita_Log("dl %u %d k%d t%d n%d x%d tex%u e%u b%u(%u,%u,%u) a%u(%u,%02x) z%u(%u,%u) m%x d%u f%u sc%d,%d,%d,%d%s%s\n", frame, idx, cat, (int)s->target, count, extra,
+                 (unsigned)s->tex, s->env, s->blend, s->src, s->dst, s->eq, s->atest, s->afunc, s->aref, s->ztest, s->zfunc, s->zwrite, s->mask,
+                 s->date, s->fba, s->sx, s->sy, s->sw, s->sh, b, skip ? " SKIP" : "");
+    }
+    return skip;
+}
 static void flush_impl(const FlushIn *in);
 static void flush_run(const FlushIn *in);
 static void rt_put_draw(const FlushIn *in);
@@ -2228,6 +2290,7 @@ __attribute__((hot)) static void flush_one(void) {
     in.ftSlots = sFtSlots;
     in.ftSlotsUsed = sFtSlotsUsed;
     in.prof = sProf;
+    in.frame = gGsFrame;
     sVertCount = 0;
     if (sRtOn) {
         rt_put_draw(&in);
@@ -2564,7 +2627,7 @@ static void apply_fixed(const State *s) {
             glStencilFunc(GL_EQUAL, t, 1);
             glStencilOp(GL_KEEP, GL_KEEP, w == t ? GL_KEEP : w > t ? GL_INCR : GL_DECR);
         } else {
-            glStencilFunc(GL_ALWAYS, s->sop - 1, 1);
+            glStencilFunc(GL_ALWAYS, s->sop == 3 ? 0 : s->sop - 1, 1); /* (3: bit7_mixed's first pass, 0 where drawn) */
             glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
         }
     }
@@ -2602,6 +2665,25 @@ static void apply_fixed(const State *s) {
     }
     scissor_of(s);
 }
+/* A stage part laid on what is drawn already (GEQUAL, no depth written: the red planet's surface layers and its
+   clouds): on the console its depth and that of the surface under it come out as the same
+   whole number of the 24-bit buffer, or the layer's one higher, and it passes. Here the chip works the depths out
+   with their fractions, from another part's triangles: in whole triangles of it the layer came out a hair behind
+   and was not drawn (the clouds of the red planet near Frieza's ship gone in patches as the camera moved). The layer
+   leads by zlayer depth steps (2: the same as the GS primitives' gVitaZLead; 16 already let the planet's far side
+   show at its rim), in all three ways the stage is drawn: kept parts, the stage's batches, vu_transform. */
+int gVitaZLayer = 2;
+static const float *zl_u(const float *u, uint32_t usize, const State *s, int mode) {
+    static float t[128];
+    if (gVitaZLayer == 0 || mode == 1 || !s->ztest || s->zwrite || s->zfunc != 2 || usize > sizeof(t)) {
+        return u;
+    }
+    memcpy(t, u, usize);
+    t[22] += (float)gVitaZLayer * t[18]; /* (U[5].z, the offset of z, by steps of U[4].z: 2 / the buffer's range) */
+    return t;
+}
+static int sVfLast;           /* the pixel shader variant of the draw being made (flush_impl) */
+unsigned gVitaBit7Passes;    /* for the log: second passes for bit 7 of the alpha (bit7_mixed) */
 static void flush_impl(const FlushIn *in) {
     const State *s = &in->s;
     const GLuint useProg = in->kind == 1 ? sStageProg : in->kind == 2 ? sFtProg : sProg;
@@ -2613,6 +2695,37 @@ static void flush_impl(const FlushIn *in) {
     }
     if (in->prof > 0 && ((in->kind == 1 && (in->prof == 5 || in->prof == 7)) || (in->kind == 2 && (in->prof == 6 || in->prof == 7)))) {
         return; /* (the GPU profile: this part left out) */
+    }
+    if (VITA_RARE(gVitaBisList >= 0 || gVitaDrawLogTo >= 0)) {
+        float bb[4] = {1e9f, 1e9f, -1e9f, -1e9f};
+        int k, cnt = in->kind == 1 ? in->stageIcount : in->idx != NULL ? in->idxCount : in->vertCount;
+        if (in->kind == 0 && (int)in->frame >= gVitaDrawLogFrom && (int)in->frame <= gVitaDrawLogTo) {
+            for (k = 0; k < in->vertCount; k++) { /* (clip space over w) */
+                float w = in->verts[k].w != 0.0f ? in->verts[k].w : 1.0f, x = in->verts[k].x / w, y = in->verts[k].y / w;
+                if (x < bb[0]) { bb[0] = x; } if (y < bb[1]) { bb[1] = y; }
+                if (x > bb[2]) { bb[2] = x; } if (y > bb[3]) { bb[3] = y; }
+            }
+        }
+        if (in->kind == 0 && (int)in->frame >= gVitaDrawLogFrom && (int)in->frame <= gVitaDrawLogTo && in->vertCount >= gVitaDrawLogVerts) {
+            /* (its vertices and indices too: drawlogverts=n, the draws of n vertices or more) */
+            for (k = 0; k < in->vertCount; k++) {
+                const V *q = &in->verts[k];
+                Vita_Log("dv %u %d %d %.6g %.6g %.6g %.6g %.5g %.5g %.5g %u %u %u %u\n", in->frame, in->frame == sBisFrame ? sBisN : 0, k, q->x, q->y, q->z, q->w, q->s, q->t, q->q,
+                         q->c[0], q->c[1], q->c[2], q->c[3]);
+            }
+            for (k = 0; in->idx != NULL && k < in->idxCount; k += 24) {
+                char b[200];
+                int j, len = 0;
+                for (j = k; j < in->idxCount && j < k + 24; j++) {
+                    len += snprintf(b + len, sizeof(b) - (size_t)len, " %u", in->idx[j]);
+                }
+                Vita_Log("di %u %d%s\n", in->frame, in->frame == sBisFrame ? sBisN : 0, b);
+            }
+        }
+        if (bis_draw(in->frame, in->kind == 1 ? 2 : in->kind == 2 ? 4 : 1, s, cnt, in->kind == 2 ? in->ftSlotsUsed : in->vertCount,
+                     in->kind == 0 && bb[0] < 1e8f ? bb : NULL)) {
+            return;
+        }
     }
     target_set(s->target); /* (the picture or the work page) */
     if (sLogFrames > 0) {
@@ -2643,6 +2756,7 @@ static void flush_impl(const FlushIn *in) {
             vf |= 1024; /* the colour scaled by its own alpha (up to 2) here, the blend's source factor one */
         }
         sPremul = (vf & 1024) != 0;
+        sVfLast = vf;
         const Variant *var = (gVglSafe & 32768) ? NULL : variant(in->kind == 1 ? 1 : in->kind == 2 ? 2 : 0, vf);
         if (var == NULL) {
             sPremul = 0;
@@ -2714,7 +2828,7 @@ static void flush_impl(const FlushIn *in) {
         glEnableVertexAttribArray(1);
         glEnableVertexAttribArray(2);
         if (in->kind == 1) { /* the stage's strips: vertices already on the chip, one matrix for the batch */
-            const float *m = in->stageM;
+            const float *m = zl_u(in->stageM, 96, s, 0); /* (a layer laid on the stage leads: zl_u) */
             int k;
             for (k = 0; k < 6; k++) {
                 glUniform4fv(sVarUse != NULL ? sVarUse->u[k] : sStU[k], 1, &m[k * 4]);
@@ -2760,6 +2874,31 @@ static void flush_impl(const FlushIn *in) {
             glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(V), (const void *)16);
             ZM(38);
             if (in->idx != NULL) { glDrawElements(GL_TRIANGLES, in->idxCount, GL_UNSIGNED_SHORT, in->idx); } else { glDrawArrays(s->topo ? GL_LINES : GL_TRIANGLES, 0, in->vertCount); }
+            if (VITA_RARE(s->sop == 3)) { /* bit 7 of the alpha into the stencil where it is set (bit7_mixed) */
+                const Variant *v2 = variant(0, (sVfLast & ~1024) | 4);
+                if (v2 != NULL && v2->test >= 0) {
+                    glUseProgram(v2->prog);
+                    if ((sVfLast & 3) && v2->tex >= 0) {
+                        glUniform1i(v2->tex, 0);
+                    }
+                    glUniform4f(v2->test, 6.0f, 1.0f, 0.0f, 0.0f); /* GEQUAL 0x80 */
+                    glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+                    glDisable(GL_BLEND);
+                    if (s->ztest) {
+                        glDepthMask(GL_FALSE);
+                        if (s->zwrite && s->zfunc == 3) {
+                            glDepthFunc(GL_GEQUAL); /* (the pixels the first pass drew: their depth is the buffer's now) */
+                        }
+                    }
+                    glEnable(GL_STENCIL_TEST);
+                    glStencilMask(1);
+                    glStencilFunc(GL_ALWAYS, 1, 1);
+                    glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+                    if (in->idx != NULL) { glDrawElements(GL_TRIANGLES, in->idxCount, GL_UNSIGNED_SHORT, in->idx); } else { glDrawArrays(s->topo ? GL_LINES : GL_TRIANGLES, 0, in->vertCount); }
+                    GLC_RESET(); /* (the next draw sets all of its state again) */
+                    gVitaBit7Passes++;
+                }
+            }
             ZM(39);
             glBindBuffer(GL_ARRAY_BUFFER, 0);
         } else {
@@ -3178,12 +3317,20 @@ static int work_mark(uint32_t fbp) {
     }
     return i;
 }
+/* The GS's alpha test can let the pixels that fail it write the picture but not the depth (AFAIL FB_ONLY), or the
+   depth only, or the colour only. Those draws were drawn as if there were no test: every pixel wrote the depth.
+   bt3.txt afail=1: a draw whose failing pixels keep the depth (FB_ONLY, RGB_ONLY) writes no depth; afail=2: its
+   failing pixels not drawn (the alpha test as for KEEP). */
+int gVitaAFail;
+static unsigned sAfSeen[48];
+static int sAfSeenN;
 static int state_of_(int ctx, int type, State *d) {
     uint64_t prim = gGs.prim, t0 = gGs.tex0[ctx], test = gGs.test[ctx], cl = gGs.clamp[ctx], sc = gGs.scissor[ctx], fr = gGs.frame[ctx];
     uint32_t fpsm = (uint32_t)((fr >> 24) & 0x3F), fbp = (uint32_t)(fr & 0x1FF), zbp = (uint32_t)(gGs.zbuf[ctx] & 0x1FF), fbmsk = (uint32_t)(fr >> 32);
     uint32_t tpsm = (uint32_t)((t0 >> 20) & 0x3F), tbp = (uint32_t)(t0 & 0x3FFF);
     int tme = (prim >> 4) & 1, abe = (prim >> 6) & 1, i, x0, y0, x1, y1;
     int page = 0, pageTex = 0, pageSlot = WP_OTHER; /* drawn into the work page / textured from it (154: its slot) */
+    int afx = 0; /* an alpha test that every pixel fails: 1 the picture only, 2 the depth only, 3 the colour only */
     WorkTarget *wtT = NULL, *wtS = NULL; /* drawn into a work target / textured from one */
 
     if (Gs_PsmBits(fpsm) == 16 || fbp == zbp) {
@@ -3325,6 +3472,32 @@ static int state_of_(int ctx, int type, State *d) {
         }
         d->eq = k[0] == 3 ? 1 : k[1] == 3 ? 2 : 0;
     }
+    d->zwrite = !((gGs.zbuf[ctx] >> 32) & 1);
+    if ((test & 1) && ((test >> 12) & 3) != 0 && ((test >> 1) & 7) != 1) { /* (ALWAYS: no pixel fails) */
+        int af = (int)((test >> 12) & 3);
+        if (sAfSeenN < 48) { /* (the log: each kind once) */
+            unsigned key = (unsigned)(test & 0xFFFFF) | (unsigned)d->zwrite << 20 | (unsigned)page << 21 | (unsigned)abe << 23 | (unsigned)tme << 24 |
+                           (unsigned)(((test >> 16) & 7) << 25);
+            int j;
+            for (j = 0; j < sAfSeenN && sAfSeen[j] != key; j++) {
+            }
+            if (j == sAfSeenN) {
+                sAfSeen[sAfSeenN++] = key;
+                Vita_Log("vgl: afail: frame %u test %05x (afail %d func %d ref %02x ztest %d zfunc %d) zwrite %d page %d abe %d tme %d alpha %010llx\n",
+                         gGsFrame, (unsigned)(test & 0xFFFFF), af, (int)((test >> 1) & 7), (unsigned)((test >> 4) & 0xFF),
+                         (int)((test >> 16) & 1), (int)((test >> 17) & 3), d->zwrite, page, abe, tme, (unsigned long long)(gGs.alpha[ctx] & 0xFFFFFFFFFFull));
+            }
+        }
+        if (gVitaAFail != 0 && ((test >> 1) & 7) == 0) {
+            afx = af; /* NEVER: every pixel fails, so it writes just what AFAIL says (below) */
+        } else if (gVitaAFail == 1 && af != 2) {
+            d->zwrite = 0; /* the pixels that fail keep the depth: those that pass write it too, here none do */
+        } else if (gVitaAFail == 1 || gVitaAFail == 2) {
+            d->atest = 1; /* the pixels that fail not drawn at all */
+            d->afunc = (uint8_t)((test >> 1) & 7);
+            d->aref = (uint8_t)((test >> 4) & 0xFF);
+        }
+    }
     if ((test & 1) && ((test >> 12) & 3) == 0) {
         d->atest = 1;
         d->afunc = (uint8_t)((test >> 1) & 7);
@@ -3336,9 +3509,16 @@ static int state_of_(int ctx, int type, State *d) {
     }
     d->ztest = (uint8_t)((test >> 16) & 1);
     d->zfunc = (uint8_t)((test >> 17) & 3);
-    d->zwrite = !((gGs.zbuf[ctx] >> 32) & 1);
     d->mask = (uint8_t)(((fbmsk & 0xFF) != 0xFF) | ((fbmsk & 0xFF00) != 0xFF00) << 1 | ((fbmsk & 0xFF0000) != 0xFF0000) << 2 |
                         ((fbmsk & 0xFF000000u) != 0xFF000000u) << 3);
+    if (afx == 1) {
+        d->zwrite = 0;
+    } else if (afx == 2) {
+        d->mask = 0;
+    } else if (afx == 3) {
+        d->zwrite = 0;
+        d->mask &= 7;
+    }
     d->sop = (d->mask & 8) && d->fba ? 2 : 0; /* (a flat fill's own alpha: GsGpu_Draw) */
     x0 = (int)(sc & 0x7FF);
     x1 = (int)((sc >> 16) & 0x7FF) + 1;
@@ -3554,6 +3734,10 @@ void Vita_AmLog(void) { /* vita_main.c: the model draws that read the picture's 
         gVitaClutSub = 0;
         sSplitPics = 0;
         vgl_bt3_splits = 0;
+        if (gVitaBit7Passes != 0) {
+            Vita_Log("vgl:   second passes for alpha bit 7 (primitives whose alpha crosses 0x80): %u\n", gVitaBit7Passes);
+            gVitaBit7Passes = 0;
+        }
         if (sWpReady) {
             Vita_Log("vgl:   work page (ground shadows): %u GS primitives drawn into it, %u not (the page spoiled) | %u clears, %u of them drawn | reads: %u given the page, "
                      "%u not (spoiled), %u not (another form) | %u switches of target | silhouette strips: %u drawn directly, %u the other way | silhouettes: %u drawn, %u shadows laid with the one before\n",
@@ -3891,6 +4075,21 @@ static void fl_sig(const State *dp, const GsVertex *v, uint64_t t0, int ctx, int
         sSigGsN++;
     }
 }
+/* A primitive that writes the alpha from its vertices, some of them with bit 7 set and some not: the GS writes bit 7
+   pixel by pixel (the alpha as it goes across the triangle), and TEST.DATE later reads it, while the stencil (this back
+   end's copy of bit 7) is left as it was under such a triangle. bt3.txt bit7px=1: the stencil set to 0 where the
+   triangle is drawn and to 1 again where its alpha is 0x80 or more (a second pass, flush_impl). Off by default: no
+   scene was seen to need it (the full-screen grids the stages lay before their DATE layers write an alpha of 0). */
+int gVitaBit7Px = 0;
+static int bit7_mixed(const State *d) {
+    if (!gVitaBit7Px || d->date || d->target != 0) {
+        return 0;
+    }
+    if (d->atest && d->afunc != 1 && !((d->afunc == 5 || d->afunc == 6) && d->aref <= 0x80)) {
+        return 0; /* (the second pass's test would not include the draw's own) */
+    }
+    return 3;
+}
 static int fl_book(State *dp, int ctx, const GsVertex *v, int gouraud, uint64_t t0, int type) {
     const int n = type == 6 ? 2 : 3, lastOnly = type == 6 || !gouraud; /* (a sprite too, as the full way) */
     State d = *dp;
@@ -3904,7 +4103,7 @@ static int fl_book(State *dp, int ctx, const GsVertex *v, int gouraud, uint64_t 
         for (k = lastOnly ? n - 1 : 0; k < n; k++) {
             hi += v[k].a >= 0x80;
         }
-        d.sop = hi == 0 ? 1 : (lastOnly ? hi == 1 : hi == n) ? 2 : 0;
+        d.sop = hi == 0 ? 1 : (lastOnly ? hi == 1 : hi == n) ? 2 : bit7_mixed(&d);
     }
     for (k = 1; k < n; k++) {
         if (v[k].x < bx0) { bx0 = v[k].x; } if (v[k].x > bx1) { bx1 = v[k].x; }
@@ -4166,7 +4365,7 @@ static void GsGpu_Draw_impl(int type, int ctx, const GsVertex *v) {
         for (i = type == 6 || !gouraud ? n - 1 : 0; i < n; i++) {
             hi += v[i].a >= 0x80;
         }
-        d.sop = hi == 0 ? 1 : (type == 6 || !gouraud ? hi == 1 : hi == n) ? 2 : 0;
+        d.sop = hi == 0 ? 1 : (type == 6 || !gouraud ? hi == 1 : hi == n) ? 2 : bit7_mixed(&d);
     }
     {   /* A primitive that changes nothing is left out: one that writes no colour and no depth, or only the alpha
            when nothing has read the picture's alpha for a while (the screen shows no alpha; a picture used as a
@@ -6536,6 +6735,7 @@ typedef struct VJob {
     V *out;
     uint16_t *ix;
     const V *same;          /* the strip before with the same positions, or NULL */
+    float zl;               /* depth steps the stage's layer leads by (zl_u), in clip space per w */
     int base;
     uint16_t count;
     uint8_t kind, layer;
@@ -6668,7 +6868,12 @@ static void vu_transform(const VJob *j) {
         if (bad[i] & 4) {
             out = vdupq_n_f32(2e30f);
         }
-        if (kind == 0 && layer == 2) { /* the shadow camera's depth is not kept in range: kept, not clipped */
+        if (j->zl != 0.0f && same == NULL) { /* a stage layer laid on the stage: it leads (zl_u) */
+            out = vsetq_lane_f32(vgetq_lane_f32(out, 2) + j->zl * sw, out, 2);
+        }
+        if ((kind == 0 && layer == 2) || (gVitaZClamp && sw > 0.0f && same == NULL)) {
+            /* the shadow camera's depth is not kept in range: kept, not clipped. And (bt3.txt zclamp=1) any vertex's:
+               the GS holds a depth past its buffer's range at the range's end, where the chip would cut the triangle */
             float z = vgetq_lane_f32(out, 2);
             out = vsetq_lane_f32(z < -sw ? -sw : z > sw ? sw : z, out, 2);
         }
@@ -8573,7 +8778,7 @@ int GsGpu_DsSil(int ctx, uint32_t count, const float *c, const void *plan) {
    the texture layer of its part), each in runs of the same state. */
 /* the kept parts' draws, from the items given (the drawing thread's own, or the render thread's copy) */
 unsigned gVitaOrderRuns[2]; /* for the log: runs begun anew to keep the order, draws put with an earlier run */
-static void dp_draw_items(DpItem *items, int n, int prof) {
+static void dp_draw_items(DpItem *items, int n, int prof, unsigned frame) {
     static struct { State st; uint32_t h; int mode, first, last; } bk[512];
     static int16_t bhead[512], bnext[512]; /* (the runs found by their number, not one after the other) */
     int lastUnsafe = -1; /* the run begun last that is not st_commutes */
@@ -8721,6 +8926,10 @@ static void dp_draw_items(DpItem *items, int n, int prof) {
                         if (g != NULL && g->icount == 0) {
                             continue;
                         }
+                        if (g != NULL && VITA_RARE(gVitaBisList >= 0 || gVitaDrawLogTo >= 0) &&
+                            bis_draw(frame, mode == 1 ? 16 : 8, s, (int)g->icount, (int)g->ioff | g->layer << 24, NULL)) {
+                            continue;
+                        }
                         if (g != NULL && merge && g->iptr == NULL && np > 0 && np < 64 && pcount + g->icount <= 196608 &&
                             (items[pend[0]].u == items[q].u || memcmp(items[pend[0]].u, items[q].u, usize) == 0)) {
                             pend[np++] = q;
@@ -8729,7 +8938,7 @@ static void dp_draw_items(DpItem *items, int n, int prof) {
                             continue;
                         }
                         if (np == 1) { /* what waits: drawn */
-                            vglFastDraw(GL_UNSIGNED_SHORT, items[pend[0]].g->ioff, items[pend[0]].g->icount, items[pend[0]].u, usize);
+                            vglFastDraw(GL_UNSIGNED_SHORT, items[pend[0]].g->ioff, items[pend[0]].g->icount, zl_u(items[pend[0]].u, usize, s, mode), usize);
                             gVitaDp[1]++;
                         } else if (np > 1) {
                             uint16_t *ix = (uint16_t *)vglAllocFromScratch(pcount * 2);
@@ -8741,12 +8950,12 @@ static void dp_draw_items(DpItem *items, int n, int prof) {
                                     memcpy(o, sDpIboShadow + pg->ioff, pg->icount * 2);
                                     o += pg->icount;
                                 }
-                                vglFastDrawPtr(GL_UNSIGNED_SHORT, ix, pcount, items[pend[0]].u, usize);
+                                vglFastDrawPtr(GL_UNSIGNED_SHORT, ix, pcount, zl_u(items[pend[0]].u, usize, s, mode), usize);
                                 gVitaDp[1]++;
                                 gVitaDpMerge[1]++;
                             } else {
                                 for (k = 0; k < np; k++) {
-                                    vglFastDraw(GL_UNSIGNED_SHORT, items[pend[k]].g->ioff, items[pend[k]].g->icount, items[pend[k]].u, usize);
+                                    vglFastDraw(GL_UNSIGNED_SHORT, items[pend[k]].g->ioff, items[pend[k]].g->icount, zl_u(items[pend[k]].u, usize, s, mode), usize);
                                     gVitaDp[1]++;
                                 }
                             }
@@ -8762,9 +8971,9 @@ static void dp_draw_items(DpItem *items, int n, int prof) {
                             continue;
                         }
                         if (g->iptr != NULL) {
-                            vglFastDrawPtr(GL_UNSIGNED_SHORT, g->iptr, g->icount, items[q].u, usize);
+                            vglFastDrawPtr(GL_UNSIGNED_SHORT, g->iptr, g->icount, zl_u(items[q].u, usize, s, mode), usize);
                         } else {
-                            vglFastDraw(GL_UNSIGNED_SHORT, g->ioff, g->icount, items[q].u, usize);
+                            vglFastDraw(GL_UNSIGNED_SHORT, g->ioff, g->icount, zl_u(items[q].u, usize, s, mode), usize);
                         }
                         gVitaDp[1]++;
                     }
@@ -8779,7 +8988,7 @@ static void dp_draw_items(DpItem *items, int n, int prof) {
     }
 }
 /* the render thread's copy of the items, their groups and their uniform blocks */
-typedef struct RtDp { int n, prof; uint32_t uf, pad_; } RtDp;
+typedef struct RtDp { int n, prof; uint32_t uf, frame; } RtDp;
 static int rt_put_dp(void) {
     uint32_t n = (uint32_t)sDpItemN, uf = (uint32_t)sDpUN, i;
     uint32_t oi = a16((uint32_t)sizeof(RtDp)), og = oi + a16(n * (uint32_t)sizeof(DpItem)), ou = og + a16(n * (uint32_t)sizeof(DpGroup)), total = ou + uf * 4u;
@@ -8798,6 +9007,7 @@ static int rt_put_dp(void) {
     u = (float *)(void *)(p + ou);
     d->n = (int)n;
     d->prof = sProf;
+    d->frame = gGsFrame;
     d->uf = uf;
     memcpy(u, sDpU, uf * 4u);
     for (i = 0; i < n; i++) {
@@ -8813,7 +9023,7 @@ static int rt_put_dp(void) {
 static void rt_exec_dp(uint8_t *p) {
     const RtDp *d = (const RtDp *)(const void *)p;
     uint32_t n = (uint32_t)d->n;
-    dp_draw_items((DpItem *)(void *)(p + a16((uint32_t)sizeof(RtDp))), d->n, d->prof);
+    dp_draw_items((DpItem *)(void *)(p + a16((uint32_t)sizeof(RtDp))), d->n, d->prof, d->frame);
     (void)n;
 }
 static void dp_draw_all(void) {
@@ -8833,7 +9043,7 @@ static void dp_draw_all(void) {
         if (sRtOn) {
             rt_sync(); /* (too large for the ring: drawn here, the ring emptied first) */
         }
-        dp_draw_items(sDpItem, sDpItemN, sProf);
+        dp_draw_items(sDpItem, sDpItemN, sProf, gGsFrame);
     }
     sDpItemN = 0;
     sDpUN = 0;
@@ -9007,6 +9217,7 @@ not_stage:
     }
     job.kind = (uint8_t)kind;
     job.layer = (uint8_t)layer;
+    job.zl = kind == 1 && gVitaZLayer != 0 && d.ztest && !d.zwrite && d.zfunc == 2 ? (float)gVitaZLayer * 2.0f / u[17][2] : 0.0f;
     job.page = d.target;
     job.count = (uint16_t)count;
     job.out = &sBinVerts[b][base];
