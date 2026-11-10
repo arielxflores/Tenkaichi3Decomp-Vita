@@ -12,6 +12,10 @@ Environment:
     BT3_VITA_DEV=1     the development build: its own title (BTTD00008); it reads every setting of bt3.txt (test
                        fights, statistics in the log), see docs/vita/development.md
     BT3_INCREMENTAL=1  reuse objects newer than their source (headers are not tracked)
+    BT3_PGO=gen        a build that counts how the program runs (port/vita/vita_pgo.c: ux0:data/bt3/pgo/); objects
+                       and package in their own folders (*_pgogen)
+    BT3_PGO=use        a build laid out by those counts: port/vita/pgo/<rel or dev>/*.gcda (port/vita/pgo_merge.sh),
+                       copied next to the objects (*_pgouse); a file without counts is built as usual
 
 The game's code is compiled as in the PC build's 32-bit variant: the same sources, the PS2 compiler's float
 constants (eeconst.py) and call arguments evaluated right to left (ptr32.r2l). The game's built-in data tables come
@@ -27,7 +31,11 @@ import portsrc, eeconst
 SDK = pathlib.Path(os.environ.get("VITASDK", "/usr/local/vitasdk"))
 P = str(SDK / "bin/arm-vita-eabi-")
 DEV = os.environ.get("BT3_VITA_DEV") == "1"
-TAG = "_dev" if DEV else "_rel"
+PGO = os.environ.get("BT3_PGO", "")
+if PGO not in ("", "gen", "use"):
+    raise SystemExit("BT3_PGO: gen or use")
+TAG = ("_dev" if DEV else "_rel") + ("_pgo" + PGO if PGO else "")
+PGO_DIR = ROOT / "port/vita/pgo" / ("dev" if DEV else "rel")
 OBJ = ROOT / ("port/build/obj_vita" + TAG)
 OUT = ROOT / ("port/build/vita" + TAG)
 GEN = ROOT / ("port/build/gen/vita" + TAG)
@@ -35,7 +43,7 @@ SCE_SYS = ROOT / "port/vita/sce_sys"
 SAMPLES = pathlib.Path(os.environ.get("VITA_SAMPLES", SDK.parent / "samples"))  # debugScreen.c (CC0): the start-up text screen
 TITLE_ID = "BTTD00008" if DEV else "BTTD00010"
 TITLE = "BT3 (development)" if DEV else "Dragon Ball Z: BT3"
-VPK = "Tenkaichi3Decomp-Vita-dev.vpk" if DEV else "Tenkaichi3Decomp-Vita.vpk"
+VPK = ("Tenkaichi3Decomp-Vita-dev" if DEV else "Tenkaichi3Decomp-Vita") + ("-pgo" + PGO if PGO else "") + ".vpk"
 APP_VER = "01.10"  # the version the LiveArea and VitaShell show (README "Changes")
 
 # A few names exist both in the game's side and in the SDK's libraries with other meanings: the internals of the
@@ -54,6 +62,15 @@ ABI = ["-fsigned-char", "-fno-short-enums", "-fsigned-bitfields"]
 COMMON = ["-O2", "-g", "-fno-strict-aliasing", "-ffp-contract=off", "-w", "-DPORT_VITA=1", "-DPORT_VITA_FIXED=1",
           '-DPORT_VITA_SFX="-vgl.txt"' if DEV else '-DPORT_VITA_SFX=".txt"', "-DPORT_VITA_GFX=1", "-DPORT_VITA_VGL=1",
           "-DMPEG2_PLAYER=1", "-DPORT_VITA_SOUND=1", "-DPORT_VITA_NATIVE=1"] + ([] if DEV else ["-DPORT_VITA_RELEASE=1"])
+# Profile-guided builds (BT3_PGO): gen counts with atomic updates (several threads run the same code); use takes the
+# counts where there are some (a profile from an older source of a file is used as far as it fits, with a warning)
+# counts only (VitaSDK's libgcov has no value profilers, no atomic updates and no file writing): arcs, with the
+# objects' records in the section gcov_info, which vita_pgo.c walks and writes out itself
+PGO_KIND = ["-fno-profile-values", "-fno-profile-reorder-functions"]
+if PGO == "gen":
+    COMMON += ["-fprofile-generate", "-fprofile-update=single", "-fprofile-info-section=gcov_info", "-DBT3_PGO_GEN=1"] + PGO_KIND
+elif PGO == "use":
+    COMMON += ["-fprofile-use", "-fprofile-partial-training", "-fprofile-correction", "-Wno-missing-profile", "-Wno-coverage-mismatch"] + PGO_KIND
 # As in the PC build, no call of the C library is replaced by the compiler's own idea of it; the memory functions are
 # allowed (small memcpy / memset calls become inline code).
 NOBUILTIN = ["-fno-builtin-" + n for n in "sinf cosf tanf asinf acosf atanf atan2f sqrtf powf floorf ceilf fabsf fmodf expf logf sin cos tan sqrt "
@@ -196,7 +213,7 @@ def port_sources():
             (V / "vita_perf.c", "hard"), (V / "vita_vgl.c", "hard"), (V / "vita_touch.c", "hard"), (V / "vita_optart.c", "hard"),
             (V / "vita_text.c", "hard"), (V / "vita_audio.c", "gs"), (S / "gs/snd_adx.c", "gs"), (S / "gs/snd_se.c", "gs"),
             (V / "vita_vufast_wrap.c", "hard"), (V / "vita_tls.c", "hard"), (V / "vita_clib.c", "hard"),
-            (V / "vita_crash.c", "hard"), (V / "vita_eu.c", "hard"), (V / "vita_read.c", "hard"), (V / "vita_start.c", "hard")]
+            (V / "vita_crash.c", "hard"), (V / "vita_eu.c", "hard"), (V / "vita_read.c", "hard"), (V / "vita_start.c", "hard"), (V / "vita_pgo.c", "hard")]
     return out
 
 
@@ -249,6 +266,14 @@ def compile_all():
         raise SystemExit(f"{SAMPLES}: the vitasdk samples are needed (git clone https://github.com/vitasdk/samples; VITA_SAMPLES=<folder>)")
     float_expected()
     data = data_tables()
+    if PGO == "use":  # the counts next to the objects, where gcc looks for them (<object>.gcda)
+        n = 0
+        for g in PGO_DIR.glob("*.gcda"):
+            shutil.copy(g, OBJ / g.name)
+            n += 1
+        print(f"profile counts: {n} files from {PGO_DIR}")
+        if n == 0:
+            raise SystemExit(f"BT3_PGO=use: no counts in {PGO_DIR} (port/vita/pgo_merge.sh)")
     with concurrent.futures.ProcessPoolExecutor(os.cpu_count() or 4) as ex:
         res = list(ex.map(cc_game, portsrc.sources()))
         res += list(ex.map(cc_libm, sorted((ROOT / "port/third_party/newlib_libm").glob("*.c"))))
@@ -284,7 +309,8 @@ PORT_WRAPS += ["__getreent", "pte_osTlsGetValue", "memcmp"]
 def link_cmd(objs, extra):
     # -q keeps the relocations vita-elf-create needs (a Vita program is loaded at an address of the system's choosing)
     wraps = [f"-Wl,--wrap={n}" for n in PORT_WRAPS + FAST_WRAPS + VUFAST_WRAPS]
-    return [P + "gcc", "-Wl,-q", "-Wl,--no-warn-mismatch", "-w", "-o", str(OUT / "bt3.elf")] + extra + objs + LIBS + wraps + \
+    pgo = ["-fprofile-generate"] if PGO == "gen" else []  # (libgcov)
+    return [P + "gcc", "-Wl,-q", "-Wl,--no-warn-mismatch", "-w", "-o", str(OUT / "bt3.elf")] + pgo + extra + objs + LIBS + wraps + \
            [f"-Wl,-Map={OUT / 'bt3.map'}"]
 
 

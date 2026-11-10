@@ -611,6 +611,10 @@ void Vita_VBlank(unsigned vblanks) {
                 }
                 fflush(stdout);
                 fflush(stderr);
+                {
+                    extern void Vita_PgoDump(const char *why);
+                    Vita_PgoDump("the sweep starts the program again");
+                }
                 r = sceAppMgrLoadExec("app0:eboot.bin", NULL, NULL);
                 logf_("vita: sweep: starting again failed (%08x); this pairing goes on\n", (unsigned)r);
             }
@@ -1083,6 +1087,8 @@ void Vita_VBlank(unsigned vblanks) {
 /* exit(), from anywhere in the port or the game: keep the screen until it has been read. */
 void __wrap_exit(int code) {
     if (!sEnded) {
+        extern void Vita_PgoDump(const char *why);
+        Vita_PgoDump("exit");
         sEnded = 1;
         fflush(stdout);
         fflush(stderr);
@@ -1568,6 +1574,10 @@ static int watchdog_thread(SceSize args, void *argp) {
                 minutes++;
                 logf_("vita: minute %u: %u.%u pictures/s, in the %s; heap %u KB\n", minutes, d / 60, (d % 60) * 10 / 60,
                       gVitaInMenus ? "menus" : "fights", (unsigned)mi.uordblks >> 10);
+                if (minutes % 5 == 0) { /* (a BT3_PGO=gen build: its counts so far, vita_pgo.c) */
+                    extern void Vita_PgoDump(const char *why);
+                    Vita_PgoDump("every five minutes");
+                }
             }
         }
         if (gGsFrame != last) {
@@ -1691,6 +1701,10 @@ int __wrap_main(int argc, char **argv) {
     setenv("BT3_TRACE", "600", 1); /* the fight's state every 600 blanks into out.txt: comparable with a PC run */
 #endif
     read_settings();
+    {   /* (a BT3_PGO=gen build: where its counts go, vita_pgo.c) */
+        extern void Vita_PgoInit(void);
+        Vita_PgoInit();
+    }
     {   /* a crash's report in ux0:data/bt3/crash.txt (vita_crash.c, with kubridge) */
         extern void Vita_CrashInit(const char *home);
         Vita_CrashInit(HOME);

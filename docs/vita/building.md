@@ -37,6 +37,7 @@ Other environment variables:
 | `BT3_LIBCLANG` | libclang's shared library, when it is not found in the usual places |
 | `BT3_CLANG_PY` | The folder that holds `clang/cindex.py`, when the bindings are not installed |
 | `BT3_VITA_DEV=1` | The development build, see [development.md](development.md) |
+| `BT3_PGO=gen` / `use` | A profile-guided build, see below |
 
 `python3 port/vita/build.py compile`, `link` or `vpk` runs one step only.
 
@@ -56,6 +57,23 @@ function's name; none of them is reached in the game.
 The build generates, under `port/build/gen/vita_rel/`, the table of where each of the game's data tables gets its
 values on the disc (`vita_dat.c`) and the stubs (`stubs.c`). `port/build/vita_rel/bt3.unstripped.elf` and
 `bt3.map` are kept for reading crash dumps.
+
+## Profile-guided builds
+
+A build laid out by how the game really runs (which branches are taken, which calls are hot) is made in two steps:
+
+1. `BT3_PGO=gen python3 port/vita/build.py` makes `port/build/vita_rel_pgogen/Tenkaichi3Decomp-Vita-pgogen.vpk`, a
+   slower build that counts. Each start of it writes its counts to a new folder `ux0:data/bt3/pgo/run-<n>/` at exit,
+   every five minutes, and before a test sweep starts the program again (`port/vita/vita_pgo.c`). Play what should
+   be fast: fights on several stages, transformations, ultimate attacks, the menus.
+2. Copy the `run-<n>` folders to the build machine and add them up:
+   `port/vita/pgo_merge.sh rel <folder> [<folder> ...]` (they go into `port/vita/pgo/rel/`; later runs can be added
+   the same way). `BT3_PGO=use python3 port/vita/build.py` then builds with them
+   (`port/build/vita_rel_pgouse/Tenkaichi3Decomp-Vita-pgouse.vpk`).
+
+The counts belong to the source they were made from: after larger changes, make new ones (a function whose code
+changed is built without its counts, with a warning). `BT3_VITA_DEV=1` works the same way with `dev` in place of
+`rel`.
 
 ## vitaGL
 
