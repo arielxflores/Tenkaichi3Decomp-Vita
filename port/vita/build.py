@@ -272,7 +272,7 @@ LIBS = ["-lvitaGL", "-lstdc++", "-lSceCommonDialog_stub", "-lSceGxm_stub", "-lma
         "-lSceIofilemgr_stub", "-lSceSysmem_stub", "-lpthread", "-lz", "-lm"]
 
 # Game functions replaced by faster equivalents (port/src/port_fast.c: the stage's culling, the effects' task lists).
-FAST_WRAPS = "StgFrustum_TestBox StgFrustum_TestPart BtlTaskList_Update BtlTaskList_Draw EftGfx_DrawPolyAvgZFront".split()
+FAST_WRAPS = "StgFrustum_TestBox StgFrustum_TestPart BtlTaskList_Update BtlTaskList_Draw EftGfx_DrawPolyAvgZFront Bpe_Decode".split()
 # Vector-library functions with an exact faster equivalent (port/src/port_vufast.c; the jumps: vita_vufast_wrap.c).
 VUFAST_WRAPS = """ClipPoly_ClipPlane ClipPoly_ProjectCur Mtx_Mul Mtx_MulVec3 Mtx_MulVec4 Mtx_RotateX Mtx_RotateXYZ Mtx_RotateY Mtx_RotateZ
     Mtx_RotateZXY Vec3_Add Vec3_Cross Vec3_Dist Vec3_DistSq Vec3_Dot Vec3_Length Vec3_LengthSq Vec3_Normalize Vec3_Scale Vec3_Sub Vec4_Add
