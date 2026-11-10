@@ -612,6 +612,10 @@ void Vita_VBlank(unsigned vblanks) {
                 }
                 fflush(stdout);
                 fflush(stderr);
+                {
+                    extern void Vita_PgoDump(const char *why);
+                    Vita_PgoDump("the sweep starts the program again");
+                }
                 r = sceAppMgrLoadExec("app0:eboot.bin", NULL, NULL);
                 logf_("vita: sweep: starting again failed (%08x); this pairing goes on\n", (unsigned)r);
             }
@@ -1181,6 +1185,8 @@ void Vita_VBlank(unsigned vblanks) {
 /* exit(), from anywhere in the port or the game: keep the screen until it has been read. */
 void __wrap_exit(int code) {
     if (!sEnded) {
+        extern void Vita_PgoDump(const char *why);
+        Vita_PgoDump("exit");
         sEnded = 1;
         fflush(stdout);
         fflush(stderr);
@@ -1756,6 +1762,13 @@ static int watchdog_thread(SceSize args, void *argp) {
     (void)argp;
     for (;;) {
         sceKernelDelayThread(500000);
+        {   /* (a BT3_PGO=gen build: its counts so far every five minutes, vita_pgo.c) */
+            static unsigned pgoTicks;
+            if (++pgoTicks % 600 == 0) {
+                extern void Vita_PgoDump(const char *why);
+                Vita_PgoDump("every five minutes");
+            }
+        }
         if (gGsFrame != last) {
             last = gGsFrame;
             still = 0;
@@ -1887,6 +1900,10 @@ int __wrap_main(int argc, char **argv) {
     setenv("BT3_TRACE", "600", 1); /* the fight's state every 600 blanks into out.txt: comparable with a PC run */
 #endif
     read_settings();
+    {   /* (a BT3_PGO=gen build: where its counts go, vita_pgo.c) */
+        extern void Vita_PgoInit(void);
+        Vita_PgoInit();
+    }
     start_screen();
 #ifndef PORT_VITA_RELEASE /* (the released program shows nothing until the game's first picture; an error still shows) */
     psvDebugScreenPrintf("Reading the game's data tables from %s ...\n", gVitaDisc);
