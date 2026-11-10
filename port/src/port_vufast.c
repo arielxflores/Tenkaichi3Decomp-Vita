@@ -747,16 +747,29 @@ static unsigned out_size(int k) {
     return k == F_Mtx_Mul ? 64 : (k >= F_Vec3_LengthSq && k <= F_Vec3_Dist) ? 4 : (k == F_Vu0Cur_MulMtx || k == F_Vu0Cur_MulMtxRev) ? 0 : 16;
 }
 
+/* The released program's check is short (a tenth of the operand sets, no timing): the full one took about a
+   second of the game's thread when the title screen comes up (the opening film's end, or its skip, froze that
+   long). bt3.txt vufquick=0 / 1 chooses; a development build does the full one by default. */
+#ifdef PORT_VITA_RELEASE
+#define VUF_QUICK 1
+#else
+#define VUF_QUICK 0
+#endif
+extern int Port_Setting(const char *name, int def);
+
 static int vuf_test(void) {
     uint32_t fpscr;
     RefVec4 keep[32], keepAcc;
     char line[900];
-    int len, k, i, bad = 0;
+    int len, k, i, bad = 0, quick, div;
+    unsigned long long tq = sceKernelGetProcessTimeWide();
     __asm__ volatile("vmrs %0, fpscr" : "=r"(fpscr));
     if (((fpscr >> 22) & 3) != 3) {
         return 0; /* not yet in the game's mode (round toward zero): the library's routines meanwhile */
     }
     sTested = 1;
+    quick = Port_Setting("vufquick", VUF_QUICK) != 0;
+    div = quick ? 10 : 1;
     if (gVglSafe & 16384) {
         Vita_Log("vita: the vector library's fast stand-ins are off (gVglSafe 16384)\n");
         return 0;
@@ -770,7 +783,7 @@ static int vuf_test(void) {
         Args g;
         uint8_t outA[64], outB[64];
         /* (the current matrix: random, the same for both) */
-        for (i = 0; i < 600 && !diff; i++) {
+        for (i = 0; i < 600 / div && !diff; i++) {
             Snap sa, sb;
             M4 cur;
             Args h;
@@ -803,11 +816,14 @@ static int vuf_test(void) {
             for (i = 0; i < 16; i++) { ((float *)&g.m)[i] = (float)(i - 7) * 0.375f; ((float *)&g.n)[i] = (float)(5 - i) * 0.125f; }
         } while (0);
         memcpy(&gRefVu0.vf[16], &g.n, sizeof(M4));
-        t0 = sceKernelGetProcessTimeWide();
-        for (i = 0; i < 2000; i++) { run(k, 1, &g, outA); if (k == F_Vu0Cur_MulMtx || k == F_Vu0Cur_MulMtxRev) { memcpy(&gRefVu0.vf[16], &g.n, sizeof(M4)); } }
-        t1 = sceKernelGetProcessTimeWide();
-        for (i = 0; i < 2000; i++) { run(k, 0, &g, outB); if (k == F_Vu0Cur_MulMtx || k == F_Vu0Cur_MulMtxRev) { memcpy(&gRefVu0.vf[16], &g.n, sizeof(M4)); } }
-        t2 = sceKernelGetProcessTimeWide();
+        t0 = t1 = t2 = 0;
+        if (!quick) {
+            t0 = sceKernelGetProcessTimeWide();
+            for (i = 0; i < 2000; i++) { run(k, 1, &g, outA); if (k == F_Vu0Cur_MulMtx || k == F_Vu0Cur_MulMtxRev) { memcpy(&gRefVu0.vf[16], &g.n, sizeof(M4)); } }
+            t1 = sceKernelGetProcessTimeWide();
+            for (i = 0; i < 2000; i++) { run(k, 0, &g, outB); if (k == F_Vu0Cur_MulMtx || k == F_Vu0Cur_MulMtxRev) { memcpy(&gRefVu0.vf[16], &g.n, sizeof(M4)); } }
+            t2 = sceKernelGetProcessTimeWide();
+        }
         if (len > 0 && len < (int)sizeof(line) - 60) {
             len += snprintf(line + len, sizeof(line) - (unsigned)len, " %s %u/%u%s;", kName[k], (unsigned)((t1 - t0) / 2), (unsigned)((t2 - t1) / 2),
                             diff ? " DIFFERS, not used" : "");
@@ -820,7 +836,7 @@ static int vuf_test(void) {
     {   /* the clipper and the projections: polygons of 3..6 corners, the outputs and the registers compared */
         len = snprintf(line, sizeof(line), "vita:   the clipper's stand-ins, ns per call (the library's / the stand-in's):");
         for (k = 0; k < G_COUNT; k++) {
-            int diff = 0, nTests = 3000, kind;
+            int diff = 0, nTests = 3000 / div, kind;
             unsigned long long t0, t1, t2;
             unsigned cut = 0, fell = 0;
             for (i = 0; i < nTests && !diff; i++) {
@@ -888,7 +904,8 @@ static int vuf_test(void) {
                 bad++;
                 Vita_Log("vita: the vector library's %s: the stand-in differs from the library's routine at operand set %d; not used\n", kName2[k], diff);
             }
-            {   /* the time per call: an ordinary triangle cut by its plane, 2000 times each way */
+            t0 = t1 = t2 = 0;
+            if (!quick) {   /* the time per call: an ordinary triangle cut by its plane, 2000 times each way */
                 CV p0[16], pw[16];
                 V4 pl = {0.3f, -0.4f, 0.5f, 10.0f}, st[16];
                 int32_t sc[16][4];
@@ -928,7 +945,7 @@ static int vuf_test(void) {
         uint32_t keepQ = gRefVu0.q;
         len = snprintf(line, sizeof(line), "vita:   the rotations' stand-ins, ns per call (the library's / the stand-in's):");
         for (k = 0; k < R_COUNT; k++) {
-            int diff = 0, nTests = 2000, axis = k % 3, cur = k >= 3;
+            int diff = 0, nTests = 2000 / div, axis = k % 3, cur = k >= 3;
             unsigned long long t0, t1, t2;
             for (i = 0; i < nTests && !diff; i++) {
                 M4 src, da, db, cm;
@@ -991,7 +1008,8 @@ static int vuf_test(void) {
             } else {
                 bad++;
             }
-            {
+            t0 = t1 = t2 = 0;
+            if (!quick) {
                 M4 src, d;
                 for (i = 0; i < 16; i++) { ((float *)&src)[i] = (float)(i - 7) * 0.375f; }
                 t0 = sceKernelGetProcessTimeWide();
@@ -1016,8 +1034,9 @@ static int vuf_test(void) {
     }
     memcpy(gRefVu0.vf, keep, sizeof(keep)); /* (the registers as they were: the current matrix too) */
     memcpy(&gRefVu0.acc, &keepAcc, sizeof(keepAcc));
-    Vita_Log("vita:   %d of %d stand-ins used\n", F_COUNT + G_COUNT + R_COUNT - bad, F_COUNT + G_COUNT + R_COUNT);
-    {   /* what a reading of the process clock costs: the drawing thread reads it a few hundred times a
+    Vita_Log("vita:   %d of %d stand-ins used; the check took %u ms%s\n", F_COUNT + G_COUNT + R_COUNT - bad, F_COUNT + G_COUNT + R_COUNT,
+             (unsigned)((sceKernelGetProcessTimeWide() - tq) / 1000), quick ? " (the short one: no times per call)" : "");
+    if (!quick) {   /* what a reading of the process clock costs: the drawing thread reads it a few hundred times a
            picture for the log */
         unsigned long long c0 = sceKernelGetProcessTimeWide(), c1;
         for (i = 0; i < 1000; i++) {
