@@ -69,19 +69,38 @@ int gVitaPbufMb;  /* bt3.txt pbuf=<MB>: the parameter buffer, 0 vitaGL's default
    little, and drawn at the screen's size the text and the art are sharp. The display memory is made for 960 x 544
    once and described again for the size of the moment (vitaGL change, vglSwapResolution); the change is made at a
    picture's end (GsGpu_FrameEnd, scr_switch). bt3.txt menuhi=0: 640 x 368 everywhere, as before. */
-#define SCR_W_FIGHT 640
-#define SCR_H_FIGHT 368
+/* bt3.txt fightres=720 or 960: the fights drawn at 720 x 408 or at the screen's own 960 x 544 (the display's other
+   sizes): the same picture, its edges and textures sharper, for the graphics chip's time (the pixels: 1.25 and 2.2
+   times as many). The effects that sample neighbouring pixels (the outline, the glow's first pass) keep their width
+   on the screen. */
+int gVitaFightW = 640;
+static int sFightH = 368;
+#define SCR_W_FIGHT gVitaFightW
+#define SCR_H_FIGHT sFightH
+#define SCR_W_BASE 640 /* (the width the effects' pixel distances were made for) */
 #define SCR_W_MENU 960
 #define SCR_H_MENU 544
-static int sScrW = SCR_W_FIGHT, sScrH = SCR_H_FIGHT;
+static int sScrW = 640, sScrH = 368; /* (set at the start: GsGpu_Init) */
 int gVitaMenuHi = 1;
 int gVitaSprInset = 1; /* bt3.txt sprinset=0: sprites' coordinates as given (see GsGpu_Draw_impl) */
 #define SCR_W sScrW
 #define SCR_H sScrH
-static int sViewW = SCR_W_FIGHT;
+static int sViewW = 640;
+/* A new texture's pixels read from GS memory (and its palette's) while the render thread still draws what it was
+   given, and only then the wait for it (vitaGL is one thread's at a time: the memory for the chip, the texture's
+   making). The wait came first: at a fight's start (95 new textures in two seconds, stage 22) the drawing thread
+   waited 226 ms for the render thread and then read GS memory for 60 ms more. Only the drawing thread writes GS
+   memory, so what is read is the same either way. bt3.txt texearly=0: the wait first, as before. */
+int gVitaTexEarly = 1;
 #define VIEW_W sViewW
 #define VIEW_H SCR_H
 #define VIEW_X ((SCR_W - VIEW_W) / 2)
+/* the effects' pixel distances: as many of the picture's pixels as one of 640 is in a fight (fightres); the menus' as
+   they were */
+static inline float fx_px(void) {
+    extern int gPortMenuMode;
+    return gPortMenuMode && SCR_W == SCR_W_MENU && gVitaMenuHi ? 1.0f : (float)SCR_W / (float)SCR_W_BASE;
+}
 #define MAX_VERTS 45000
 #define MAX_TEX 384
 #define TEX_BUCKETS 1024
@@ -1479,12 +1498,15 @@ int GsGpu_Init(void) {
     if (gVitaMsaa != 0) {
         gVitaMenuHi = 0; /* (the menus' size only without multisampling) */
     }
+    /* (the display takes only its own sizes: 640 x 368, 720 x 408 and 960 x 544 here) */
+    gVitaFightW = gVitaFightW >= 840 ? 960 : gVitaFightW >= 680 ? 720 : 640;
+    sFightH = gVitaFightW == 960 ? 544 : gVitaFightW == 720 ? 408 : 368;
     /* the display memory made for the menus' size when they are drawn at it; the fights' size from the
        first picture on (the boot logos and the films are not the menus) */
     vglInitExtended(0x1000000, gVitaMenuHi ? SCR_W_MENU : SCR_W_FIGHT, gVitaMenuHi ? SCR_H_MENU : SCR_H_FIGHT, 0x1800000,
                     gVitaMsaa == 4 ? SCE_GXM_MULTISAMPLE_4X : gVitaMsaa == 2 ? SCE_GXM_MULTISAMPLE_2X : SCE_GXM_MULTISAMPLE_NONE);
-    Vita_Log("vgl: multisampling %s; menus at %s\n", gVitaMsaa == 4 ? "4x" : gVitaMsaa == 2 ? "2x" : "off",
-             gVitaMenuHi ? "960 x 544" : "640 x 368");
+    Vita_Log("vgl: multisampling %s; menus at %s, fights at %d x %d\n", gVitaMsaa == 4 ? "4x" : gVitaMsaa == 2 ? "2x" : "off",
+             gVitaMenuHi ? "960 x 544" : "the fights' size", SCR_W_FIGHT, SCR_H_FIGHT);
     vglSetDisplayCallback(pace_cb); /* (the pictures shown in step with the game's clock) */
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClearDepthf(0.0f);
@@ -1697,7 +1719,7 @@ static int idx_get(uint64_t key, uint32_t gen, uint32_t tbp, uint32_t tbw, uint3
             freeK = k;
         }
     }
-    if (freeK < 0 || (d = (uint8_t *)gpu_alloc_mapped_aligned_for_gpu(16, w8 * th)) == NULL) {
+    if (freeK < 0) {
         return -1;
     }
     {   /* The indices put together in memory the processor caches, then copied to the chip's memory in one go (as
@@ -1725,6 +1747,10 @@ static int idx_get(uint64_t key, uint32_t gen, uint32_t tbp, uint32_t tbw, uint3
                 memset(tmp + y * w8 + tw, 0, w8 - tw);
             }
         }
+        rt_sync(); /* (the chip's memory is vitaGL's: the render thread done first; gVitaTexEarly) */
+        if ((d = (uint8_t *)gpu_alloc_mapped_aligned_for_gpu(16, w8 * th)) == NULL) {
+            return -1;
+        }
         memcpy(d, tmp, (size_t)w8 * th);
     }
     sIdxT[freeK].key = key;
@@ -1745,7 +1771,7 @@ static int pal_get(uint64_t key, uint64_t texa, uint32_t gen, uint32_t cbp, uint
             freeK = k;
         }
     }
-    if (freeK < 0 || (d = (uint32_t *)gpu_alloc_mapped_aligned_for_gpu(64, 256 * 4)) == NULL) {
+    if (freeK < 0) {
         return -1;
     }
     {
@@ -1761,6 +1787,10 @@ static int pal_get(uint64_t key, uint64_t texa, uint32_t gen, uint32_t cbp, uint
                 c = (c & 0x00FFFFFFu) | (a > 255 ? 255u : a) << 24;
             }
             tmp[i] = c;
+        }
+        rt_sync(); /* (as idx_get) */
+        if ((d = (uint32_t *)gpu_alloc_mapped_aligned_for_gpu(64, 256 * 4)) == NULL) {
+            return -1;
         }
         memcpy(d, tmp, sizeof(tmp));
     }
@@ -1955,8 +1985,11 @@ static GLuint texture_get_k(uint64_t t0raw, uint64_t texa) {
         gT126Deferred++;
         return 0;
     }
-    rt_sync(); /* (vitaGL is this thread's again) */
+    if (!gVitaTexEarly) {
+        rt_sync(); /* (vitaGL is this thread's again) */
+    }
     if (sTexCount == MAX_TEX) { /* full: drop what was not used for a second, or failing that not in this frame */
+        rt_sync(); /* (the textures dropped are vitaGL's) */
         unsigned long long tev = sceKernelGetProcessTimeWide();
         unsigned keep = gGsFrame > 30 ? gGsFrame - 30 : 0;
         int pass, n, k;
@@ -1978,6 +2011,8 @@ static GLuint texture_get_k(uint64_t t0raw, uint64_t texa) {
         }
     }
     unsigned long long tmake = sceKernelGetProcessTimeWide();
+    extern unsigned long long gVitaRt[8];
+    const unsigned long long tmakeW = gVitaRt[3]; /* (the waits for the render thread from here on are not the texture's making: gVitaTexEarly) */
     if (sT125PicFrame != gGsFrame) {
         sT125PicFrame = gGsFrame;
         sT125Pic = 0;
@@ -2013,6 +2048,7 @@ static GLuint texture_get_k(uint64_t t0raw, uint64_t texa) {
             t->amax = 255;
             sIdxT[pi].refs++;
             sPalT[pp].refs++;
+            rt_sync(); /* (gVitaTexEarly: the indices and the palette were there already, and no wait was made for them) */
             glGenTextures(1, &t->id);
             sGlc.tex = 0;
             glBindTexture(GL_TEXTURE_2D, t->id);
@@ -2033,8 +2069,8 @@ static GLuint texture_get_k(uint64_t t0raw, uint64_t texa) {
             sSigTexMade++;
             gVitaPal[2]++;
             {
-                unsigned long long te = sceKernelGetProcessTimeWide();
-                gT125Us[3] += te - td;
+                unsigned long long te = sceKernelGetProcessTimeWide() - (gVitaRt[3] - tmakeW);
+                gT125Us[3] += te > td ? te - td : 0;
                 gVitaTexMakeUs += te - tmake;
                 sTexBudgetUs += te - tmake;
                 sT125Pic += te - tmake;
@@ -2077,6 +2113,7 @@ static GLuint texture_get_k(uint64_t t0raw, uint64_t texa) {
             px[i] = (c & 0x00FFFFFFu) | (a > 255 ? 255u : a) << 24;
         }
     }
+    rt_sync(); /* (gVitaTexEarly: the pixels read and converted while the render thread drew) */
     t = &sTex[sTexCount++];
     t->tex0 = t0;
     t->texa = texa;
@@ -2128,8 +2165,11 @@ static GLuint texture_get_k(uint64_t t0raw, uint64_t texa) {
     sLast = t;
     gVglNewTex++;
     sSigTexMade++;
-    gVitaTexMakeUs += sceKernelGetProcessTimeWide() - tmake;
-    sTexBudgetUs += sceKernelGetProcessTimeWide() - tmake;
+    {
+        unsigned long long made = sceKernelGetProcessTimeWide() - tmake - (gVitaRt[3] - tmakeW);
+        gVitaTexMakeUs += made;
+        sTexBudgetUs += made;
+    }
     if (sLogMore) { /* the frames in which the first textures are drawn, batch by batch too */
         sLogMore = 0;
         sLogFrames = 4;
@@ -5262,7 +5302,11 @@ static void ol_draw(const uint8_t *p) {
     if (sOlU[2] >= 0) {
         glUniform1i(sOlU[2], 0);
     }
-    glUniform4f(sOlU[0], (float)VIEW_X / (float)SCR_W, (float)VIEW_W / (float)SCR_W, 1.0f / (float)SCR_W, 1.0f / (float)SCR_H);
+    {   /* (a pixel's width at 640; whole pixels, the ids are read without filtering: 2 at 960 x 544) */
+        float k = (float)(int)(fx_px() + 0.5f);
+        k = k < 1.0f ? 1.0f : k;
+        glUniform4f(sOlU[0], (float)VIEW_X / (float)SCR_W, (float)VIEW_W / (float)SCR_W, k / (float)SCR_W, k / (float)SCR_H);
+    }
     glUniform4f(sOlU[1], 100.0f / 255.0f, 0.0f, 0.0f, 0.0f);
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_STENCIL_TEST);
@@ -6072,7 +6116,7 @@ static void glow_exec(const uint8_t *p) {
         glUniform1i(sGlowU[0][1], 0);
     }
     glUniform4f(sGlowU[0][0], (float)VIEW_X / (float)SCR_W, (float)VIEW_W / (float)SCR_W, -1.0f, 0.0f);
-    glUniform4f(sGlowU[0][2], 1.0f / (float)SCR_W, 1.0f / (float)SCR_H, 0.0f, 0.0f);
+    glUniform4f(sGlowU[0][2], fx_px() / (float)SCR_W, fx_px() / (float)SCR_H, 0.0f, 0.0f); /* (its taps as far apart on the screen as at 640) */
     glUniform4f(sGlowU[0][3], r, g, b, 1.0f);
     fx_quad();
     /* the blur: across, then down */
