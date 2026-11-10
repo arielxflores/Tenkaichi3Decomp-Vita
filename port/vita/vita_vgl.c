@@ -3965,12 +3965,27 @@ void GsGpu_Draw(int type, int ctx, const GsVertex *v) {
 /* one axis of a 2D piece: coordinates c0 at position p0 and c1 at p1 (GS pixels); the GS reads the
    texels of the pixels from the nearer position up to one short of the farther: the farther corner's coordinate
    moved back by one pixel's worth (pieces under a pixel across are left alone) */
-static inline void spr_far_edge(float p0, float p1, float *c0, float *c1) {
+/* How much of that pixel's worth the chip needs (k: the chip's pixels to the GS's; texel: a texel's width in the
+   coordinates). The GS's last pixel of the piece reads at its own corner; the chip's last pixel, 1/k of a GS pixel
+   wide, reads half of its width inside the edge already. What it needs moved is what keeps its filter half a texel
+   inside the piece's texels, no more: a whole pixel's worth moved every texel of a large piece of lettering a
+   fraction back, and its top half against its bottom half (the start screen's large lettering, drawn in two halves,
+   looked cut through with the halves a pixel apart). Into a work target (k 0): the whole pixel's worth, as before. */
+static inline float far_share(float dc, float texel, float k) {
+    float a = dc < 0.0f ? -dc : dc, need;
+    if (k <= 0.0f || a <= 0.0f) {
+        return 1.0f;
+    }
+    need = 0.5f * texel - (0.5f / k) * a;
+    return need <= 0.0f ? 0.0f : need >= a ? 1.0f : need / a;
+}
+static inline void spr_far_edge(float p0, float p1, float *c0, float *c1, float texel, float k) {
     float dp = p1 - p0, dc;
     if (dp < 1.0f && dp > -1.0f) {
         return;
     }
     dc = (*c1 - *c0) / dp;
+    dc *= far_share(dc, texel, k);
     if (dp > 0.0f) {
         *c1 -= dc;
     } else {
@@ -3980,7 +3995,7 @@ static inline void spr_far_edge(float p0, float p1, float *c0, float *c1) {
 /* A triangle of a 2D piece drawn as a strip (the HUD's pieces: two triangles over a rectangle, the texel
    coordinates (UV) along its sides): the far corners as spr_far_edge. Only a triangle whose corners are corners of
    one rectangle, with U following X alone and V following Y alone, so the two triangles of the piece agree. */
-static void tri_far_edge(const GsVertex *v, float *s, float *t) {
+static void tri_far_edge(const GsVertex *v, float *s, float *t, float texS, float texT, float kx, float ky) {
     float x0 = v[0].x, x1 = v[0].x, y0 = v[0].y, y1 = v[0].y, sA = 0.0f, sB = 0.0f, tA = 0.0f, tB = 0.0f, ds, dt;
     int i, nA = 0, nB = 0, mA = 0, mB = 0;
     for (i = 1; i < 3; i++) {
@@ -4017,6 +4032,8 @@ static void tri_far_edge(const GsVertex *v, float *s, float *t) {
     }
     ds = (sB - sA) / (x1 - x0);
     dt = (tB - tA) / (y1 - y0);
+    ds *= far_share(ds, texS, kx);
+    dt *= far_share(dt, texT, ky);
     for (i = 0; i < 3; i++) {
         if (v[i].x == x1) { s[i] -= ds; }
         if (v[i].y == y1) { t[i] -= dt; }
@@ -4632,8 +4649,9 @@ page_draw:
                near the far edge it read up to the corner's coordinate itself: the filter took in the texels next to
                the piece in its sheet (a faint line under a HUD bar whose own texels are clear). The far corner's
                coordinates are given as the GS's last pixel has them. */
-            spr_far_edge(a->x, b->x, &s0, &s1);
-            spr_far_edge(a->y, b->y, &t0s, &t1);
+            float kx = d.target ? 0.0f : (float)SCR_W / GS_W, ky = d.target ? 0.0f : (float)SCR_H / GS_H;
+            spr_far_edge(a->x, b->x, &s0, &s1, 1.0f / (float)tw, kx);
+            spr_far_edge(a->y, b->y, &t0s, &t1, 1.0f / (float)th, ky);
         }
         {   /* two corners worked out, the other two taken from them: put's x and S depend on x and S alone,
                its y and T on y and T, the rest on the second vertex (Q 1 at all four), so the six are the six put
@@ -4654,7 +4672,8 @@ page_draw:
         }
     } else {
         if (n == 3 && fst && gVitaSprInset && d.tme && d.linear && !d.pad_[0] && !sTexXf) {
-            tri_far_edge(v, s, t); /* a 2D piece drawn as triangles (the HUD) */
+            tri_far_edge(v, s, t, 1.0f / (float)tw, 1.0f / (float)th, d.target ? 0.0f : (float)SCR_W / GS_W,
+                         d.target ? 0.0f : (float)SCR_H / GS_H); /* a 2D piece drawn as triangles (the HUD) */
         }
         sQn = 1.0f;
         if (d.qlin && gVitaQlinOpt && sProf != 2) {
