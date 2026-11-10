@@ -9,7 +9,9 @@ void VitaEu_Init(const char *home);
 int VitaEu_Available(void);
 int VitaEu_Lang(void);            /* 0 English (the USA disc's files), 1 Spanish, 2 German, 3 French, 4 Italian */
 int VitaEu_UsesMenuRemap(void);   /* a European language is in use */
-void VitaEu_ChooseAtStart(void);
+int VitaEu_NeedsChoice(void);
+const char *VitaEu_LangName(int lang);
+void VitaEu_ChooseLanguage(void);
 void VitaEu_NotePartition(int ptid, const char *name);
 int VitaEu_Member(int ptid, int flid, SceUID *fd, uint32_t *base, uint32_t *size, int *own);
 SceUID VitaEu_Fd(void);

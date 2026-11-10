@@ -11,6 +11,17 @@ BootCard *gBootCard = NULL; /* 0x3B5908 */
 
 /* Card-flow callback (both outcomes): start the 15-frame countdown to the fade out. */
 void BootCard_OnFlowDone(void) {
+#ifdef PORT_VITA
+    { /* the start menu's cheat (port/vita/vita_start.c): the save just loaded (or made) is given everything */
+        extern int gVitaCheatUnlock;
+        extern void Vita_Log(const char *fmt, ...);
+        if (gVitaCheatUnlock) {
+            gVitaCheatUnlock = 0;
+            Save_UnlockAll(gSaveData);
+            Vita_Log("vita: everything unlocked (start menu)\n");
+        }
+    }
+#endif
     gBootCard->flags |= BOOTCARD_DONE;
     gBootCard->flags |= BOOTCARD_LEAVING;
     gBootCard->timer = 0xF;

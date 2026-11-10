@@ -1711,11 +1711,12 @@ int __wrap_main(int argc, char **argv) {
             psvDebugScreenPrintf("\e[H\e[2J");
         }
     }
-    {   /* the European languages (vita_eu.c): the archive, and the language at the first start that finds it */
+    {   /* the European languages (vita_eu.c), and the start menu with SELECT held (vita_start.c: the language, the
+           unlock cheat); the language list by itself at the first start that finds the European archive */
         extern void VitaEu_Init(const char *home);
-        extern void VitaEu_ChooseAtStart(void);
+        extern void Vita_StartMenu(void);
         VitaEu_Init(HOME);
-        VitaEu_ChooseAtStart();
+        Vita_StartMenu();
     }
     Vita_MapMemory(sHeapCdram);
     logf_("vita: %s floats, game heap at 0x%08X, disc folder %s, %s\n", gPortFastFloat ? "hardware" : "exact", (unsigned)gVitaHeapBase, gVitaDisc,

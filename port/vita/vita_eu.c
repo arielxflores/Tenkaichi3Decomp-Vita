@@ -15,7 +15,7 @@
  * stories 5.. and whose slots 45..49 hold the next language's stories 0..4. English keeps the USA disc's files.
  *
  * The language: bt3.txt lang=0..4 (English .. Italian), chosen on a screen at the first start that finds the
- * archive; holding SELECT while the game starts shows the screen again.
+ * archive, or in the start menu (SELECT held while the game starts, vita_start.c).
  */
 #include <psp2/ctrl.h>
 #include <psp2/io/fcntl.h>
@@ -153,20 +153,21 @@ static unsigned pad_now(void) {
     return pad.buttons;
 }
 
-/* At the start (vita_main.c, on the text screen): the language, the first time the archive is found or with SELECT
-   held. Up / down and CROSS. */
-void VitaEu_ChooseAtStart(void) {
-    unsigned prev, now;
-    int i, sel, first;
+/* 1: the archive is there and no language was chosen yet (the start menu shows the list first) */
+int VitaEu_NeedsChoice(void) {
+    return VitaEu_Available() && Port_Setting("lang", -1) < 0;
+}
 
-    if (!VitaEu_Available()) {
-        return;
-    }
-    first = Port_Setting("lang", -1) < 0;
-    if (!first && !(pad_now() & SCE_CTRL_SELECT)) {
-        return;
-    }
-    sel = sLang;
+const char *VitaEu_LangName(int lang) {
+    return kNames[lang >= 0 && lang < LANGS ? lang : 0];
+}
+
+/* The start menu (vita_start.c, on the text screen): the list of languages. Up / down and CROSS; the choice is kept
+   in bt3.txt (lang=). */
+void VitaEu_ChooseLanguage(void) {
+    unsigned prev, now;
+    int i, sel = sLang;
+
     prev = pad_now();
     for (;;) {
         psvDebugScreenPrintf("\e[H\e[2J\n  Budokai Tenkaichi 3: the game's language\n\n");
