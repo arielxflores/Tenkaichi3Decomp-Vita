@@ -128,6 +128,15 @@ typedef struct State { /* everything a batch shares; compared as bytes */
     uint8_t pad_[2]; /* (no padding unset) */
     int16_t sx, sy, sw, sh;
 } State;
+_Static_assert(sizeof(State) == 36 && _Alignof(State) == 4, "State: nine words");
+/* two states the same: nine words compared in line (the drawing thread does this for every draw: a call to the C
+   library's memcmp each time cost more than the comparison) */
+typedef uint32_t __attribute__((may_alias)) StWord;
+static inline int st_eq(const State *a, const State *b) {
+    const StWord *x = (const StWord *)a, *y = (const StWord *)b;
+    return ((x[0] ^ y[0]) | (x[1] ^ y[1]) | (x[2] ^ y[2]) | (x[3] ^ y[3]) | (x[4] ^ y[4]) | (x[5] ^ y[5]) | (x[6] ^ y[6]) |
+            (x[7] ^ y[7]) | (x[8] ^ y[8])) == 0;
+}
 /* Whether a draw gives the same picture before or after other such draws: opaque, depth-tested and
    depth-writing, nothing read from the picture or the stencil and all of the colour written (the nearer surface wins
    whatever the order). Only such draws are put together with an earlier draw of their state across draws of other
@@ -4203,7 +4212,7 @@ static void wp_emit_clear(void) {
     if (sWpClrN == 0) {
         return;
     }
-    if (!sHaveState || memcmp(&sWpClrSt, &sCur, sizeof(State)) != 0 || sVertCount + 6 * n > MAX_VERTS) {
+    if (!sHaveState || !st_eq(&sWpClrSt, &sCur) || sVertCount + 6 * n > MAX_VERTS) {
         flush();
         sCur = sWpClrSt;
         sHaveState = 1;
@@ -4629,7 +4638,7 @@ static void GsGpu_Draw_impl(int type, int ctx, const GsVertex *v) {
             if (cx1 > cx0 && cy1 > cy0) {
                 sWpArea += (cx1 - cx0) * (cy1 - cy0);
             }
-            if (sWpClrN > 0 && (memcmp(&sWpClrSt, &d, sizeof(d)) != 0 || memcmp(&sWpClrV.r, &v[1].r, 4) != 0 || sWpClrN == 16)) {
+            if (sWpClrN > 0 && (!st_eq(&sWpClrSt, &d) || memcmp(&sWpClrV.r, &v[1].r, 4) != 0 || sWpClrN == 16)) {
                 wp_emit_clear(); /* (another clear held back: drawn first) */
             }
             sWpClrSt = d;
@@ -4809,7 +4818,7 @@ page_draw:
         if (sAgN == 0) {
             flush(); /* (the batch before it: drawn first) */
         }
-        for (k = 0; k < sAgN && memcmp(&sAgSt[k], &d, sizeof(d)) != 0; k++) {
+        for (k = 0; k < sAgN && !st_eq(&sAgSt[k], &d); k++) {
         }
         if ((k < sAgN && (k == sAgCur ? sVertCount : sAgCnt[k]) + 6 > AG_VERTS) || (k == sAgN && sAgN == AG_SLOTS)) {
             ag_close(); /* (full: the group drawn, a new one begun) */
@@ -4837,7 +4846,7 @@ page_draw:
         if (sAgN > 0) {
             ag_close();
         }
-        if (!sHaveState || memcmp(&d, &sCur, sizeof(d)) != 0 || sVertCount + 6 > MAX_VERTS) {
+        if (!sHaveState || !st_eq(&d, &sCur) || sVertCount + 6 > MAX_VERTS) {
             ZM(15);
             flush();
             ZM(30);
@@ -5204,7 +5213,7 @@ void GsGpu_DrawTriRun(int ctx, const GsVertex *v, uint32_t ntri) {
         }
         if (inBatch && d.sop == lastSop && d.qlin == lastQlin && sHaveState && sVertCount + 6 <= MAX_VERTS) {
             /* the batch of the triangle before: d is that one's state but for these two, compared */
-        } else if (!sHaveState || memcmp(&d, &sCur, sizeof(d)) != 0 || sVertCount + 6 > MAX_VERTS) {
+        } else if (!sHaveState || !st_eq(&d, &sCur) || sVertCount + 6 > MAX_VERTS) {
             run_am_lay();
             flush();
             sCur = d;
@@ -7592,7 +7601,7 @@ __attribute__((hot)) static int stage_draw(const State *d, const float *v, uint3
     m[16] = 1.0f / 256.0f; m[17] = -1.0f / 224.0f; m[18] = 2.0f / u[17][2]; m[19] = 0.0f;
     m[20] = -u[17][0] / 256.0f - 1.0f; m[21] = 1.0f + u[17][1] / 224.0f; m[22] = -1.0f; m[23] = 1.0f;
     uint32_t dh = state_hash(d);
-    for (b = 0; b < sBinCount && !(sBinIsStage[b] == 1 && sBinHash[b] == dh && memcmp(&sBin[b].st, d, sizeof(*d)) == 0 && memcmp(sBinStage[b].m, m, sizeof(m)) == 0 &&
+    for (b = 0; b < sBinCount && !(sBinIsStage[b] == 1 && sBinHash[b] == dh && st_eq(&sBin[b].st, d) && memcmp(sBinStage[b].m, m, sizeof(m)) == 0 &&
                                    sBinStage[b].ix + sBinStage[b].icount == &sStageIdx[sStageIdxUsed]); b++) {
     }
     if (b < sBinCount && !bin_join_ok(b, d)) {
@@ -7707,7 +7716,7 @@ __attribute__((hot)) static int fighter_draw(const State *d, int layer, const fl
     dh = state_hash(d);
     b = lastF[layer].b;
     if (!(lastF[layer].gen == sBinGen && b < sBinCount && sBinIsStage[b] == 2 && sBinFtH[b] == uh && sBinHash[b] == dh &&
-          sBin[b].icount + (int)need <= BIN_IDX && memcmp(&sBin[b].st, d, sizeof(*d)) == 0)) {
+          sBin[b].icount + (int)need <= BIN_IDX && st_eq(&sBin[b].st, d))) {
         memcpy(&m[0], u[0], 14 * 16);
         memcpy(&m[56], u[14], 16);
         for (k = 0; k < 4; k++) {
@@ -7718,7 +7727,7 @@ __attribute__((hot)) static int fighter_draw(const State *d, int layer, const fl
         m[68] = -u[17][0] / 256.0f - 1.0f; m[69] = 1.0f + u[17][1] / 224.0f; m[70] = -1.0f; m[71] = 1.0f;
         m[72] = (float)layer; m[73] = m[74] = m[75] = 0.0f;
         m[76] = m[77] = m[78] = m[79] = 0.0f;
-        for (b = 0; b < sBinCount && !(sBinIsStage[b] == 2 && sBinFtH[b] == uh && sBinHash[b] == dh && memcmp(&sBin[b].st, d, sizeof(*d)) == 0 &&
+        for (b = 0; b < sBinCount && !(sBinIsStage[b] == 2 && sBinFtH[b] == uh && sBinHash[b] == dh && st_eq(&sBin[b].st, d) &&
                                        sBin[b].icount + (int)need <= BIN_IDX && memcmp(sBinFt[b], m, sizeof(m)) == 0); b++) {
         }
         if (b == sBinCount) {
@@ -8081,15 +8090,15 @@ static void chip_emit(const State *d, int layer, const float (*u)[4], const Chip
             memcpy(sb, memo[L3].sb, sizeof(sb));
             b = lastF[L3].b;
             if (!(lastF[L3].gen == sBinGen && b < sBinCount && sBinIsStage[b] == 2 && sBinFtMH[b] == ch && sBinHash[b] == dh && (!(sBinFtMask[b] & bit) || memcmp(&sBinFtS[b][(p->slot & 15) * 48], sb, sizeof(sb)) == 0) &&
-                  sBin[b].icount + (int)need <= BIN_IDX && memcmp(&sBin[b].st, d, sizeof(*d)) == 0 &&
+                  sBin[b].icount + (int)need <= BIN_IDX && st_eq(&sBin[b].st, d) &&
                   (sBinFtCG[b] == gVglConstGen * 4u + (unsigned)L3 || memcmp(sBinFt[b], m, sizeof(m)) == 0))) {
                 for (b = 0; b < sBinCount && !(sBinIsStage[b] == 2 && sBinFtMH[b] == ch && sBinHash[b] == dh && (!(sBinFtMask[b] & bit) || memcmp(&sBinFtS[b][(p->slot & 15) * 48], sb, sizeof(sb)) == 0) &&
-                                               sBin[b].icount + (int)need <= BIN_IDX && memcmp(&sBin[b].st, d, sizeof(*d)) == 0 && memcmp(sBinFt[b], m, sizeof(m)) == 0); b++) {
+                                               sBin[b].icount + (int)need <= BIN_IDX && st_eq(&sBin[b].st, d) && memcmp(sBinFt[b], m, sizeof(m)) == 0); b++) {
                 }
                 if (b == sBinCount) { /* (for the log: why no batch took it) */
                     int q, st = 0, cm = 0, sl = 0;
                     for (q = 0; q < sBinCount; q++) {
-                        if (sBinIsStage[q] != 2 || sBinHash[q] != dh || memcmp(&sBin[q].st, d, sizeof(*d)) != 0) { continue; }
+                        if (sBinIsStage[q] != 2 || sBinHash[q] != dh || !st_eq(&sBin[q].st, d)) { continue; }
                         st = 1;
                         if (sBinFtMH[q] != ch || memcmp(sBinFt[q], m, sizeof(m)) != 0) { continue; }
                         cm = 1;
@@ -8153,7 +8162,7 @@ static void chip_emit(const State *d, int layer, const float (*u)[4], const Chip
             b = lastS.b;
             if (!(lastS.gen == sBinGen && b < sBinCount && sBinIsStage[b] == 1 && sBinHash[b] == dh &&
                   sBinStage[b].ix + sBinStage[b].icount == &sStageIdx[sStageIdxUsed] &&
-                  memcmp(sBinStage[b].m, m, sizeof(m)) == 0 && memcmp(&sBin[b].st, d, sizeof(*d)) == 0 && bin_join_ok(b, d))) {
+                  memcmp(sBinStage[b].m, m, sizeof(m)) == 0 && st_eq(&sBin[b].st, d) && bin_join_ok(b, d))) {
                 b = sBinCount;
             }
             if (sStageIdxUsed + (int)need > STAGE_IDX) {

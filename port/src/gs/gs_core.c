@@ -900,18 +900,65 @@ void Gs_VramReadRect(uint32_t bp, uint32_t bw, uint32_t psm, uint32_t w, uint32_
 
 /* A number for what the rectangle (x0, y0, w, h) of the buffer (bp, bw, psm) holds, block by block: the renderer's
    texture key. The same number: the same pixels (as far as 32 bits can tell). */
+/* (the drawing thread asks for one of these per texture it looks up: a block's number is worked out here in the
+   loop, a row of blocks at a time, and its id read without a call unless the block was written pixel by pixel;
+   the same numbers as blk_id(vram_rw(..., 2, 0)) block by block) */
+#define RECT_MIX(b) do { const Blk *k_ = &sBlk[(b) & 0x3FFF]; \
+        g = (g ^ (__builtin_expect(k_->dirty, 0) ? blk_id((b) & 0x3FFF) : k_->id)) * 16777619u; g ^= g >> 13; } while (0)
 uint32_t Gs_RectId(uint32_t bp, uint32_t bw, uint32_t psm, uint32_t x0, uint32_t y0, uint32_t w, uint32_t h) {
-    uint32_t gw, gh, x, y, g = 2166136261u;
+    uint32_t gw, gh, x, y, g = 2166136261u, zx = 0, p = psm, xe = x0 + w, ye = y0 + h;
 
+    if (bw == 0) {
+        bw = 1;
+    }
+    if ((p & 0x30) == 0x30) {
+        zx = 0x18;
+        p &= 0x0F;
+    }
     psm_block(psm, &gw, &gh);
-    for (y = y0 & ~(gh - 1); y < y0 + h; y += gh) {
-        for (x = x0 & ~(gw - 1); x < x0 + w; x += gw) {
-            g = (g ^ blk_id(vram_rw(bp, bw, psm, x, y, 2, 0))) * 16777619u;
-            g ^= g >> 13;
+    switch (p) {
+    case 0x02: case 0x0A: {
+        const uint8_t (*t)[4] = p == 0x0A ? kBlock16S : kBlock16;
+        for (y = y0 & ~(gh - 1); y < ye; y += gh) {
+            uint32_t row = bp + ((y >> 1) & ~0x1Fu) * bw;
+            const uint8_t *ty = t[(y >> 3) & 7];
+            for (x = x0 & ~(gw - 1); x < xe; x += gw) {
+                RECT_MIX(row + ((x >> 1) & ~0x1Fu) + (ty[(x >> 4) & 3] ^ zx));
+            }
         }
+        break;
+    }
+    case 0x13:
+        for (y = y0 & ~(gh - 1); y < ye; y += gh) {
+            uint32_t row = bp + ((y >> 1) & ~0x1Fu) * (bw >> 1);
+            const uint8_t *ty = kBlock32[(y >> 4) & 3];
+            for (x = x0 & ~(gw - 1); x < xe; x += gw) {
+                RECT_MIX(row + ((x >> 2) & ~0x1Fu) + ty[(x >> 4) & 7]);
+            }
+        }
+        break;
+    case 0x14:
+        for (y = y0 & ~(gh - 1); y < ye; y += gh) {
+            uint32_t row = bp + ((y >> 2) & ~0x1Fu) * (bw >> 1);
+            const uint8_t *ty = kBlock16[(y >> 4) & 7];
+            for (x = x0 & ~(gw - 1); x < xe; x += gw) {
+                RECT_MIX(row + ((x >> 2) & ~0x1Fu) + ty[(x >> 5) & 3]);
+            }
+        }
+        break;
+    default:
+        for (y = y0 & ~(gh - 1); y < ye; y += gh) {
+            uint32_t row = bp + (y & ~0x1Fu) * bw;
+            const uint8_t *ty = kBlock32[(y >> 3) & 3];
+            for (x = x0 & ~(gw - 1); x < xe; x += gw) {
+                RECT_MIX(row + ((x >> 1) & ~0x1Fu) + (ty[(x >> 3) & 7] ^ zx));
+            }
+        }
+        break;
     }
     return g;
 }
+#undef RECT_MIX
 /* the number an upload's memory is remembered by: for a format in part of the 32-bit pixels, the writes
    to its own bits of the rectangle's blocks (sPlaneGen); else what the rectangle holds (Gs_RectId) */
 static uint32_t up_rect_id(uint32_t bp, uint32_t bw, uint32_t psm, uint32_t x0, uint32_t y0, uint32_t w, uint32_t h) {
