@@ -1,5 +1,37 @@
 # Changes (PS Vita port)
 
+## 1.2 (in progress)
+
+New
+
+- **Languages**: Spanish, German, French and Italian menus, HUD and battle subtitles, from your own European disc
+  (SLES-54945): copy its `DATA/PZS3EU1.AFS` to `ux0:data/bt3/eu/`. The language is chosen at the first start that
+  finds it. Based on Matteo Santoro's work.
+- **Start menu**: hold SELECT while the game starts for the language and an **Unlock everything** cheat (the
+  game's own unlock: all characters, stages, music and items, and 4,850,000 Zenni, given to the save it loads).
+- **Disc Fusion**: the modes of the two earlier games' discs are open (the Vita has no disc to swap).
+- A crash writes `ux0:data/bt3/crash.txt` and closes the game, instead of leaving it frozen (with the kubridge
+  plugin, which most setups have).
+- The log has a line a minute with the picture rate and the memory in use, for bug reports.
+- `bt3.txt` `fightres=720` draws the fights at 720 x 408 instead of 640 x 368 (sharper; about the same speed).
+
+Fixed
+
+- A second controller paired with the VitaControl plugin moved player 1 as well as player 2.
+- L3 / R3 on the touch panels (a corner of the screen, or the rear pad): a touch is a quick press, so
+  transformations happen (the game ignores an R3 held longer than about a fifth of a second).
+- The large lettering (the title screen's, the menus' headings) no longer looks cut through.
+- No freeze of about a second when the opening film ends or is skipped.
+
+Faster
+
+- Music changes no longer stop the game for a moment: songs are read while they play. The screens that load as
+  they draw (the menus' portraits, the loading screens) keep drawing while their files are read.
+- The game's file unpacker (menus, loading screens, fighters' motions) is 2 to 5 times faster.
+- The drawing thread (the limit in a fight) does less: texture lookups, draw state comparisons, the C library's
+  thread lookups and memory comparisons.
+- New textures are read while the drawing thread draws, and the opening film no longer reads 2 MB it does not use.
+
 ## 1.1
 
 New

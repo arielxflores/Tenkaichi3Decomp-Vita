@@ -77,6 +77,20 @@ ux0:data/bt3/disc/DATA/ZS3USOP.PSS        (and the other files of the DATA folde
 Then copy the `disc` folder to `ux0:data/bt3/` with VitaShell (USB or FTP). The game checks at start that the
 files are the unmodified USA release and tells you if they are not.
 
+### Languages (optional)
+
+The USA release is in English only. With your own copy of the European release (SLES-54945) the menus, the HUD
+and the battle subtitles can be in Spanish, German, French or Italian: copy `DATA/PZS3EU1.AFS` from its disc
+image to
+
+```
+ux0:data/bt3/eu/PZS3EU1.AFS
+```
+
+The game asks for the language at its next start. To change it later, hold SELECT while the game starts (the
+[start menu](#start-menu)). English keeps the USA disc's files. The folder `ux0:data/bt3/pzs3eu1/` written by the
+PC version's `extract_eu.py` is read too.
+
 ## Controls
 
 The **Normal** control type of the Vita version:
@@ -116,6 +130,15 @@ On a PS TV, or with a DualShock paired, the controller's own L2, R2, L3 and R3 b
   fingers to go back. A tap skips a film.
 - Holding START + SELECT for two seconds closes the game (press START on the screen that follows).
 
+### Start menu
+
+Hold SELECT while the game starts (from the LiveArea until the text screen shows) for:
+
+- **Language**: with the European archive (see [Languages](#languages-optional)).
+- **Unlock everything (cheat)**: the game's own unlock, which the game never uses: every character, stage, song and
+  item, and 4,850,000 Zenni, given to the save the game loads. It stays once the game saves, and cannot be taken
+  back: copy `ux0:data/bt3/saves/` first if you want to keep the save as it is.
+
 ## Mods
 
 Files in `ux0:data/bt3/mods/` are used instead of the disc's, laid out as for the PC version of Tenkaichi3Decomp:
@@ -153,6 +176,8 @@ pack instead.
   "Original"; set it back to Original.
 - **The game stops** (the picture freezes, the music plays on): the game writes `ux0:data/bt3/hang.txt` when its
   picture stops for a few seconds. Attaching it and `log.txt` to a bug report helps a lot.
+- **The game closes by itself**: it crashed; `ux0:data/bt3/crash.txt` says where (with the kubridge plugin
+  installed, as with most homebrew setups). Attach it and `log.txt` to the bug report.
 
 ## Notes
 
@@ -162,7 +187,10 @@ pack instead.
 - The port runs the Vita at its standard maximum clocks (CPU 444 MHz, GPU 222 MHz); no overclocking plugin is
   used or needed.
 - Optional settings go in `ux0:data/bt3/bt3.txt`, one per line: `wide=0` shows the PS2's original 4:3 picture,
-  `disc=<folder>` reads the game files from another folder.
+  `disc=<folder>` reads the game files from another folder, `fightres=720` draws the fights at 720 x 408 instead of
+  640 x 368 (sharper, about the same speed; `fightres=960`, the screen's own resolution, is slower), `lang=0` to
+  `4` sets the language (English, Spanish, German, French, Italian), `asyncread=0` reads the game's files on its
+  own thread as before.
 
 ## Building
 
@@ -182,8 +210,9 @@ changes the Vita needed in the shared code, most of them inside `#ifdef PORT_VIT
   [Tenkaichi3Decomp](https://github.com/z3xox/Tenkaichi3Decomp), the PC port this one is built on, and the
   authors of the BT3-Decompiled decompilation it uses; z3xox's later fixes are ported here (the seam models,
   the story mode's saga list, the palette tables) along with the PC version's Square option for clashes
-- [Matteo Santoro](https://github.com/Matt-code-d) for the Dragon World Tour fix (Yamcha's invitation) and
-  [limeking614-dev](https://github.com/limeking614-dev) for the PS TV controller support, from their forks
+- [Matteo Santoro](https://github.com/Matt-code-d) for the European languages and the Dragon World Tour fix
+  (Yamcha's invitation), and [limeking614-dev](https://github.com/limeking614-dev) for the PS TV controller
+  support, from their forks
 - Spike, the developer of Dragon Ball Z: Budokai Tenkaichi 3
 - [Rinnegatamante](https://github.com/Rinnegatamante) for vitaGL and vitaShaRK, and [bythos14](https://github.com/bythos14)
   for SceShaccCgExt
