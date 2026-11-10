@@ -234,6 +234,23 @@ int Port_PadRead(int socket, unsigned char *data) {
         sceCtrlPeekBufferPositiveExt2(sPort[socket], &pad, 1);
     } else { /* the handheld's buttons (L / R are its triggers' bits), or the PS TV's merged pad as before */
         sceCtrlPeekBufferPositive(0, &pad, 1);
+        if (socket == 0 && sPortType[0] == SCE_CTRL_TYPE_PHY && sPort[1] == 1 && Vita_Pad2Present()) {
+            /* The VitaControl plugin adds its first controller (port 1, player 2's) to port 0 as well: its buttons
+               and the sticks' offsets from the middle. Player 1 is the handheld's own: what port 1 holds is taken
+               back out (a button both press at once is player 2's alone). */
+            SceCtrlData p2;
+            memset(&p2, 0, sizeof(p2));
+            p2.lx = p2.ly = p2.rx = p2.ry = 127;
+            if (sceCtrlPeekBufferPositiveExt2(1, &p2, 1) >= 0) {
+                int lx = (int)pad.lx - (int)p2.lx + 127, ly = (int)pad.ly - (int)p2.ly + 127;
+                int rx = (int)pad.rx - (int)p2.rx + 127, ry = (int)pad.ry - (int)p2.ry + 127;
+                pad.buttons &= ~p2.buttons;
+                pad.lx = (unsigned char)(lx < 0 ? 0 : lx > 255 ? 255 : lx);
+                pad.ly = (unsigned char)(ly < 0 ? 0 : ly > 255 ? 255 : ly);
+                pad.rx = (unsigned char)(rx < 0 ? 0 : rx > 255 ? 255 : rx);
+                pad.ry = (unsigned char)(ry < 0 ? 0 : ry > 255 ? 255 : ry);
+            }
+        }
     }
     for (i = 0; i < sizeof(map) / sizeof(map[0]); i++) {
         if (pad.buttons & map[i].vita) {
