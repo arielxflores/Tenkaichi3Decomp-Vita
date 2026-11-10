@@ -195,7 +195,7 @@ def port_sources():
             (V / "vita_gfx.c", "hard"), (S / "gs/gs_core.c", "gs"), (S / "gs/gs_vu1.c", "gs"),
             (V / "vita_perf.c", "hard"), (V / "vita_vgl.c", "hard"), (V / "vita_touch.c", "hard"), (V / "vita_optart.c", "hard"),
             (V / "vita_text.c", "hard"), (V / "vita_audio.c", "gs"), (S / "gs/snd_adx.c", "gs"), (S / "gs/snd_se.c", "gs"),
-            (V / "vita_vufast_wrap.c", "hard")]
+            (V / "vita_vufast_wrap.c", "hard"), (V / "vita_tls.c", "hard"), (V / "vita_clib.c", "hard")]
     return out
 
 
@@ -276,6 +276,8 @@ VUFAST_WRAPS = """ClipPoly_ClipPlane ClipPoly_ProjectCur Mtx_Mul Mtx_MulVec3 Mtx
     Vu0Cur_RotateXYZ Vu0Cur_RotateY Vu0Cur_RotateZ Vu0Cur_RotateZXY""".split()
 # The port's own entry points around the game's (headless.c, vita_main.c) and the renderer's hooks.
 PORT_WRAPS = "Progress_Main main exit Port_GsVif1Chain sceMpegGetPicture GsVu1_Call".split()
+# The C library's per-thread lookups the short way (vita_tls.c, as mh3-wii's fast_tls.c) and a faster memcmp (vita_clib.c)
+PORT_WRAPS += ["__getreent", "pte_osTlsGetValue", "memcmp"]
 
 
 def link_cmd(objs, extra):
