@@ -34,6 +34,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include "vita_eu.h"
+#include "vita_read.h"
+#include <psp2/kernel/threadmgr.h>
 #include <strings.h>
 
 #define SECTOR 2048
@@ -53,6 +55,11 @@ typedef struct PortFile {
     int pt;    /* else the archive it is in (its descriptor is the partition's, opened again if it goes bad) */
     uint32_t base, size;
     int32_t sizeSct, posSct, stat;
+    VitaReadJob job;  /* a no-wait read on the reading thread (ADXF_ReadNw) */
+    int32_t rdSct;    /* its sectors, its bytes to read and to fill; its result */
+    uint32_t rdHave, rdWant;
+    volatile int rdGot;
+    unsigned long long rdT0;
 } PortFile;
 
 static Partition sPart[8];
@@ -390,6 +397,45 @@ int Port_FilePath(int ptid, int flid, const char *fname, char *out, int size) {
     return 1;
 }
 
+int Vita_FileSpan(const char *path, SceUID *fd, uint32_t *base, uint32_t *size, int *own) {
+    int ptid, flid;
+
+    if (sscanf(path, "afs:%d:%d", &ptid, &flid) == 2) {
+        Partition *pt = &sPart[ptid & 7];
+        char mod[300];
+        if (pt->fd <= 0 || flid < 0 || (uint32_t)flid >= pt->count) {
+            return 0;
+        }
+        if (mod_path(ptid & 7, (uint32_t)flid, NULL, mod, sizeof(mod))) {
+            return Vita_FileSpan(mod, fd, base, size, own); /* (its own file) */
+        }
+        if (VitaEu_Member(ptid, flid, fd, base, size, own)) {
+            return 1;
+        }
+        *fd = pt->fd;
+        *base = pt->table[flid * 2];
+        *size = pt->table[flid * 2 + 1];
+        *own = 0;
+        return 1;
+    } else {
+        SceUID f = sceIoOpen(path, SCE_O_RDONLY, 0);
+        SceOff n;
+        if (f < 0) {
+            return 0;
+        }
+        n = sceIoLseek(f, 0, SCE_SEEK_END);
+        if (n <= 0 || n >= 0x40000000) {
+            sceIoClose(f);
+            return 0;
+        }
+        *fd = f;
+        *base = 0;
+        *size = (uint32_t)n;
+        *own = 1;
+        return 1;
+    }
+}
+
 int ADXF_LoadPartitionNw(int ptid, char *fname, void *dir, void *ptinfo) {
     Partition *pt = &sPart[ptid & 7];
     char path[300];
@@ -449,6 +495,7 @@ void *ADXF_OpenAfs(int ptid, int flid) {
             if (fd >= 0) {
                 SceOff size = sceIoLseek(fd, 0, SCE_SEEK_END);
                 f = Port_LowAlloc(sizeof(PortFile));
+                memset(f, 0, sizeof(*f));
                 f->fd = fd;
                 f->owned = 1;
                 f->base = 0;
@@ -467,6 +514,7 @@ void *ADXF_OpenAfs(int ptid, int flid) {
         int own;
         if (VitaEu_Member(ptid, flid, &fd, &base, &size, &own)) {
             f = Port_LowAlloc(sizeof(PortFile));
+            memset(f, 0, sizeof(*f));
             f->fd = fd;
             f->owned = own ? 1 : 2;
             f->pt = ptid & 7;
@@ -480,6 +528,7 @@ void *ADXF_OpenAfs(int ptid, int flid) {
         }
     }
     f = Port_LowAlloc(sizeof(PortFile));
+    memset(f, 0, sizeof(*f));
     f->fd = pt->fd;
     f->owned = 0;
     f->pt = ptid & 7;
@@ -513,6 +562,7 @@ void *ADXF_Open(char *fname, void *atr) {
     }
     size = sceIoLseek(fd, 0, SCE_SEEK_END);
     f = Port_LowAlloc(sizeof(PortFile));
+    memset(f, 0, sizeof(*f));
     f->fd = fd;
     f->owned = 1;
     f->size = (uint32_t)size;
@@ -526,6 +576,9 @@ void ADXF_Close(void *h) {
     PortFile *f = h;
 
     if (f != NULL) {
+        if (f->stat == STAT_READING) { /* (a no-wait read still going: not into memory that is let go) */
+            Vita_ReadCancel(&f->job);
+        }
         if (f->owned == 1) {
             sceIoClose(f->fd);
         }
@@ -553,12 +606,54 @@ static int pt_reopen(Partition *pt, int err) {
     return 1;
 }
 
-/* Reads nsct sectors at the current position; the part of the last sector behind the end of the file is zero. */
+/* The end of a read: the part of the last sector behind the end of the file zero, the position on. */
+static void rdnw_finish(PortFile *f, void *buf, int got, unsigned long long dt) {
+    gVitaFileReads++;
+    gVitaFileUs += dt;
+    if (got < 0) {
+        fprintf(stderr, "bt3: read error 0x%08X\n", (unsigned)got);
+        got = 0;
+    }
+    memset((uint8_t *)buf + got, 0, f->rdWant - (uint32_t)got);
+    f->posSct += f->rdSct;
+    gVitaFileBytes += (unsigned)got;
+    f->stat = STAT_READEND;
+}
+
+static int rdnw_done(VitaReadJob *j, int got) {
+    ((PortFile *)j->user)->rdGot = got;
+    return 0;
+}
+
+/* (on the caller's thread) a no-wait read the reading thread has done: finished here; one that failed on an
+   archive is read again once it has been opened again */
+static void rdnw_poll(PortFile *f) {
+    int got;
+    if (f->stat != STAT_READING || !Vita_ReadIdle(&f->job)) {
+        return;
+    }
+    got = f->rdGot;
+    if (got != (int)f->rdHave && f->rdHave != 0 && f->owned == 0 && pt_reopen(&sPart[f->pt], got)) {
+        f->fd = sPart[f->pt].fd;
+        got = sceIoPread(f->fd, f->job.buf, f->rdHave, f->job.off);
+    }
+    rdnw_finish(f, f->job.buf, got, sceKernelGetProcessTimeWide() - f->rdT0);
+}
+
+/* Reads nsct sectors at the current position; the part of the last sector behind the end of the file is zero. With
+   the reading thread the read is queued and the handle says "reading" until it is done (ADXF_GetStat), as on the PS2. */
 int ADXF_ReadNw(void *h, int nsct, void *buf) {
     PortFile *f = h;
-    uint32_t pos = (uint32_t)f->posSct * SECTOR, want, have;
+    uint32_t pos, want, have;
     int got;
 
+    if (f->stat == STAT_READING) { /* (one at a time: the one before first) */
+        while (!Vita_ReadIdle(&f->job)) {
+            sceKernelDelayThread(100);
+        }
+        rdnw_poll(f);
+    }
+    pos = (uint32_t)f->posSct * SECTOR;
     if (nsct > f->sizeSct - f->posSct) {
         nsct = f->sizeSct - f->posSct;
     }
@@ -571,45 +666,59 @@ int ADXF_ReadNw(void *h, int nsct, void *buf) {
     if (have > want) {
         have = want;
     }
+    if (f->owned == 0) {
+        f->fd = sPart[f->pt].fd; /* (the archive's, which may have been opened again) */
+    }
+    f->rdSct = nsct;
+    f->rdHave = have;
+    f->rdWant = want;
+    if (have != 0 && Vita_ReadOn()) {
+        f->job.fd = f->fd;
+        f->job.off = (SceOff)f->base + pos;
+        f->job.buf = buf;
+        f->job.len = have;
+        f->job.done = rdnw_done;
+        f->job.user = f;
+        f->rdGot = 0;
+        f->rdT0 = sceKernelGetProcessTimeWide();
+        f->stat = STAT_READING;
+        if (Vita_ReadStart(&f->job)) {
+            return nsct;
+        }
+    }
     {
         unsigned long long t0 = sceKernelGetProcessTimeWide(), dt;
-        if (!f->owned) {
-            f->fd = sPart[f->pt].fd; /* (the archive's, which may have been opened again) */
-        }
         got = have != 0 ? sceIoPread(f->fd, buf, have, (SceOff)f->base + pos) : 0;
         if (got != (int)have && have != 0 && !f->owned && pt_reopen(&sPart[f->pt], got)) {
             f->fd = sPart[f->pt].fd;
             got = sceIoPread(f->fd, buf, have, (SceOff)f->base + pos);
         }
         dt = sceKernelGetProcessTimeWide() - t0;
-        gVitaFileReads++;
-        gVitaFileUs += dt;
         if (sceKernelGetThreadId() == gVitaGameThreadId) {
             gVitaFileReadsGame++;
             gVitaFileUsGame += dt;
         }
+        rdnw_finish(f, buf, got, dt);
     }
-    if (got < 0) {
-        fprintf(stderr, "bt3: read error 0x%08X\n", (unsigned)got);
-        got = 0;
-    }
-    memset((uint8_t *)buf + got, 0, want - (uint32_t)got);
-    f->posSct += nsct;
-    f->stat = STAT_READEND;
-    gVitaFileBytes += (unsigned)got;
     return nsct;
 }
 
 int ADXF_Stop(void *h) {
-    ((PortFile *)h)->stat = STAT_STOP;
+    PortFile *f = h;
+    if (f->stat == STAT_READING) {
+        Vita_ReadCancel(&f->job);
+    }
+    f->stat = STAT_STOP;
     return 0;
 }
 
 int ADXF_GetStat(void *h) {
+    rdnw_poll((PortFile *)h);
     return ((PortFile *)h)->stat;
 }
 
 int ADXF_Tell(void *h) {
+    rdnw_poll((PortFile *)h);
     return ((PortFile *)h)->posSct;
 }
 
