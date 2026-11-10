@@ -10,13 +10,20 @@
  * BtlTaskList_Update, BtlTaskList_Draw (src/battle/eft_ae.c): the effects' task lists, as the game's (the same
  * order, the same removal of dead tasks), with the time of each task's update and draw callback added up by the
  * callback, for the log: which effects cost the game's thread its time.
+ *
+ * Bpe_Decode (src/sys/bpe.c): the game's unpacker (every menu picture and loading screen, the character select's
+ * portraits, the motions the fighters start during a fight), byte for byte the same output: whole-int arithmetic
+ * instead of the 16-bit the game's code has, and each pair code's expansion kept, once made, for the rest of its
+ * block (a pair's bytes copied instead of unwound through the stack again).
  */
 #include <stdint.h>
+#include <string.h>
 #include "common.h"
 #include "sys/math3d.h"
 #include "battle/stg_a.h"
 #include "battle/eft_ae.h"
 #include "sys/list.h"
+#include "sys/heap.h"
 #include "battle/btl_obj.h"
 extern s32 BtlStage_GetAmbient(s32 *rgba);
 extern s32 BtlStage_GetId(void);
@@ -351,4 +358,99 @@ void Vita_FastLog(void) {
         }
     }
     sTaskFrames = 0;
+}
+
+/* ---- the unpacker ---- */
+#define BPE_EBUF 8192 /* a block's kept expansions */
+#define BPE_EMAX 48   /* the longest kept (longer ones are unwound each time, as the game does) */
+__attribute__((optimize("no-tree-loop-distribute-patterns"))) /* (the short copies stay loops, not calls) */
+void *__wrap_Bpe_Decode(void *src, void *dst, s32 *rawSize) {
+    static u8 ident[256];
+    static s32 identReady;
+    u8 ebuf[BPE_EBUF];
+    const u8 *in, *start;
+    u8 *out;
+    s32 size, packSize;
+    void *buf;
+    if (!identReady) {
+        s32 k;
+        for (k = 0; k < 256; k++) {
+            ident[k] = (u8)k;
+        }
+        identReady = 1;
+    }
+    memcpy(&size, src, 4);
+    memcpy(&packSize, (const u8 *)src + 4, 4);
+    start = in = (const u8 *)src + 8;
+    if (rawSize != NULL) {
+        *rawSize = size;
+    }
+    buf = dst != NULL ? dst : Heap_Alloc(size, 0x20, 0, HEAP_ANY);
+    out = (u8 *)buf;
+    while (in - start != packSize) {
+        u8 left[256], right[256];
+        u16 elen[256], eoff[256];
+        unsigned epos = 0, bs;
+        s32 c = 0, count = *in++, i;
+        memcpy(left, ident, 256);
+        for (;;) { /* the pair table, as the game reads it */
+            if (count > 127) {
+                c += count - 127;
+                count = 0;
+            }
+            if (c == 256) {
+                break;
+            }
+            for (i = 0; i <= count; i++, c++) {
+                left[c] = *in++;
+                if (c != left[c]) {
+                    right[c] = *in++;
+                }
+            }
+            if (c == 256) {
+                break;
+            }
+            count = *in++;
+        }
+        bs = ((unsigned)in[0] << 8) + in[1];
+        in += 2;
+        memset(elen, 0, sizeof(elen));
+        while (bs-- != 0) {
+            unsigned x = *in++;
+            if (left[x] == x) {
+                *out++ = (u8)x;
+            } else if (elen[x] != 0) {
+                const u8 *e = ebuf + eoff[x];
+                unsigned n = elen[x], k;
+                for (k = 0; k < n; k++) {
+                    out[k] = e[k];
+                }
+                out += n;
+            } else {
+                u8 stack[256];
+                u8 *o0 = out;
+                unsigned sp = 0, y = x, n;
+                for (;;) {
+                    if (left[y] == y) {
+                        *out++ = (u8)y;
+                        if (sp == 0) {
+                            break;
+                        }
+                        y = stack[--sp];
+                    } else {
+                        stack[sp++ & 255] = right[y];
+                        y = left[y];
+                    }
+                }
+                n = (unsigned)(out - o0);
+                if (n <= BPE_EMAX && epos + n <= BPE_EBUF) {
+                    memcpy(ebuf + epos, o0, n);
+                    eoff[x] = (u16)epos;
+                    elen[x] = (u16)n;
+                    epos += n;
+                }
+            }
+        }
+    }
+    return buf;
 }
