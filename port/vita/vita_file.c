@@ -59,6 +59,7 @@ typedef struct PortFile {
     uint32_t rdHave, rdWant;
     volatile int rdGot;
     unsigned long long rdT0;
+    int film;         /* a film (.PSS): the port's decoder reads it itself (plat_movie.c), the game's reads are not made */
 } PortFile;
 
 static Partition sPart[8];
@@ -531,10 +532,13 @@ void *ADXF_Open(char *fname, void *atr) {
     n = strlen(path);
     if (n > 4 && strcmp(&path[n - 4], ".PSS") == 0) { /* a movie: its decoder (plat_movie.c) needs the path */
         snprintf(gPortMoviePath, sizeof(gPortMoviePath), "%s", path);
+        n = 0; /* (below: the handle is a film's) */
     }
     size = sceIoLseek(fd, 0, SCE_SEEK_END);
     f = Port_LowAlloc(sizeof(PortFile));
     memset(f, 0, sizeof(*f));
+    f->film = n == 0; /* (the game feeds what it reads of a film to sceMpegDemuxPss, which takes none of it: the
+                         opening read its first 2 MB for nothing) */
     f->fd = fd;
     f->owned = 1;
     f->size = (uint32_t)size;
@@ -632,6 +636,11 @@ int ADXF_ReadNw(void *h, int nsct, void *buf) {
     if (nsct <= 0) {
         f->stat = STAT_READEND;
         return 0;
+    }
+    if (f->film) { /* (not read: see `film`) */
+        f->posSct += nsct;
+        f->stat = STAT_READEND;
+        return nsct;
     }
     want = (uint32_t)nsct * SECTOR;
     have = pos < f->size ? f->size - pos : 0;
