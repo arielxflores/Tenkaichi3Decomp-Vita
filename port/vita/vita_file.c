@@ -33,6 +33,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "vita_eu.h"
 #include <strings.h>
 
 #define SECTOR 2048
@@ -48,7 +49,7 @@ typedef struct Partition {
 
 typedef struct PortFile {
     SceUID fd;
-    int owned; /* a loose file: closed with the handle */
+    int owned; /* 1: a loose file, closed with the handle; 2: a member of the European archive (vita_eu.c) */
     int pt;    /* else the archive it is in (its descriptor is the partition's, opened again if it goes bad) */
     uint32_t base, size;
     int32_t sizeSct, posSct, stat;
@@ -361,6 +362,9 @@ static void data_path(const char *fname, char *out, size_t size) {
         Vita_Log("mods: %s instead of the disc's\n", out);
         return;
     }
+    if (strcmp(name, "ZS3USOP.ADX") == 0 && VitaEu_OpeningSong(out, (int)size)) { /* (the European opening's song) */
+        return;
+    }
     snprintf(out, size, "%s/DATA/%s", gVitaDisc, name);
 }
 
@@ -412,6 +416,7 @@ int ADXF_LoadPartitionNw(int ptid, char *fname, void *dir, void *ptinfo) {
         if (mods_on()) {
             mods_scan_archive(pt->name, ptid & 7);
         }
+        VitaEu_NotePartition(ptid & 7, pt->name);
     }
     if (sceIoPread(pt->fd, head, 8, 0) != 8 || memcmp(head, "AFS\0", 4) != 0 || head[1] == 0 || head[1] > 0x100000) {
         Vita_Fatal("not an AFS archive:\n  %s", path);
@@ -421,6 +426,7 @@ int ADXF_LoadPartitionNw(int ptid, char *fname, void *dir, void *ptinfo) {
     if (pt->table == NULL || sceIoPread(pt->fd, pt->table, pt->count * 8, 8) != (int)(pt->count * 8)) {
         Vita_Fatal("cannot read the file table of\n  %s", path);
     }
+    VitaEu_PatchToc(ptid & 7, pt->table, pt->count);
     return 0;
 }
 
@@ -453,6 +459,24 @@ void *ADXF_OpenAfs(int ptid, int flid) {
                 gVitaFileOpens++;
                 return f;
             }
+        }
+    }
+    {   /* a European language's member (vita_eu.c) */
+        SceUID fd;
+        uint32_t base, size;
+        int own;
+        if (VitaEu_Member(ptid, flid, &fd, &base, &size, &own)) {
+            f = Port_LowAlloc(sizeof(PortFile));
+            f->fd = fd;
+            f->owned = own ? 1 : 2;
+            f->pt = ptid & 7;
+            f->base = base;
+            f->size = size;
+            f->sizeSct = (int32_t)((size + SECTOR - 1) / SECTOR);
+            f->posSct = 0;
+            f->stat = STAT_STOP;
+            gVitaFileOpens++;
+            return f;
         }
     }
     f = Port_LowAlloc(sizeof(PortFile));
@@ -502,7 +526,7 @@ void ADXF_Close(void *h) {
     PortFile *f = h;
 
     if (f != NULL) {
-        if (f->owned) {
+        if (f->owned == 1) {
             sceIoClose(f->fd);
         }
         Port_LowFree(f);
@@ -618,6 +642,24 @@ void *Vita_LoadWhole(const char *path, uint32_t *size) {
         }
         if (mod_path(ptid & 7, (uint32_t)flid, NULL, mod, sizeof(mod))) {
             return Vita_LoadWhole(mod, size); /* (its own file) */
+        }
+        {   /* a European language's member */
+            SceUID fd;
+            uint32_t base;
+            int own, ok;
+            if (VitaEu_Member(ptid, flid, &fd, &base, &n, &own)) {
+                p = malloc(n ? n : 1);
+                ok = p != NULL && (n == 0 || sceIoPread(fd, p, n, base) == (int)n);
+                if (own) {
+                    sceIoClose(fd);
+                }
+                if (!ok) {
+                    free(p);
+                    return NULL;
+                }
+                *size = n;
+                return p;
+            }
         }
         n = pt->table[flid * 2 + 1];
         p = malloc(n ? n : 1);

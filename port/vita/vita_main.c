@@ -1711,6 +1711,12 @@ int __wrap_main(int argc, char **argv) {
             psvDebugScreenPrintf("\e[H\e[2J");
         }
     }
+    {   /* the European languages (vita_eu.c): the archive, and the language at the first start that finds it */
+        extern void VitaEu_Init(const char *home);
+        extern void VitaEu_ChooseAtStart(void);
+        VitaEu_Init(HOME);
+        VitaEu_ChooseAtStart();
+    }
     Vita_MapMemory(sHeapCdram);
     logf_("vita: %s floats, game heap at 0x%08X, disc folder %s, %s\n", gPortFastFloat ? "hardware" : "exact", (unsigned)gVitaHeapBase, gVitaDisc,
           getenv("BT3_REPLAY") != NULL ? getenv("BT3_REPLAY") : "attract-demo fight");
