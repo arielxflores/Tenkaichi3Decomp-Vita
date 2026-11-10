@@ -1557,6 +1557,19 @@ static int watchdog_thread(SceSize args, void *argp) {
     (void)argp;
     for (;;) {
         sceKernelDelayThread(500000);
+        {   /* a line a minute for bug reports, in the released program too: the picture rate and the memory in use */
+            static unsigned ticks, drawn0, minutes;
+            extern unsigned gVitaGsDrawn;
+            extern int gVitaInMenus;
+            if (++ticks % 120 == 0 && sLogThreaded) {
+                struct mallinfo mi = mallinfo();
+                unsigned d = gVitaGsDrawn - drawn0;
+                drawn0 = gVitaGsDrawn;
+                minutes++;
+                logf_("vita: minute %u: %u.%u pictures/s, in the %s; heap %u KB\n", minutes, d / 60, (d % 60) * 10 / 60,
+                      gVitaInMenus ? "menus" : "fights", (unsigned)mi.uordblks >> 10);
+            }
+        }
         if (gGsFrame != last) {
             last = gGsFrame;
             still = 0;
