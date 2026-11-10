@@ -1311,7 +1311,8 @@ static void read_settings(void) {
 #ifdef PORT_VITA_RELEASE
         /* the released program: only the player's settings. The test runs leave theirs in the same file
            (mode=demo, film=...): a game started from its bubble goes to its title screen, not into a test fight */
-        if (strcmp(line, "disc") != 0 && strcmp(line, "heap") != 0 && strcmp(line, "wide") != 0 && strcmp(line, "report") != 0) {
+        if (strcmp(line, "disc") != 0 && strcmp(line, "heap") != 0 && strcmp(line, "wide") != 0 && strcmp(line, "report") != 0 &&
+            strcmp(line, "fightres") != 0) {
             continue;
         }
 #endif
@@ -1328,6 +1329,12 @@ static void read_settings(void) {
         } else if (strcmp(line, "sweep") == 0) {
             sSweepSec = atoi(eq);
             sweepSet = 1;
+        } else if (strcmp(line, "texearly") == 0) { /* 0: a new texture waits for the render thread before its pixels are read (vita_vgl.c) */
+            extern int gVitaTexEarly;
+            gVitaTexEarly = atoi(eq);
+        } else if (strcmp(line, "fightres") == 0) { /* the fights drawn at 640 x 368 (default), 720 x 408 or 960 x 544 (vita_vgl.c) */
+            extern int gVitaFightW;
+            gVitaFightW = atoi(eq);
         } else if (strcmp(line, "wide") == 0) {
             extern int gVitaWide;
             gVitaWide = atoi(eq) != 0; /* wide=0: the console's 4:3 picture with bars at the sides */
