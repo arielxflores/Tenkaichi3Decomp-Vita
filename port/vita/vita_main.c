@@ -1678,6 +1678,10 @@ int __wrap_main(int argc, char **argv) {
     setenv("BT3_TRACE", "600", 1); /* the fight's state every 600 blanks into out.txt: comparable with a PC run */
 #endif
     read_settings();
+    {   /* a crash's report in ux0:data/bt3/crash.txt (vita_crash.c, with kubridge) */
+        extern void Vita_CrashInit(const char *home);
+        Vita_CrashInit(HOME);
+    }
     start_screen();
 #ifndef PORT_VITA_RELEASE /* (the released program shows nothing until the game's first picture; an error still shows) */
     psvDebugScreenPrintf("Reading the game's data tables from %s ...\n", gVitaDisc);
