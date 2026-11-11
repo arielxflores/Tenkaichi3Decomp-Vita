@@ -14,13 +14,14 @@ Faster
   in turn).
 - With the CapUnlocker plugin, the fourth CPU core works out the image uploads' numbers the list reader worked out
   before, and vitaGL leaves out GPU state calls that change nothing.
+- The screen-filling effects (auras, beams, flashes) are drawn at half the resolution each way and added to the
+  picture, as TwinsanityEvolved does with its particles: the graphics chip shades a quarter of their pixels. Only
+  effects covering at least two screens' worth are drawn so; the edge of a fighter inside a beam can show a step of
+  two pixels. Development build: `fxlow=0` goes back.
 
 New
 
 - Options → Controller → Vita Settings says whether the game has the fourth CPU core (CapUnlocker on or off).
-- Development build: `fxlow=1` draws the screen-filling additive effects (auras, beams, flashes) at half the
-  resolution each way and adds them to the picture, so that the graphics chip shades a quarter of their pixels. Off by
-  default until it has been measured and checked on a console (`fxlow=2` with `soakab=1` for an A/B soak).
 
 ## 1.1
 

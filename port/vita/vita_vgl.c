@@ -773,6 +773,16 @@ static void shader_init(void) {
             log[0] = 0; glGetShaderInfoLog(vsz, sizeof(log) - 1, NULL, log); log[sizeof(log) - 1] = 0;
             Vita_Log("vgl: vertex shader for the effects at a lower resolution not compiled: %s\n", log);
         }
+        if (sVsZ != 0) { /* the variants the effects use most, built now: if the chip's shader compiler takes neither,
+                            the effects are drawn on the picture as before (none left out for want of its shader) */
+            int f = 2048 | 1 | (sNoProj ? 8 : 0) | (gVglLean ? 32 : 0);
+            if (variant(0, f) == NULL || variant(0, f | 1024) == NULL) {
+                sVsZ = 0;
+                Vita_Log("vgl: the effects at a lower resolution are off: their pixel shaders (%d) were not built\n", f);
+            } else {
+                Vita_Log("vgl: the effects at a lower resolution: their pixel shaders built\n");
+            }
+        }
     }
     if (!(gVglSafe & 2048)) {
         GLuint vs2 = glCreateShader(GL_CG_VERTEX_SHADER_EXT), p2;
@@ -2304,12 +2314,14 @@ unsigned gVitaAg[3]; /* for the log: groups drawn, their draws, state changes sa
    The sum is the same as drawing them one by one on the picture (each only adds, the clamp at the end as at each
    step); what changes is the detail of the effects, now that of a smaller picture, and the edge of what is in front of
    them, decided per pixel of the smaller picture (a stair step of fxlowdiv pixels along a fighter's outline in a beam).
+   On by default, as the port's other speed-ups, with fxlow=0 to go back; off by itself when the chip's shader compiler
+   does not take its pixel shaders (shader_init).
    The depth test is done in the pixel shader against the display's depth as stored when its scene ends (the switch to
    the effects' picture ends it): variants + 2048, kVertZ. Each such group costs the chip two changes of picture, so a
-   group of less than fxlowmin screens is drawn on the picture as before. fxlow=1 turns on the additive groups too
-   (safe2=8192: off by default, a test found them slower when every group is drawn on the picture), 2: only in the
+   group of less than fxlowmin screens is drawn on the picture as before. fxlow turns on the additive groups too
+   (safe2=8192 before: a test found them slower when every group is drawn on the picture), fxlow=2: only in the
    soak's B battles (soakab=1). Not with multisampling (the depth is then made of samples), nor in the menus. ---- */
-int gVitaFxLow = 0;            /* bt3.txt fxlow: 0 off, 1 on, 2 in the soak's B battles */
+int gVitaFxLow = 1;            /* bt3.txt fxlow: 0 off (as before), 1 on (default), 2 in the soak's B battles */
 float gVitaFxLowMin = 2.0f;    /* bt3.txt fxlowmin: screens (of 512 x 448) a group covers at least to be drawn smaller */
 int gVitaFxLowDiv = 2;         /* bt3.txt fxlowdiv: 2, 3 or 4, the smaller picture's size, the view's / this */
 unsigned gVitaFxl[4];          /* for the log: groups drawn smaller, their screens x 100, groups drawn on the picture, draws without their shader */

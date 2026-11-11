@@ -1503,7 +1503,7 @@ static void read_settings(void) {
         } else if (strcmp(line, "dpframe") == 0) { /* kept parts matched with FRAME's buffer as "the picture": 0 off, 1 on, 2 in the soak's B battles (gs_core.c dp_norm) */
             extern int gVitaDpFrame;
             gVitaDpFrame = atoi(eq);
-        } else if (strcmp(line, "fxlow") == 0) { /* the screen-filling additive effects drawn at a lower resolution and added: 0 off, 1 on, 2 in the soak's B battles (vita_vgl.c) */
+        } else if (strcmp(line, "fxlow") == 0) { /* the screen-filling additive effects drawn at a lower resolution and added: 0 off (as before), 1 on (default), 2 in the soak's B battles (vita_vgl.c) */
             extern int gVitaFxLow;
             gVitaFxLow = atoi(eq);
         } else if (strcmp(line, "fxlowmin") == 0) { /* the screens (of 512 x 448) an additive group covers at least to be drawn smaller (default 2) */
