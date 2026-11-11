@@ -1503,6 +1503,15 @@ static void read_settings(void) {
         } else if (strcmp(line, "dpframe") == 0) { /* kept parts matched with FRAME's buffer as "the picture": 0 off, 1 on, 2 in the soak's B battles (gs_core.c dp_norm) */
             extern int gVitaDpFrame;
             gVitaDpFrame = atoi(eq);
+        } else if (strcmp(line, "fxlow") == 0) { /* the screen-filling additive effects drawn at a lower resolution and added: 0 off, 1 on, 2 in the soak's B battles (vita_vgl.c) */
+            extern int gVitaFxLow;
+            gVitaFxLow = atoi(eq);
+        } else if (strcmp(line, "fxlowmin") == 0) { /* the screens (of 512 x 448) an additive group covers at least to be drawn smaller (default 2) */
+            extern float gVitaFxLowMin;
+            gVitaFxLowMin = (float)atof(eq);
+        } else if (strcmp(line, "fxlowdiv") == 0) { /* the smaller picture: the view's size / this each way, 2 to 4 (default 2) */
+            extern int gVitaFxLowDiv;
+            gVitaFxLowDiv = atoi(eq);
         } else if (strcmp(line, "soakab") == 0) { /* each soak battle twice, the settings of value 2 off then on (headless.c) */
             setenv("BT3_SOAK_AB", eq, 1);
         } else if (strcmp(line, "dpbank") == 0) { /* 0: the stage's kept groups only from the stage buffer's first 2 MB (as before; vita_vgl.c gVitaDpBank) */

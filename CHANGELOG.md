@@ -18,6 +18,9 @@ Faster
 New
 
 - Options → Controller → Vita Settings says whether the game has the fourth CPU core (CapUnlocker on or off).
+- Development build: `fxlow=1` draws the screen-filling additive effects (auras, beams, flashes) at half the
+  resolution each way and adds them to the picture, so that the graphics chip shades a quarter of their pixels. Off by
+  default until it has been measured and checked on a console (`fxlow=2` with `soakab=1` for an A/B soak).
 
 ## 1.1
 

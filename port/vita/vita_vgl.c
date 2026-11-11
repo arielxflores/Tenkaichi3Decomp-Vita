@@ -341,6 +341,17 @@ static const char kVertNP[] =
     "    vCol = aCol * (255.0f / 128.0f) * aTex.z;\n"
     "}\n";
 static GLuint sVsNP;  /* (0: not built; the colour then goes with perspective, as before, and w is not given) */
+/* The effects drawn at a lower resolution (fxlow, below "Additive groups"): kVert, with the position handed on to the
+   pixel shader, which tests it against the display's depth as stored (its own picture has no depth buffer) */
+static const char kVertZ[] =
+    "void main(float4 aPos, float4 aCol, float3 aTex,\n"
+    "          float4 out vPos : POSITION, float3 out vTex : TEXCOORD0, float4 out vCol : TEXCOORD1, float4 out vZ : TEXCOORD2) {\n"
+    "    vPos = aPos;\n"
+    "    vTex = aTex;\n"
+    "    vCol = aCol * (255.0f / 128.0f);\n"
+    "    vZ = aPos;\n"
+    "}\n";
+static GLuint sVsZ;   /* (0: not built: no effect is drawn at the lower resolution) */
 /* as kVert, with the colour's alpha scaled by 255 / 128 once more: the texture's alpha needs that scale
    too in the modulate variants, and the product of the two is the same with the scale on either */
 static const char kVertM[] =
@@ -391,6 +402,14 @@ typedef struct Variant { GLuint prog; GLint test, tex, u[6]; } Variant;
 static int sNoProj = 1;
 static Variant sVar[5][2048]; /* (+ 1024 the colour scaled by its own alpha here, blended with factor one) */  /* (+ 128 a picture drawn here as the texture, its alpha as stored; + 256 and without its alpha, TCC 0) */
 static GLuint sFragVar[2048]; /* (f + 8: the texture read straight from the coordinates, not divided by Q: the GPU profile) */
+/* (+ 2048) the GS's own drawn into the effects' picture of lower resolution (fxlow): the depth test in the pixel shader,
+   against the display's depth as stored (uDepth; uZ: x, y the view's place in the display, z 0 GEQUAL, > 0 GREATER) */
+static Variant sVarZ[2048];
+static GLuint sFragVarZ[2048];
+static const char kFragZTest[] =
+    "    { float2 zn = vZ.xy / vZ.w;\n"
+    "      float zs = tex2D(uDepth, float2(uZ.x + (zn.x * 0.5f + 0.5f) * uZ.y, 0.5f - zn.y * 0.5f)).x;\n"
+    "      if ((vZ.z / vZ.w) * 0.5f + 0.5f - zs < uZ.z) discard; }\n";
 /* the pixel shaders compiled once and kept on the memory card (ux0:data/bt3/shcache, by a hash of their
    source): the shader compiler takes ~0.2 s a program, 140 programs at the start; read back, a few ms */
 extern int gVglSafe2;
@@ -468,8 +487,9 @@ static GLuint frag_variant(int f) {
     char src[2048];
     GLint len, ok = 0;
     GLuint fs;
-    if (sFragVar[f] != 0) {
-        return sFragVar[f];
+    GLuint *slot = (f & 2048) ? &sFragVarZ[f & 2047] : &sFragVar[f & 2047];
+    if (*slot != 0) {
+        return *slot;
     }
     {   /* in half precision (the chip's pixel units do twice the work in it); in full precision if that fails */
         static const char *const kTexF[4] = {
@@ -554,6 +574,19 @@ static GLuint frag_variant(int f) {
                 }
                 len = (GLint)strlen(src);
             }
+            if (f & 2048) { /* (the effects' picture of lower resolution: the depth test here, fxlow) */
+                char *q = strstr(src, " : TEXCOORD1) {\n");
+                static char zsrc[2600];
+                if (q == NULL) {
+                    break;
+                }
+                len = snprintf(zsrc, sizeof(zsrc), "uniform sampler2D uDepth;\nuniform float4 uZ;\n%.*s : TEXCOORD1, float4 vZ : TEXCOORD2) {\n%s%s",
+                               (int)(q - src), src, kFragZTest, q + strlen(" : TEXCOORD1) {\n"));
+                if (len <= 0 || len >= (GLint)sizeof(src)) {
+                    break;
+                }
+                memcpy(src, zsrc, (size_t)len + 1);
+            }
             fs = glCreateShader(GL_CG_FRAGMENT_SHADER_EXT);
             ok = sh_cached(fs, src, len);
             if (ok) {
@@ -588,7 +621,7 @@ static GLuint frag_variant(int f) {
             return 0;
         }
     }
-    sFragVar[f] = fs;
+    *slot = fs;
     return fs;
 }
 /* kind 0 the GS's vertices, 1 the stage's, 2 the fighters'; f: texture function (0 none, 1 modulate, 2 decal,
@@ -596,18 +629,19 @@ static GLuint frag_variant(int f) {
 static const Variant *variant(int kind, int f) {
     static const char *const kAttr[5][3] = {{"aPos", "aCol", "aTex"}, {"aPos", "aCol", "aTex"}, {"aPos", "aNrm", "aTex"}, {"aPos", "aNrm", "aTex"}, {"aPos", "aCol", "aTex"}};
     static const char *const kStage[6] = {"uR0", "uR1", "uR2", "uR3", "uK1", "uK2"};
-    Variant *v = &sVar[kind][f];
+    Variant *v = (f & 2048) ? &sVarZ[f & 2047] : &sVar[kind][f & 2047];
     GLuint fs;
     int k;
     if (v->prog != 0) {
         return v;
     }
-    if (v->test == -2 || sVsKind[kind] == 0 || ((f & 64) && (kind != 0 || sVsM == 0 || (f & 16))) || (fs = frag_variant(f)) == 0) {
+    if (v->test == -2 || sVsKind[kind] == 0 || ((f & 64) && (kind != 0 || sVsM == 0 || (f & 16))) ||
+        ((f & 2048) && (kind != 0 || sVsZ == 0 || (f & (16 | 64 | 128 | 256 | 512)))) || (fs = frag_variant(f)) == 0) {
         v->test = -2;
         return NULL;
     }
     v->prog = glCreateProgram();
-    glAttachShader(v->prog, kind == 0 && (f & 16) && sVsNP != 0 ? sVsNP : kind == 0 && (f & 64) ? sVsM : sVsKind[kind]);
+    glAttachShader(v->prog, (f & 2048) ? sVsZ : kind == 0 && (f & 16) && sVsNP != 0 ? sVsNP : kind == 0 && (f & 64) ? sVsM : sVsKind[kind]);
     glAttachShader(v->prog, fs);
     for (k = 0; k < 3; k++) {
         glBindAttribLocation(v->prog, (GLuint)k, kAttr[kind][k]);
@@ -617,7 +651,13 @@ static const Variant *variant(int kind, int f) {
     v->tex = glGetUniformLocation(v->prog, "uTex");
     for (k = 0; k < 6; k++) {
         v->u[k] = kind == 1 ? glGetUniformLocation(v->prog, kStage[k]) : kind == 2 && k == 0 ? glGetUniformLocation(v->prog, "uF") : kind == 2 && k == 1 ? glGetUniformLocation(v->prog, "uS") :
-                  kind >= 3 && k == 0 ? glGetUniformLocation(v->prog, "U") : -1;
+                  kind >= 3 && k == 0 ? glGetUniformLocation(v->prog, "U") :
+                  (f & 2048) && k == 0 ? glGetUniformLocation(v->prog, "uZ") : (f & 2048) && k == 1 ? glGetUniformLocation(v->prog, "uDepth") : -1;
+    }
+    if ((f & 2048) && (v->u[0] < 0 || v->u[1] < 0)) { /* (without its depth test it would draw through everything) */
+        v->test = -2;
+        v->prog = 0;
+        return NULL;
     }
     return v;
 }
@@ -720,6 +760,19 @@ static void shader_init(void) {
             Vita_Log("vgl: vertex shader for the colour across the screen not compiled: %s\n", log);
         }
         Vita_Log("vgl: the GS's primitives' colour %s\n", sVsNP != 0 ? "straight across the screen (as the GS)" : "with perspective");
+    }
+    {   /* (the effects drawn at a lower resolution: kVertZ, fxlow) */
+        GLuint vsz = glCreateShader(GL_CG_VERTEX_SHADER_EXT);
+        src = kVertZ; len = (GLint)sizeof(kVertZ) - 1; ok = 0;
+        glShaderSource(vsz, 1, &src, &len);
+        glCompileShader(vsz);
+        glGetShaderiv(vsz, GL_COMPILE_STATUS, &ok);
+        if (ok) {
+            sVsZ = vsz;
+        } else {
+            log[0] = 0; glGetShaderInfoLog(vsz, sizeof(log) - 1, NULL, log); log[sizeof(log) - 1] = 0;
+            Vita_Log("vgl: vertex shader for the effects at a lower resolution not compiled: %s\n", log);
+        }
     }
     if (!(gVglSafe & 2048)) {
         GLuint vs2 = glCreateShader(GL_CG_VERTEX_SHADER_EXT), p2;
@@ -1013,6 +1066,14 @@ static void tbl_exec(const uint8_t *p);
 #define TGT_GLOW 12            /* 12, 13: the native glow's two 64 x 64 pictures */
 #define TGT_FOG 11             /* the fog byte worked out once from the depth (GfxDepthFog_Draw) */
 #define TGT_XF 10              /* the cross-fade's copy of the picture shown last */
+#define TGT_FXL 9              /* the effects' picture of lower resolution (fxlow, below "Additive groups") */
+static GLuint sFxlFbo, sFxlTex;
+static int sFxlTw, sFxlTh;     /* (the thread that draws) its size */
+static void fxl_begin_exec(const uint8_t *p), fxl_end_exec(void);
+static GLuint sDepthTex, sFxProg[5]; /* (below, with the effects' passes) */
+extern int gVitaMsaa;
+extern int gVitaFxLow;
+static int sFxlOn;
 static GLuint sFogFbo, sFogTex;
 static int sFogOk;             /* (the thread that draws) sFogTex holds the fog byte */
 static void fog_exec(const uint8_t *p);
@@ -1337,6 +1398,9 @@ static void target_set(int t) {
     } else if (t == TGT_XF) { /* the cross-fade's copy */
         glBindFramebuffer(GL_FRAMEBUFFER, sXfFbo);
         glViewport(0, 0, SCR_W, SCR_H);
+    } else if (t == TGT_FXL) { /* the effects' picture of lower resolution: the view, smaller */
+        glBindFramebuffer(GL_FRAMEBUFFER, sFxlFbo);
+        glViewport(0, 0, sFxlTw, sFxlTh);
     } else if (t == TGT_GLOW || t == TGT_GLOW + 1) { /* the native glow */
         glBindFramebuffer(GL_FRAMEBUFFER, sGlowFbo[t - TGT_GLOW]);
         glViewport(0, 0, 64, 64);
@@ -1435,6 +1499,11 @@ static void frame_begin(void) {
         extern int Vita_InBattle(void);
         vgl_bt3_split_on = Vita_InBattle() && !(gVglSafe2 & 1);
         sSplitN = 0;
+        {   /* the effects at a lower resolution (fxlow): in a fight, with what they need built */
+            extern int gVitaAbSide;
+            int want = gVitaFxLow == 2 ? gVitaAbSide == 1 : gVitaFxLow != 0;
+            sFxlOn = want && Vita_InBattle() && gVitaMsaa == 0 && sVsZ != 0 && sDepthTex != 0 && sFxProg[0] != 0;
+        }
         sSplitAt = vgl_bt3_split_on ? sceKernelGetProcessTimeWide() + SPLIT_MS * 1000ull : 0;
     }
     GLC_RESET();
@@ -2227,28 +2296,91 @@ static V sAgV[AG_SLOTS][AG_VERTS];
 static State sAgSt[AG_SLOTS];
 static int sAgCnt[AG_SLOTS], sAgN, sAgCur = -1;
 unsigned gVitaAg[3]; /* for the log: groups drawn, their draws, state changes saved */
+/* ---- The effects at a lower resolution (bt3.txt fxlow, as TwinsanityEvolved's TE_GFX_PARTICLE_SCALE): in a fight
+   the screen-filling effects (auras, beams, flashes, the glow of a ki blast) are additive GS primitives, several
+   screens of them in a busy picture, and the chip's time goes to their pixels. An additive group that covers at least
+   fxlowmin screens is drawn into a picture of its own, the view at 1 / fxlowdiv of its size each way (half: a quarter of
+   the pixels), cleared to black, and that picture is then added to the display's (one full-screen draw, filtered).
+   The sum is the same as drawing them one by one on the picture (each only adds, the clamp at the end as at each
+   step); what changes is the detail of the effects, now that of a smaller picture, and the edge of what is in front of
+   them, decided per pixel of the smaller picture (a stair step of fxlowdiv pixels along a fighter's outline in a beam).
+   The depth test is done in the pixel shader against the display's depth as stored when its scene ends (the switch to
+   the effects' picture ends it): variants + 2048, kVertZ. Each such group costs the chip two changes of picture, so a
+   group of less than fxlowmin screens is drawn on the picture as before. fxlow=1 turns on the additive groups too
+   (safe2=8192: off by default, a test found them slower when every group is drawn on the picture), 2: only in the
+   soak's B battles (soakab=1). Not with multisampling (the depth is then made of samples), nor in the menus. ---- */
+int gVitaFxLow = 0;            /* bt3.txt fxlow: 0 off, 1 on, 2 in the soak's B battles */
+float gVitaFxLowMin = 2.0f;    /* bt3.txt fxlowmin: screens (of 512 x 448) a group covers at least to be drawn smaller */
+int gVitaFxLowDiv = 2;         /* bt3.txt fxlowdiv: 2, 3 or 4, the smaller picture's size, the view's / this */
+unsigned gVitaFxl[4];          /* for the log: groups drawn smaller, their screens x 100, groups drawn on the picture, draws without their shader */
+static int sFxlOn;             /* (the drawing thread) this picture's groups may be drawn smaller (frame_begin) */
+static float sAgArea, sAgAddArea; /* (the drawing thread) the area of the group so far, of the primitive being added */
+static void fxl_put_begin(int w, int h), fxl_put_end(void);
 static void flush_one(void);
+/* a state of the group as drawn into the smaller picture: its scissor in that picture's pixels (State.target != 0:
+   scissor_of takes them as they are), its depth test done by the pixel shader; 0: nothing of it is drawn (NEVER) */
+static int fxl_state(State *d, int w, int h) {
+    int x0 = d->sx, y0 = d->sy, x1 = d->sw, y1 = d->sh, px = x0 * w / 512, py = (448 - y1) * h / 448;
+    if (d->ztest && d->zfunc == 0) {
+        return 0;
+    }
+    if (d->ztest && d->zfunc == 1) {
+        d->ztest = 0; /* (ALWAYS) */
+    }
+    d->target = TGT_FXL;
+    d->sx = (int16_t)px;
+    d->sy = (int16_t)py;
+    d->sw = (int16_t)((x1 * w + 511) / 512 - px);
+    d->sh = (int16_t)(((448 - y0) * h + 447) / 448 - py);
+    return 1;
+}
 static void ag_flush(int mine) { /* mine: the batch being filled is the group's (else the caller's is kept as it is) */
     State keep = sCur;
     V *kv = sVerts;
-    int kc = sVertCount, kic = sIdxCount, kh = sHaveState, kfu = sFtSlotsUsed, k, draws = 0;
+    int kc = sVertCount, kic = sIdxCount, kh = sHaveState, kfu = sFtSlotsUsed, k, draws = 0, low = 0;
     const uint16_t *ki = sIdx;
     const struct StageBin *ks = sStageDraw;
     const float *kf = sFtDraw, *kfs = sFtSlots;
+    int lw = VIEW_W / (gVitaFxLowDiv < 2 ? 2 : gVitaFxLowDiv > 4 ? 4 : gVitaFxLowDiv), lh = VIEW_H / (gVitaFxLowDiv < 2 ? 2 : gVitaFxLowDiv > 4 ? 4 : gVitaFxLowDiv);
     if (mine) {
         sAgCnt[sAgCur] = sVertCount;
     }
+    if (sFxlOn) {
+        low = sAgArea >= gVitaFxLowMin * (512.0f * 448.0f);
+        for (k = 0; low && k < sAgN; k++) { /* (only what the smaller picture's shaders take) */
+            const State *d = &sAgSt[k];
+            if (sAgCnt[k] > 0 && (d->qlin || d->pad_[0] || d->target != 0 || d->topo)) {
+                low = 0;
+            }
+        }
+        if (low) {
+            gVitaFxl[0]++;
+            gVitaFxl[1] += (unsigned)(sAgArea * (100.0f / (512.0f * 448.0f)));
+        } else {
+            gVitaFxl[2]++;
+        }
+    }
+    sAgArea = 0.0f;
     sIdx = NULL;
     sStageDraw = NULL;
     sFtDraw = NULL;
+    if (low) {
+        fxl_put_begin(lw, lh);
+    }
     for (k = 0; k < sAgN; k++) {
         if (sAgCnt[k] > 0) {
             sCur = sAgSt[k];
+            if (low && !fxl_state(&sCur, lw, lh)) {
+                continue;
+            }
             sVerts = sAgV[k];
             sVertCount = sAgCnt[k];
             flush_one();
             draws++;
         }
+    }
+    if (low) {
+        fxl_put_end();
     }
     gVitaAg[0]++;
     gVitaAg[1] += (unsigned)draws;
@@ -2354,6 +2486,8 @@ static void flush_run(const FlushIn *in) {
 #define RT_GLOW 6 /* the native glow */
 #define RT_FOG 7 /* the fog byte from the depth */
 #define RT_XF 8 /* the intro's cross-fade */
+#define RT_FXB 9 /* the effects' picture of lower resolution: begun (fxlow) */
+#define RT_FXE 10 /* ... and added to the picture */
 typedef struct RtHdr { uint32_t size, op, pad_[2]; } RtHdr;
 static uint8_t *sRtRing;
 static volatile uint32_t sRtHead, sRtTail; /* bytes handed over / done, counting on (the ring's place: & (RT_RING - 1)) */
@@ -2536,6 +2670,10 @@ static int rt_exec_one(void) {
             fog_exec((const uint8_t *)(h + 1));
         } else if (h->op == RT_XF) {
             xf_exec((const uint8_t *)(h + 1));
+        } else if (h->op == RT_FXB) {
+            fxl_begin_exec((const uint8_t *)(h + 1));
+        } else if (h->op == RT_FXE) {
+            fxl_end_exec();
         }
         sRtWhere = 0;
         gVitaRt[6] += sceKernelGetProcessTimeWide() - t0;
@@ -2768,9 +2906,19 @@ static void flush_impl(const FlushIn *in) {
         if (in->kind == 0 && s->blend && s->src == 2 && s->dst <= 1 && !(vf & (128 | 256 | 512)) && !(gVglSafe2 & 16384)) {
             vf |= 1024; /* the colour scaled by its own alpha (up to 2) here, the blend's source factor one */
         }
+        if (VITA_RARE(s->target == TGT_FXL)) { /* (the effects' smaller picture: the depth test in the pixel shader) */
+            vf &= ~64;
+            if (s->ztest) {
+                vf |= 2048;
+            }
+        }
         sPremul = (vf & 1024) != 0;
         sVfLast = vf;
         const Variant *var = (gVglSafe & 32768) ? NULL : variant(in->kind == 1 ? 1 : in->kind == 2 ? 2 : 0, vf);
+        if (VITA_RARE((vf & 2048) && var == NULL)) {
+            gVitaFxl[3]++; /* (without its depth test it would be drawn over what is in front of it: left out) */
+            return;
+        }
         if (var == NULL) {
             sPremul = 0;
         }
@@ -2801,6 +2949,13 @@ static void flush_impl(const FlushIn *in) {
             }
             if (tst && var->test >= 0) {
                 glUniform4f(var->test, (float)(s->afunc + 1), (float)s->aref / 128.0f, 0.0f, 0.0f);
+            }
+            if (VITA_RARE(vf & 2048)) { /* the display's depth, on the second unit */
+                glActiveTexture(GL_TEXTURE1);
+                glBindTexture(GL_TEXTURE_2D, sDepthTex);
+                glActiveTexture(GL_TEXTURE0);
+                glUniform1i(var->u[1], 1);
+                glUniform4f(var->u[0], (float)VIEW_X / (float)SCR_W, (float)VIEW_W / (float)SCR_W, s->zfunc == 3 ? 1e-7f : 0.0f, 0.0f);
             }
         } else {
         sVarUse = NULL;
@@ -2833,7 +2988,13 @@ static void flush_impl(const FlushIn *in) {
         glDisable(GL_TEXTURE_2D);
     }
     ZM(36); /* (the parts of a batch's draw, zones 36..39) */
-    apply_fixed(s);
+    if (VITA_RARE(s->target == TGT_FXL)) {
+        State sz = *s;
+        sz.ztest = 0; /* (no depth buffer there: the pixel shader's test) */
+        apply_fixed(&sz);
+    } else {
+        apply_fixed(s);
+    }
     sPremul = 0;
     ZM(37);
     if (sProg != 0) {
@@ -3780,6 +3941,11 @@ void Vita_AmLog(void) { /* vita_main.c: the model draws that read the picture's 
             Vita_Log("vgl:   additive groups: %u, drawn in %u draws; %u changes of state saved\n", gVitaAg[0], gVitaAg[1], gVitaAg[2]);
             memset(gVitaAg, 0, sizeof(gVitaAg));
         }
+        if (gVitaFxl[0] | gVitaFxl[2] | gVitaFxl[3]) {
+            Vita_Log("vgl:   effects at a lower resolution: %u groups drawn smaller (%u.%02u screens), %u drawn on the picture (under fxlowmin), %u draws without their shader\n",
+                     gVitaFxl[0], gVitaFxl[1] / 100, gVitaFxl[1] % 100, gVitaFxl[2], gVitaFxl[3]);
+            memset(gVitaFxl, 0, sizeof(gVitaFxl));
+        }
         if (sOlTailN[0] + sOlTailN[1] != 0) { /* */
             Vita_Log("vgl:   the outline's own passes left out after the native one: %u edge image reads, %u darkenings\n", sOlTailN[0], sOlTailN[1]);
             sOlTailN[0] = sOlTailN[1] = 0;
@@ -4465,7 +4631,8 @@ static void GsGpu_Draw_impl(int type, int ctx, const GsVertex *v) {
                           (sProf == 9 && type == 6 && area > 0.9f * 512.0f * 448.0f) || (sProf == 10 && d.target != 0))) {
             return; /* (the GPU profile: these left out) */
         }
-        agOk = (gVglSafe2 & 8192) && d.target == 0 /* (off unless asked for, safe2=8192: a test was slower with it, 19 -> 24 ms a picture) */ && d.blend && d.eq == 0 && d.dst == 1 && d.src < 4 && !d.zwrite && !d.date && d.sop == 0 && !d.fba &&
+        sAgAddArea = area;
+        agOk = ((gVglSafe2 & 8192) || sFxlOn) && d.target == 0 /* (off unless asked for, safe2=8192: a test was slower with it, 19 -> 24 ms a picture) */ && d.blend && d.eq == 0 && d.dst == 1 && d.src < 4 && !d.zwrite && !d.date && d.sop == 0 && !d.fba &&
                d.pad_[0] == 0 && !sTexXf && (!(d.mask & 8) || alphaDead) && !sDumping && !sCovSample;
     }
     if (VITA_RARE(sT114Var & 1) && type == 3 && d.blend) {
@@ -4512,6 +4679,7 @@ page_draw:
         } else if (k != sAgCur) {
             gVitaAg[2]++; /* (back to a state of the group: a draw and a change of state saved) */
         }
+        sAgArea += sAgAddArea;
         if (k != sAgCur) {
             if (sAgCur >= 0) {
                 sAgCnt[sAgCur] = sVertCount;
@@ -5771,6 +5939,87 @@ static void xf_marker(uint32_t arg) {
         rt_commit();
     } else {
         xf_exec((const uint8_t *)op);
+    }
+}
+/* ---- The effects at a lower resolution (fxlow; see "Additive groups"): the smaller picture begun, cleared to black;
+   then the group's draws into it (State.target TGT_FXL); then the picture added to the display's. ---- */
+static void fxl_begin_exec(const uint8_t *p) { /* (the thread that draws) */
+    int w, h;
+    memcpy(&w, p, 4);
+    memcpy(&h, p + 4, 4);
+    if (sFxlFbo == 0 || sFxlTw != w || sFxlTh != h) { /* (made, or made again for the size of the view of the moment) */
+        if (sFxlFbo != 0) {
+            glDeleteFramebuffers(1, &sFxlFbo);
+            sFxlFbo = 0;
+        }
+        if (sFxlTex != 0) {
+            glDeleteTextures(1, &sFxlTex);
+            sFxlTex = 0;
+        }
+        glGenTextures(1, &sFxlTex);
+        glBindTexture(GL_TEXTURE_2D, sFxlTex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glGenFramebuffers(1, &sFxlFbo);
+        glBindFramebuffer(GL_FRAMEBUFFER, sFxlFbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, sFxlTex, 0);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        sFxlTw = w;
+        sFxlTh = h;
+        sTgtCur = -1; /* (bound again below) */
+        Vita_Log("vgl: the effects' picture of lower resolution: %d x %d\n", w, h);
+    }
+    target_set(TGT_FXL); /* (the display's scene ends: its depth is stored, and the group's pixel shaders read it) */
+    GLC_RESET();
+    glDisable(GL_STENCIL_TEST);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    scissor(0, 0, w, h);
+    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f); /* (GsGpu_Init's) */
+}
+static void fxl_end_exec(void) { /* (the thread that draws) the smaller picture added to the display's */
+    target_set(0);
+    GLC_RESET();
+    glUseProgram(sFxProg[0]);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, sFxlTex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    if (sFxU[0][1] >= 0) {
+        glUniform1i(sFxU[0][1], 0);
+    }
+    glUniform4f(sFxU[0][0], 0.0f, 1.0f, -1.0f, 0.0f); /* (a picture of ours over the view: turned over, as ids_exec's) */
+    glEnable(GL_BLEND);
+    glBlendEquation(GL_FUNC_ADD);
+    glBlendFunc(GL_ONE, GL_ONE);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_STENCIL_TEST);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE); /* (the group's alpha is not written or never read again: ag) */
+    scissor(VIEW_X, 0, VIEW_W, VIEW_H);
+    fx_quad();
+    GLC_RESET();
+}
+/* (the drawing thread) in the order of the draws */
+static void fxl_put_begin(int w, int h) {
+    int sz[2] = {w, h};
+    if (sRtOn) {
+        memcpy(rt_reserve(RT_FXB, 16), sz, sizeof(sz));
+        rt_commit();
+    } else {
+        fxl_begin_exec((const uint8_t *)sz);
+    }
+}
+static void fxl_put_end(void) {
+    if (sRtOn) {
+        rt_reserve(RT_FXE, 16);
+        rt_commit();
+    } else {
+        fxl_end_exec();
     }
 }
 /* (the thread that draws) a table pass */
