@@ -1186,11 +1186,12 @@ static void find_disc(void) {
         snprintf(gVitaDisc, sizeof(gVitaDisc), "%s", found);
         return;
     }
-    if (strcmp(gVitaDisc, VITA_DISC_DEFAULT) == 0) { /* the disc's image as it is */
+    {   /* the disc's image as it is: in those places, or in the folder disc= names */
         static const char *const kWhere[] = {HOME "/disc", HOME "/disk", HOME};
-        for (k = 0; k < 3; k++) {
+        int own = strcmp(gVitaDisc, VITA_DISC_DEFAULT) != 0;
+        for (k = 0; k < (own ? 1 : 3); k++) {
             int looked = 0;
-            if (Vita_IsoFind(kWhere[k], VITA_PROGRAM, 1, found, sizeof(found), &looked)) {
+            if (Vita_IsoFind(own ? gVitaDisc : kWhere[k], VITA_PROGRAM, 1, found, sizeof(found), &looked)) {
                 logf_("vita: the disc's files are read from its image %s\n", found);
                 snprintf(gVitaDisc, sizeof(gVitaDisc), "%s", found);
                 return;
@@ -1256,6 +1257,8 @@ static void read_settings(void) {
 #endif
         if (strcmp(line, "disc") == 0) {
             snprintf(gVitaDisc, sizeof(gVitaDisc), "%s", eq);
+        } else if (strcmp(line, "discdir") == 0) { /* (the test runs, whose settings cannot hold a path) disc=<home>/<name> */
+            snprintf(gVitaDisc, sizeof(gVitaDisc), HOME "/%s", eq);
         } else if (strcmp(line, "float") == 0) {
             sFloatChoice = strcmp(eq, "fast") == 0;
         } else if (strcmp(line, "heap") == 0) {
@@ -1443,6 +1446,23 @@ static void read_settings(void) {
             if (atoi(eq) != 0) {
                 setenv("BT3_SOAK", "1", 1);
             }
+        } else if (strcmp(line, "pgoname") == 0) { /* (a BT3_PGO=gen build) its counts in pgo/<name>.pgo (vita_pgo.c) */
+            extern char gVitaPgoName[32];
+            int k;
+            for (k = 0; eq[k] != '\0' && k < 31; k++) { /* (letters, digits, '-' and '_' only: a file name) */
+                char c = eq[k];
+                gVitaPgoName[k] = (char)((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' ? c : '_');
+            }
+            gVitaPgoName[k] = '\0';
+        } else if (strcmp(line, "pgodump") == 0) { /* (a BT3_PGO=gen build) its counts written every <seconds> */
+            extern int gVitaPgoEvery;
+            gVitaPgoEvery = atoi(eq);
+        } else if (strcmp(line, "asyncread") == 0) { /* 0: reads on the caller's thread (vita_read.c) */
+            extern int gVitaAsyncRead;
+            gVitaAsyncRead = atoi(eq) != 0;
+        } else if (strcmp(line, "vufquick") == 0) { /* the vector stand-ins' check: 1 short, 0 full (port_vufast.c) */
+            extern int gVitaVufQuick;
+            gVitaVufQuick = atoi(eq) != 0;
         } else if (strcmp(line, "startmenu") == 0) { /* the start menu (vita_start.c) without SELECT held */
             extern int gVitaStartMenuForce;
             gVitaStartMenuForce = atoi(eq) != 0;
@@ -1608,11 +1628,11 @@ static int watchdog_thread(SceSize args, void *argp) {
                 minutes++;
                 logf_("vita: minute %u: %u.%u pictures/s, in the %s; heap %u KB\n", minutes, d / 60, (d % 60) * 10 / 60,
                       gVitaInMenus ? "menus" : "fights", (unsigned)mi.uordblks >> 10);
-                if (minutes % 5 == 0) { /* (a BT3_PGO=gen build: its counts so far, vita_pgo.c) */
-                    extern void Vita_PgoDump(const char *why);
-                    Vita_PgoDump("every five minutes");
-                }
             }
+        }
+        {   /* (a BT3_PGO=gen build: its counts so far now and then, vita_pgo.c) */
+            extern void Vita_PgoTick(void);
+            Vita_PgoTick();
         }
 #ifdef BT3_BT4
         {   /* BT4's first pictures are up: it got going (vita_start.c, the BT3 program's guard) */

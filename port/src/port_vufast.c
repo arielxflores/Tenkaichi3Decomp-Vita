@@ -756,6 +756,7 @@ static unsigned out_size(int k) {
 #define VUF_QUICK 0
 #endif
 extern int Port_Setting(const char *name, int def);
+int gVitaVufQuick = -1; /* bt3.txt vufquick=0 / 1 (port/vita/vita_main.c), -1 not given */
 
 static int vuf_test(void) {
     uint32_t fpscr;
@@ -768,7 +769,7 @@ static int vuf_test(void) {
         return 0; /* not yet in the game's mode (round toward zero): the library's routines meanwhile */
     }
     sTested = 1;
-    quick = Port_Setting("vufquick", VUF_QUICK) != 0;
+    quick = (gVitaVufQuick >= 0 ? gVitaVufQuick : Port_Setting("vufquick", VUF_QUICK)) != 0;
     div = quick ? 10 : 1;
     if (gVglSafe & 16384) {
         Vita_Log("vita: the vector library's fast stand-ins are off (gVglSafe 16384)\n");

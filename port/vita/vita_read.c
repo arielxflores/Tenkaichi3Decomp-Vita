@@ -13,6 +13,7 @@
 extern int Port_Setting(const char *name, int def);
 extern void Vita_Log(const char *fmt, ...);
 
+int gVitaAsyncRead = -1; /* bt3.txt asyncread=0 / 1 (vita_main.c), -1 not given */
 static SceUID sRdMutex = -1, sRdSema = -1;
 static int sRdOn = -1;
 static VitaReadJob *sRdHead, *sRdTail;
@@ -65,7 +66,7 @@ int Vita_ReadOn(void) {
     if (sRdOn < 0) {
         SceUID th;
         sRdOn = 0;
-        if (Port_Setting("asyncread", 1) == 0) {
+        if ((gVitaAsyncRead >= 0 ? gVitaAsyncRead : Port_Setting("asyncread", 1)) == 0) {
             Vita_Log("vita: reads on the caller's thread (asyncread=0)\n");
             return 0;
         }
