@@ -206,8 +206,13 @@ cap_y = bytearray(cap_t)
 for e in (1, 3):
     cap_y = label_job(14, e, [(0, 'Z Counter', 128.5, 'center'), (32, 'Bombardment', 128.5, 'center')],
                       64, base_sec=cap_y, keep=False)
+# a sixth: Vita Settings' third page (Game) and its two plates (BT3, BT4: the package's two games)
+cap_g = bytearray(cap_t)
+for e in (1, 3):
+    cap_g = label_job(14, e, [(0, 'Game', 128.5, 'center'), (192, 'BT3', 128.5, 'center'), (224, 'BT4', 128.5, 'center')],
+                      64, base_sec=cap_g, keep=False)
 def differs(k):
-    return k < len(cap_t) and any(cap_t[k] != c[k] for c in (cap_v, cap_l, cap_x, cap_y))
+    return k < len(cap_t) and any(cap_t[k] != c[k] for c in (cap_v, cap_l, cap_x, cap_y, cap_g))
 cap_runs = []
 i = 0
 while i < len(cap_t):
@@ -268,7 +273,8 @@ lines += ['', '/* Vita Settings: the runs of the second caption strip (section 1
 for off, ln in cap_runs:
     lines.append(f'    {{0x{off:X}, {ln}}},')
 lines.append('};')
-for name, src in (('kOptCapT', cap_t), ('kOptCapV', cap_v), ('kOptCapL', cap_l), ('kOptCapX', cap_x), ('kOptCapY', cap_y)):
+for name, src in (('kOptCapT', cap_t), ('kOptCapV', cap_v), ('kOptCapL', cap_l), ('kOptCapX', cap_x), ('kOptCapY', cap_y),
+                  ('kOptCapG', cap_g)):
     blob = b''.join(bytes(src[off:off + ln]) for off, ln in cap_runs)
     lines.append(f'static const uint8_t {name}[{len(blob)}] = {{')
     for i in range(0, len(blob), 32):
@@ -277,7 +283,7 @@ for name, src in (('kOptCapT', cap_t), ('kOptCapV', cap_v), ('kOptCapL', cap_l),
 print('captions: runs', len(cap_runs), 'bytes', sum(l for _, l in cap_runs))
 # previews of the second and third sets
 for e in (1, 3):
-    for tag, src in (('v', cap_v), ('l', cap_l), ('x', cap_x), ('y', cap_y)):
+    for tag, src in (('v', cap_v), ('l', cap_l), ('x', cap_x), ('y', cap_y), ('g', cap_g)):
         t = texture(bytes(src), e)
         Image.fromarray(t['rgba'].copy(), 'RGBA').save(f'{base}/patched_opt_s14_t{e}_{tag}.png')
 lines += ['', '/* The versus menu (file 449, section 1): the plate "1P VS 2P" reads "Multiplayer". */']

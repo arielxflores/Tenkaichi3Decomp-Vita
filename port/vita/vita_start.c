@@ -144,6 +144,43 @@ void Vita_Bt4Started(void) {
 }
 #endif
 
+/* The other game of the package from the game's own options (Vita Settings > Game, src/menu/menu_x_c.c), as the start
+   menu's Game does it: the choice is kept, and the other program started in this one's place.
+   Vita_GameSwitchCheck: 0 it can be started, 1 the package has no BT4 program, 2 the player's BT4 files are not there.
+   Vita_GameSwitch returns only when the other program could not be started (the choice is then taken back). */
+int Vita_GameSwitchCheck(void) {
+#ifndef BT3_BT4
+    const char *why;
+    if (!exists(BT4_PROGRAM)) {
+        return 1;
+    }
+    return bt4_ready(&why) ? 0 : 2;
+#else
+    return 0;
+#endif
+}
+
+void Vita_GameSwitch(void) {
+    int r;
+#ifndef BT3_BT4
+    write_text(START_FILE, "bt4");
+    write_text(BT4_STARTING, "1");
+    Vita_Log("vita: the options chose Budokai Tenkaichi 4 (%s)\n", BT4_PROGRAM);
+    sceKernelDelayThread(100000);
+    r = sceAppMgrLoadExec(BT4_PROGRAM, NULL, NULL);
+    sceIoRemove(BT4_STARTING);
+    write_text(START_FILE, "bt3");
+    Vita_Log("vita: BT4 could not be started (%08x)\n", (unsigned)r);
+#else
+    write_text(START_FILE, "bt3");
+    Vita_Log("vita: the options chose Budokai Tenkaichi 3\n");
+    sceKernelDelayThread(100000);
+    r = sceAppMgrLoadExec("app0:eboot.bin", NULL, NULL);
+    write_text(START_FILE, "bt4");
+    Vita_Log("vita: BT3 could not be started (%08x)\n", (unsigned)r);
+#endif
+}
+
 #ifndef BT3_BT4
 /* Multiplayer: host or join, ad hoc or Wi-Fi; the time limit the host gives the match. 1: a choice was made (the
    game then starts as a match: vita_net.c). */

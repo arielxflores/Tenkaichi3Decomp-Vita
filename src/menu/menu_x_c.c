@@ -285,8 +285,8 @@ static void Option_VitaKeysLeave(void) {
 /* "Vita Settings", the controller page's second row (the console's Vibration). Its page holds four plates of the
    console's two-way pickers, captioned from the second caption strip, whose rows take turns between two sets
    (vita_optart.c Vita_OptionCaptions):
-     level 1: Touch, Clashes / 2nd Pad, Mods, the four settings, and on a second page (Down from the lower row) Cheats,
-              Quick Start / Quick Save, Tech Fixes;
+     level 1: Touch, Clashes / 2nd Pad, Mods, the four settings, on a second page (Down from the lower row) Cheats,
+              Quick Start / Quick Save, Tech Fixes, and on a third Game;
      level 2: Touch: L2, R2 / L3, R3, laid out as the rear pad's quarters; level 3: where the chosen one is touched,
               Rear / Front, Off (port/vita/vita_touch.c, which keeps it in ux0:data/bt3/touch.txt);
      level 4: Clashes: Square / Stick, what wins a beam or rush clash (port/vita/vita_gfx.c, clash_square);
@@ -300,7 +300,9 @@ static void Option_VitaKeysLeave(void) {
               player has something to answer (src/sys/mcflow_a.c, the PC version's quick saving);
      level 10: Tech Fixes: Z Counter / Bombardment, the community's fixes of the fighting mechanics (the PC version's
               Tech tab: port/src/bt3_zcounter2.c, bt3_bombardment.c), CROSS turns the one under the cursor on or off;
-              from the next fight, never in a replay.
+              from the next fight, never in a replay;
+     level 12: Game: BT3 / BT4, the package's other game (Team BT4's Budokai Tenkaichi 4, from the player's BT4 files:
+              port/vita/vita_start.c, as the start menu's Game): CROSS twice, as this game closes for it.
    The settings of levels 4 to 10 are kept in ux0:data/bt3/bt3_settings.txt, not in the save. In each level Cross chooses (the setting
    is taken at once), Triangle or Circle go back a level; the plate of the current setting is lit when a level opens.
    The guide line says what the plate under the cursor does. */
@@ -319,9 +321,11 @@ extern void Vita_ModsSummary(char *out, int size);
 static s32 sVitaSetLevel; /* 0 closed, 1..9 above */
 static s32 sVitaSetItem;  /* the setting chosen on level 1 */
 static s32 sVitaTouchBtn; /* the button chosen on level 2 */
-static s32 sVitaItem1;    /* level 1's item under the cursor: 0..3 the first page's, 4..7 the second's (its plate: item % 4) */
-static s32 sVitaCheatArmed; /* level 7: CROSS was pressed once */
-#define VITA_L1_ITEMS 8
+static s32 sVitaItem1;    /* level 1's item under the cursor: 0..3 the first page's, 4..7 the second's, 8 the third's (its plate: item % 4) */
+static s32 sVitaCheatArmed; /* level 7 and 12: CROSS was pressed once (2: done; 12: 3 the other game did not start) */
+#define VITA_L1_ITEMS 9
+extern int Vita_GameSwitchCheck(void);
+extern void Vita_GameSwitch(void);
 /* (Save_UnlockAll: include/sys/save.h) */
 
 static int Option_VitaQuickStart(void) {
@@ -348,7 +352,9 @@ static void Option_VitaSetGuide(void) {
     }
     switch (sVitaSetLevel) {
     case 1: /* the setting under the cursor, and what it is now */
-        if (v == 4) {
+        if (v == 8) {
+            sprintf(text, "Game: Budokai Tenkaichi 3, or Team\nBT4's Budokai Tenkaichi 4 mod\n(from your own BT4 disc).");
+        } else if (v == 4) {
             sprintf(text, "Cheats: the unlock of everything\nthat the game's developers left in.");
         } else if (v == 5) {
             sprintf(text, "Quick Start: no logos, opening film\nor copyright page at the start: %s.", Option_VitaQuickStart() ? "ON" : "OFF");
@@ -434,6 +440,15 @@ static void Option_VitaSetGuide(void) {
             sprintf(text, "Bombardment fix (%s): a chain of\nsmash Ki blasts with dashes is not\nbroken by body contact.", Port_Setting("tech_bombardment", 0) ? "ON" : "OFF");
         }
         break;
+    case 12:
+        b = Vita_GameSwitchCheck();
+        sprintf(text, v == 0 ? "Budokai Tenkaichi 3: the game you\nare playing now."
+                      : b == 1 ? "This package has no Budokai\nTenkaichi 4 program."
+                      : b == 2 ? "Not now: copy your BT4 B14 Rev2\ndisc's .iso to ux0:data/bt3/bt4/\nfirst (see the README)."
+                      : sVitaCheatArmed == 3 ? "Budokai Tenkaichi 4 could not be\nstarted (see ux0:data/bt3/log.txt)."
+                      : sVitaCheatArmed ? "Press CROSS again: this game closes\nand BT4 starts. Options not saved\nyet are lost (Circle: no)."
+                                        : "Team BT4's Budokai Tenkaichi 4\n(B14 Rev2). It then starts each\ntime, until changed back. CROSS.");
+        break;
     case 8:
         sprintf(text, v == 0 ? "ON: the game starts at its title\nscreen (no logos, opening film or\ncopyright page)."
                              : "OFF: the logos, the opening film\nand the copyright page, as the\ngame has them.");
@@ -463,7 +478,8 @@ static void Option_VitaSetLevel(s32 level, s32 value) {
         sVitaItem1 = value;
         value %= 4;
     }
-    Vita_OptionCaptions(level == 2 || level == 3 ? 0 : level == 7 || (level == 1 && sVitaItem1 >= 4) ? 3 : level == 10 ? 4 : 1);
+    Vita_OptionCaptions(level == 2 || level == 3 ? 0 : level == 12 || (level == 1 && sVitaItem1 >= 8) ? 5
+                        : level == 7 || (level == 1 && sVitaItem1 >= 4) ? 3 : level == 10 ? 4 : 1);
     Option_DimPickers();
     gOption->value = value;
     OPT_PLATE(OPT_CLIP_PICK, "fl_on_start");
@@ -476,7 +492,7 @@ static void Option_VitaL1Move(s32 item) {
     OPT_PLATE(OPT_CLIP_PICK, "fl_off_start");
     sVitaItem1 = item;
     if (item / 4 != page) {
-        Vita_OptionCaptions(item >= 4 ? 3 : 1);
+        Vita_OptionCaptions(item >= 8 ? 5 : item >= 4 ? 3 : 1);
         Option_DimPickers();
     }
     gOption->value = item % 4;
@@ -515,7 +531,7 @@ static void Option_VitaTouchInput(void) {
         } else if (pressed & PADG_CROSS) {
             sVitaSetItem = v;
             Snd_PlaySe(1, 1);
-            Option_VitaSetLevel(v == 0 ? 2 : v == 1 ? 4 : v == 2 ? 5 : v == 3 ? 6 : v == 4 ? 7 : v == 5 ? 8 : v == 6 ? 9 : 10,
+            Option_VitaSetLevel(v == 0 ? 2 : v == 1 ? 4 : v == 2 ? 5 : v == 3 ? 6 : v == 4 ? 7 : v == 5 ? 8 : v == 6 ? 9 : v == 7 ? 10 : 12,
                                 v == 0 ? 0 : v == 1 ? !Port_ClashSquare() : v == 2 ? !Vita_Pad2Setting() : v == 3 ? !Option_VitaModsOn()
                                 : v == 4 ? 0 : v == 5 ? !Option_VitaQuickStart() : v == 6 ? !Option_VitaQuickSave() : 0);
         } else if (back) { /* back to the page */
@@ -576,6 +592,31 @@ static void Option_VitaTouchInput(void) {
             OPT_PLATE(OPT_CLIP_PICK, "fl_ok");
             Snd_PlaySe(1, 1);
             Option_VitaSetGuide();
+        } else if (back) {
+            Snd_PlaySe(1, 2);
+            Option_VitaSetLevel(1, sVitaSetItem);
+        }
+        break;
+    case 12: /* BT3 / BT4: CROSS twice on the other game */
+        if (pressed & (PADG_LEFT | PADG_RIGHT)) {
+            sVitaCheatArmed = 0;
+            Option_VitaSetMove(v ^ 1);
+        } else if (pressed & PADG_CROSS) {
+            if (v == 0) { /* (this game) */
+                Snd_PlaySe(1, 1);
+                Option_VitaSetLevel(1, sVitaSetItem);
+            } else if (Vita_GameSwitchCheck() != 0) {
+                Snd_PlaySe(1, 2);
+            } else if (sVitaCheatArmed == 1) {
+                Snd_PlaySe(1, 1);
+                Vita_GameSwitch(); /* (comes back only when BT4 could not be started) */
+                sVitaCheatArmed = 3;
+                Option_VitaSetGuide();
+            } else {
+                sVitaCheatArmed = 1;
+                Snd_PlaySe(1, 0);
+                Option_VitaSetGuide();
+            }
         } else if (back) {
             Snd_PlaySe(1, 2);
             Option_VitaSetLevel(1, sVitaSetItem);
@@ -2038,21 +2079,23 @@ static s32 sVitaPlatesHidden;
 
 static void Option_VitaTouchPlates(MFlash *flash) {
     /* per level: the plates used, and each plate's strip (0 the first, 1 the second) and row; 11 is level 1's second
-       page (Cheats, Quick Start / Quick Save, Tech Fixes) */
-    static const s8 kCount[12] = {0, 4, 4, 3, 2, 2, 2, 1, 2, 2, 2, 4};
-    static const s8 kTex[12][4] = {{0}, {1, 1, 1, 1}, {1, 1, 1, 1}, {1, 1, 0, 0}, {1, 1, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0},
-                                   {1, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {1, 1, 0, 0}, {1, 1, 1, 1}};
-    static const s8 kRow[12][4] = {{0}, {0, 1, 4, 5}, {0, 1, 4, 7}, {5, 6, 1, 0}, {6, 7, 0, 0}, {0, 1, 0, 0}, {0, 1, 0, 0},
-                                   {6, 0, 0, 0}, {0, 1, 0, 0}, {0, 1, 0, 0}, {0, 1, 0, 0}, {0, 1, 4, 5}};
+       page (Cheats, Quick Start / Quick Save, Tech Fixes), 13 its third (Game) */
+    static const s8 kCount[14] = {0, 4, 4, 3, 2, 2, 2, 1, 2, 2, 2, 4, 2, 1};
+    static const s8 kTex[14][4] = {{0}, {1, 1, 1, 1}, {1, 1, 1, 1}, {1, 1, 0, 0}, {1, 1, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0},
+                                   {1, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {1, 1, 0, 0}, {1, 1, 1, 1}, {1, 1, 0, 0},
+                                   {1, 0, 0, 0}};
+    static const s8 kRow[14][4] = {{0}, {0, 1, 4, 5}, {0, 1, 4, 7}, {5, 6, 1, 0}, {6, 7, 0, 0}, {0, 1, 0, 0}, {0, 1, 0, 0},
+                                   {6, 0, 0, 0}, {0, 1, 0, 0}, {0, 1, 0, 0}, {0, 1, 0, 0}, {0, 1, 4, 5}, {6, 7, 0, 0},
+                                   {0, 0, 0, 0}};
     MFlashRef ref;
     MFlashUv uv;
     char name[0x40];
     s32 i, lv = sVitaSetLevel;
 
     if (lv == 1 && sVitaItem1 >= 4) {
-        lv = 11;
+        lv = sVitaItem1 >= 8 ? 13 : 11;
     }
-    if (gOption->picker != 5 || lv < 1 || lv > 11) {
+    if (gOption->picker != 5 || lv < 1 || lv > 13) {
         if (sVitaPlatesHidden) {
             for (i = 0; i < 4; i++) {
                 sprintf(name, "mc_select_plate_%d", i + 1);

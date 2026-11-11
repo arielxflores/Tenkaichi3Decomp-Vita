@@ -192,10 +192,11 @@ int Vita_VersusNetReady(void) {
    Hoc: Join, and the message window's lines 5 to 7 say what they do) or closes (0: as the disc has them again). 0 when
    the screen's art is not the disc's: the choice is then not offered. The menus draw from the unpacked pack every
    frame, so the change shows at once. */
+static const char *const kVsNetLine[3] = {"Two players on this Vita,\nwith a second controller.",
+                                          "Host a match for a Vita nearby\n(ad hoc: no router needed).",
+                                          "Join a match that a Vita nearby\nhosts (ad hoc)."};
+
 int Vita_VersusNetPlates(int on) {
-    static const char *const kLine[3] = {"Two players on this Vita,\nwith a second controller.",
-                                         "Host a match for a Vita nearby\n(the game starts again for it).",
-                                         "Join a Vita nearby that hosts\na match (the game starts again)."};
     const uint8_t *b;
     unsigned k;
     if (sVsSec8 == NULL) {
@@ -217,13 +218,56 @@ int Vita_VersusNetPlates(int on) {
         }
         if (on) {
             memcpy(sVsLines[k], sl.p, sl.size);
-            write_slot(sl, kLine[k]);
+            write_slot(sl, kVsNetLine[k]);
         } else {
             memcpy(sl.p, sVsLines[k], sl.size);
         }
     }
     sVsNetOn = on;
     return 1;
+}
+
+/* (src/menu/menu_g_c.c) Multiplayer's choice waits for the other Vita (port/vita/vita_net.c): what it says goes
+   into the message window, written over one of the two lines that are not the plate's under the cursor (`keep`: 5, 6
+   or 7), in turn, so that the window takes each as a new line. Cut to what the line's slot holds; letters the game's
+   lettering may not have (a Vita's user name) as "?". Returns the line to show, -1: none. */
+int Vita_VersusNetStatus(const char *text, int keep) {
+    static int turn;
+    char t[64];
+    Slot sl;
+    size_t i, max;
+    int line;
+    if (sVsText == NULL || !sVsNetOn) {
+        return -1;
+    }
+    turn ^= 1;
+    line = 5 + ((keep - 5 + 1 + turn) % 3 + 3) % 3;
+    sl = slot_of(sVsText, line + 1);
+    if (sl.p == NULL || sl.size < 8) {
+        return -1;
+    }
+    max = sl.size / 2 - 2;
+    if (max > sizeof(t) - 1) {
+        max = sizeof(t) - 1;
+    }
+    for (i = 0; i < max && text[i] != '\0'; i++) {
+        unsigned char c = (unsigned char)text[i];
+        t[i] = c == '\n' || (c >= 0x20 && c < 0x7F) ? (char)c : '?';
+    }
+    t[i] = '\0';
+    write_slot(sl, t);
+    return line;
+}
+
+/* the choice's own three lines again, after Vita_VersusNetStatus */
+void Vita_VersusNetHelp(void) {
+    int k;
+    if (sVsText == NULL || !sVsNetOn) {
+        return;
+    }
+    for (k = 0; k < 3; k++) {
+        write_slot(slot_of(sVsText, k + 6), kVsNetLine[k]);
+    }
 }
 
 void Vita_IconArt(void *boot) {
@@ -252,12 +296,13 @@ int Vita_OptionGuide(const char *text) {
    Rear, Front, R3) or of the page above them (set 1: Touch, Clashes, 2nd Pad, Mods, Square, Stick), or the European
    languages of the Language row (set 2: Espanol, Deutsch, Francais, Italiano in rows 0, 1, 4, 5), or Vita Settings'
    second page (set 3: Cheats, Quick Start, Quick Save, Tech Fixes in rows 0, 1, 4, 5, the cheat's Unlock All in 6),
-   or the Tech Fixes' two (set 4: Z Counter, Bombardment in rows 0, 1). Rows 2 and 3 (Normal, Custom: the control
+   or the Tech Fixes' two (set 4: Z Counter, Bombardment in rows 0, 1), or Vita Settings' third page (set 5: Game in
+   row 0, its BT3 and BT4 in rows 6 and 7). Rows 2 and 3 (Normal, Custom: the control
    type's picker) are the same in every set. The menus upload a picture each time they draw it, so the change shows
    at once. */
 void Vita_OptionCaptions(int set) {
-    static const uint8_t *const kSet[5] = {kOptCapT, kOptCapV, kOptCapL, kOptCapX, kOptCapY};
-    const uint8_t *b = kSet[set >= 0 && set < 5 ? set : 0];
+    static const uint8_t *const kSet[6] = {kOptCapT, kOptCapV, kOptCapL, kOptCapX, kOptCapY, kOptCapG};
+    const uint8_t *b = kSet[set >= 0 && set < 6 ? set : 0];
     unsigned k;
     if (sCapSec == NULL || set == sCapSet) {
         return;
