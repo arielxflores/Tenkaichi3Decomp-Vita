@@ -1129,10 +1129,11 @@ void __wrap_exit(int code) {
 }
 
 /* bt3.txt: name=value lines; '#' starts a comment. */
-/* Where the disc's files are. gVitaDisc (ux0:data/bt3/disc, or disc= of bt3.txt) when SLUS_216.78 is there; else the
-   places players put them by mistake: ux0:data/bt3/disk, ux0:data/bt3 itself, or a folder inside either (an image
-   unpacked into a folder of its own name), two levels down at most. When none has the files, a message says where they
-   go and what was found instead (an .iso among it: it has to be unpacked). */
+/* Where the disc's files are. gVitaDisc (ux0:data/bt3/disc, or disc= of bt3.txt, which may name an .iso) when
+   SLUS_216.78 is there; else the places players put them by mistake: ux0:data/bt3/disk, ux0:data/bt3 itself, or a
+   folder inside either (an image unpacked into a folder of its own name), two levels down at most; else the disc's
+   image as it is, an .iso in ux0:data/bt3/disc, /disk or ux0:data/bt3 (vita_iso.c reads the files from it). When none
+   has the files, a message says where they go and what was found instead. */
 static int has_slus(const char *dir) {
     char path[300];
     SceIoStat st;
@@ -1166,10 +1167,16 @@ static int find_below(const char *dir, int depth, char *out, size_t size) {
 }
 
 static void find_disc(void) {
+    extern int Vita_IsoMount(const char *path);
+    extern int Vita_IsoFind(const char *dir, const char *file, int keep, char *out, int size, int *seen);
     char found[256], seen[400];
     SceUID d;
     SceIoDirent e;
-    int n = 0, iso = 0;
+    int n = 0, wrong = 0, k;
+    size_t len = strlen(gVitaDisc);
+    if (len > 4 && strcasecmp(gVitaDisc + len - 4, ".iso") == 0 && !Vita_IsoMount(gVitaDisc)) { /* (disc= naming the image) */
+        logf_("vita: %s is not a disc image that can be read\n", gVitaDisc);
+    }
     if (has_slus(gVitaDisc)) {
         return;
     }
@@ -1179,6 +1186,18 @@ static void find_disc(void) {
         snprintf(gVitaDisc, sizeof(gVitaDisc), "%s", found);
         return;
     }
+    if (strcmp(gVitaDisc, VITA_DISC_DEFAULT) == 0) { /* the disc's image as it is */
+        static const char *const kWhere[] = {HOME "/disc", HOME "/disk", HOME};
+        for (k = 0; k < 3; k++) {
+            int looked = 0;
+            if (Vita_IsoFind(kWhere[k], VITA_PROGRAM, 1, found, sizeof(found), &looked)) {
+                logf_("vita: the disc's files are read from its image %s\n", found);
+                snprintf(gVitaDisc, sizeof(gVitaDisc), "%s", found);
+                return;
+            }
+            wrong += looked;
+        }
+    }
     seen[0] = '\0';
     if ((d = sceIoDopen(HOME)) >= 0) {
         memset(&e, 0, sizeof(e));
@@ -1187,7 +1206,6 @@ static void find_disc(void) {
             if (e.d_name[0] == '.' || (!SCE_S_ISDIR(e.d_stat.st_mode) && !(l > 4 && strcasecmp(e.d_name + l - 4, ".iso") == 0))) {
                 continue;
             }
-            iso |= !SCE_S_ISDIR(e.d_stat.st_mode);
             if (n++ < 8 && strlen(seen) + l + 4 < sizeof(seen)) {
                 strcat(seen, "  ");
                 strcat(seen, e.d_name);
@@ -1196,11 +1214,12 @@ static void find_disc(void) {
         }
         sceIoDclose(d);
     }
-    Vita_Fatal("The game's files were not found. From your own disc of the\n"
-               VITA_RELEASE_NAME ", copy " VITA_PROGRAM " and the folders\n"
-               "BIN and DATA into\n  %s/\n\n%s%s%s%s",
+    Vita_Fatal("The game's files were not found. Copy your own disc of the\n"
+               VITA_RELEASE_NAME " into\n  %s/\n"
+               "as its .iso (a 1:1 image of the disc), or " VITA_PROGRAM "\n"
+               "and the folders BIN and DATA from it.\n\n%s%s%s%s",
                gVitaDisc, n ? "In " HOME " there is:\n" : "", seen,
-               iso ? "\nAn .iso can't be read as it is: open it with 7-Zip on\na PC and extract those three items (see the README)." : "",
+               wrong ? "\nThe .iso found is not of " VITA_RELEASE_NAME "\n(it has no " VITA_PROGRAM "), or it could not be read." : "",
 #ifndef BT3_BT4
                sceIoGetstat("app0:bt4.bin", &e.d_stat) >= 0 ? "\n\nFor Budokai Tenkaichi 4: hold SELECT while the game starts." : ""
 #else
@@ -1424,6 +1443,9 @@ static void read_settings(void) {
             if (atoi(eq) != 0) {
                 setenv("BT3_SOAK", "1", 1);
             }
+        } else if (strcmp(line, "startmenu") == 0) { /* the start menu (vita_start.c) without SELECT held */
+            extern int gVitaStartMenuForce;
+            gVitaStartMenuForce = atoi(eq) != 0;
         } else if (strcmp(line, "startmode") == 0) { /* the menus start on this screen (62 the options) */
             extern int gVitaStartMode;
             gVitaStartMode = atoi(eq);

@@ -230,7 +230,8 @@ def port_sources():
             (V / "vita_perf.c", "hard"), (V / "vita_vgl.c", "hard"), (V / "vita_touch.c", "hard"), (V / "vita_optart.c", "hard"),
             (V / "vita_text.c", "hard"), (V / "vita_audio.c", "gs"), (S / "gs/snd_adx.c", "gs"), (S / "gs/snd_se.c", "gs"),
             (V / "vita_vufast_wrap.c", "hard"), (V / "vita_tls.c", "hard"), (V / "vita_clib.c", "hard"),
-            (V / "vita_crash.c", "hard"), (V / "vita_eu.c", "hard"), (V / "vita_read.c", "hard"), (V / "vita_start.c", "hard"), (V / "vita_pgo.c", "hard")]
+            (V / "vita_crash.c", "hard"), (V / "vita_eu.c", "hard"), (V / "vita_read.c", "hard"), (V / "vita_start.c", "hard"), (V / "vita_pgo.c", "hard"),
+            (V / "vita_iso.c", "hard")]
     if BT4:  # BT4's own services (port/vita/bt4) and the game-side rules of BT4decomp's platform layer
         out += [(V / "bt4/vita_bt4.c", "hard"), (V / "bt4/vita_bt4_shim.c", "hard")]
         out += [(GROOT / "port/src" / (n + ".c"), "bt4ee") for n in ("bt3_gameplay_rules", "bt3_bombardment", "bt3_zcounter2")]
@@ -327,6 +328,9 @@ VUFAST_WRAPS = """ClipPoly_ClipPlane ClipPoly_ProjectCur Mtx_Mul Mtx_MulVec3 Mtx
 PORT_WRAPS = "Progress_Main main exit Port_GsVif1Chain sceMpegGetPicture GsVu1_Call".split()
 # The C library's per-thread lookups the short way (vita_tls.c, as mh3-wii's fast_tls.c) and a faster memcmp (vita_clib.c)
 PORT_WRAPS += ["__getreent", "pte_osTlsGetValue", "memcmp"]
+# The file calls, the C library's included: the disc's files read from its .iso as it is (vita_iso.c)
+PORT_WRAPS += """sceIoOpen sceIoClose sceIoRead sceIoPread sceIoLseek sceIoLseek32 sceIoGetstat sceIoGetstatByFd sceIoDopen sceIoDread
+    sceIoDclose""".split()
 
 
 def link_cmd(objs, extra):

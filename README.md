@@ -53,13 +53,21 @@ Steps:
 
 1. Install `Tenkaichi3Decomp-Vita.vpk` from the [releases page](https://github.com/arielxflores/Tenkaichi3Decomp-Vita/releases)
    with VitaShell.
-2. Copy the game files to `ux0:data/bt3/disc/` as described below.
+2. Copy your disc image (`.iso`) to `ux0:data/bt3/` as described below.
 3. Start **Dragon Ball Z: BT3** from the LiveArea.
 
 ## Game files
 
 You need a disc image (`.iso`) of your own copy of the USA release, SLUS-21678. Other releases (PAL, Japanese) are
-not supported. From the image, copy `SLUS_216.78` and the `BIN` and `DATA` folders, so that the memory card has:
+not supported. Copy the image as it is to `ux0:data/bt3/` with VitaShell (USB or FTP), under any name ending in
+`.iso`:
+
+```
+ux0:data/bt3/Dragon Ball Z Budokai Tenkaichi 3.iso
+```
+
+The game reads its files from the image. Or copy only `SLUS_216.78` and the `BIN` and `DATA` folders from the
+image (with [7-Zip](https://www.7-zip.org/); the rest of the disc is not needed), so that the memory card has:
 
 ```
 ux0:data/bt3/disc/SLUS_216.78
@@ -74,14 +82,14 @@ ux0:data/bt3/disc/DATA/ZS3USOP.PSS        (and the other files of the DATA folde
   extract them into a folder named `disc`.
 - **Linux / macOS:** `7z x -odisc your-image.iso SLUS_216.78 BIN DATA`
 
-Then copy the `disc` folder to `ux0:data/bt3/` with VitaShell (USB or FTP). The game checks at start that the
-files are the unmodified USA release and tells you if they are not.
+Then copy the `disc` folder to `ux0:data/bt3/`. Either way, the game checks at start that the files are the
+unmodified USA release and tells you if they are not.
 
 ### Languages (optional)
 
 The USA release is in English only. With your own copy of the European release (SLES-54945) the menus, the HUD
-and the battle subtitles can be in Spanish, German, French or Italian: copy `DATA/PZS3EU1.AFS` from its disc
-image to
+and the battle subtitles can be in Spanish, German, French or Italian: copy its disc image (`.iso`) to
+`ux0:data/bt3/eu/` (or beside the USA one in `ux0:data/bt3/`), or only `DATA/PZS3EU1.AFS` from it to
 
 ```
 ux0:data/bt3/eu/PZS3EU1.AFS
@@ -146,8 +154,8 @@ Hold SELECT while the game starts (from the LiveArea until the text screen shows
 The package also carries **Team BT4's Budokai Tenkaichi 4 B14 Rev2**, through
 [NauTaro's BT4decomp](https://github.com/NauTaro/DBZ-BT4-Tag-Team-Decomp), the mod's game running on Tenkaichi3Decomp,
 built for the Vita with this port. You need your own disc image of BT4 B14 Rev2 (its English or Spanish release, as
-published by Team BT4). From the image, copy `SLUS_219.78` and the `BIN` and `DATA` folders, so that the memory card
-has:
+published by Team BT4). Copy the image as it is to `ux0:data/bt3/bt4/` (any name ending in `.iso`), or
+`SLUS_219.78` and the `BIN` and `DATA` folders from it, so that the memory card has:
 
 ```
 ux0:data/bt3/bt4/SLUS_219.78
@@ -186,16 +194,18 @@ Mods** shows what is in use and turns it all off without deleting anything (from
 Mods that change only the disc's data files work. Mods that change the game's program cannot: the program is
 compiled into the port from the unmodified USA release, and those mods' data files are made for their own program.
 Budokai Tenkaichi 4 is the exception, as a program of its own (see above). A pack holding a changed `SLUS_216.78` or `BIN/DBZP.BIN` is left
-out, with a message when the game starts. A disc image (`.iso`) is not read: copy a modded disc's files into a
-pack instead.
+out, with a message when the game starts. A modded disc's image (`.iso`) is not read as a pack: copy its files
+into a pack instead.
 
 ## Troubleshooting
 
-- **"The game's files were not found"**: `SLUS_216.78` and the `BIN` and `DATA` folders must be in
-  `ux0:data/bt3/disc/` (a folder named `disk`, or one more folder level in between, is found too). An `.iso` cannot
-  be read as it is: extract those three items from it with 7-Zip.
-- **The picture fills only part of the screen**: the Sharpscale plugin is set to a resolution other than
-  "Original"; set it back to Original.
+- **"The game's files were not found"**: the disc image (`.iso`) must be in `ux0:data/bt3/` or
+  `ux0:data/bt3/disc/`, or `SLUS_216.78` and the `BIN` and `DATA` folders in `ux0:data/bt3/disc/` (a folder named
+  `disk`, or one more folder level in between, is found too). The message lists what it found instead. An image
+  of another release (PAL, Japanese) or of a modded disc is not used.
+- **The fights' picture is smaller than the menus' (it fills only part of the screen)**: the fights are drawn at
+  640 x 368 (720 x 408 with `fightres=720`) and the Vita's display scales them to the screen. The Sharpscale plugin in
+  a scaling mode other than Original (Integer, for one) shows them unscaled instead: set it back to Original.
 - **The game stops** (the picture freezes, the music plays on): the game writes `ux0:data/bt3/hang.txt` when its
   picture stops for a few seconds. Attaching it and `log.txt` to a bug report helps a lot.
 - **The game closes by itself**: it crashed; `ux0:data/bt3/crash.txt` says where (with the kubridge plugin

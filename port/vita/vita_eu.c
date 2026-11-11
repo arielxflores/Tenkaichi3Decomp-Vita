@@ -6,6 +6,8 @@
  *
  *   ux0:data/bt3/eu/PZS3EU1.AFS     the European disc's DATA/PZS3EU1.AFS, as it is
  *   ux0:data/bt3/eu/ZS3EUOP.ADX     (optional) the European opening's song
+ *   ux0:data/bt3/eu/<name>.iso      (or) the European disc's image, both read from it (vita_iso.c); also found in
+ *                                   ux0:data/bt3 beside the USA disc's
  *   ux0:data/bt3/pzs3eu1/NNNNN.bin  (also read) the members on their own, as port/tools/extract_eu.py of the PC
  *                                   build writes them
  *
@@ -49,6 +51,7 @@ static const char *const kNames[LANGS] = {"English", "Espanol", "Deutsch", "Fran
 static const uint16_t kBtlBase[LANGS] = {661, 711, 761, 811, 861};
 
 static char sHome[128];
+static char sEuDisc[300];     /* where PZS3EU1.AFS and ZS3EUOP.ADX are: <home>/eu, or the DATA of the European disc's image */
 static SceUID sFd = -1;       /* the European archive, or -1 */
 static uint32_t sCount;
 static uint32_t *sToc;        /* its (offset, size) per member */
@@ -119,14 +122,25 @@ void VitaEu_Init(const char *home) {
     char path[200];
 
     snprintf(sHome, sizeof(sHome), "%s", home);
-    snprintf(path, sizeof(path), "%s/eu/PZS3EU1.AFS", home);
+    snprintf(sEuDisc, sizeof(sEuDisc), "%s/eu", home);
+    snprintf(path, sizeof(path), "%s/PZS3EU1.AFS", sEuDisc);
     if (!open_archive(path)) {
+        extern int Vita_IsoFind(const char *dir, const char *file, int keep, char *out, int size, int *seen);
+        char iso[260], where[200];
+        snprintf(where, sizeof(where), "%s/eu", home);
+        if (Vita_IsoFind(where, "DATA/PZS3EU1.AFS", 1, iso, sizeof(iso), NULL) || Vita_IsoFind(home, "DATA/PZS3EU1.AFS", 1, iso, sizeof(iso), NULL)) {
+            snprintf(sEuDisc, sizeof(sEuDisc), "%s/DATA", iso);
+            snprintf(path, sizeof(path), "%s/PZS3EU1.AFS", sEuDisc);
+            open_archive(path);
+        }
+    }
+    if (sFd < 0) {
         snprintf(path, sizeof(path), "%s/pzs3eu1/00006.bin", home);
         sDir = file_ok(path);
     }
     sLang = Port_Setting("lang", -1);
     if (VitaEu_Available()) {
-        Vita_Log("eu: the European languages from %s (%u members); language %d\n", sDir ? "pzs3eu1/" : "eu/PZS3EU1.AFS",
+        Vita_Log("eu: the European languages from %s (%u members); language %d\n", sDir ? "pzs3eu1/" : sEuDisc,
                  (unsigned)sCount, sLang);
     }
     if (sLang < 0 || sLang >= LANGS) {
@@ -274,6 +288,6 @@ int VitaEu_OpeningSong(char *out, int size) {
     if (VitaEu_Lang() <= 0) {
         return 0;
     }
-    snprintf(out, (size_t)size, "%s/eu/ZS3EUOP.ADX", sHome);
+    snprintf(out, (size_t)size, "%s/ZS3EUOP.ADX", sEuDisc);
     return file_ok(out);
 }

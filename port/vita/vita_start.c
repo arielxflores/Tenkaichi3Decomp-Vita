@@ -33,7 +33,8 @@ extern int sceAppMgrLoadExec(const char *appPath, char *const argv[], void *optP
 #define BT4_STARTING "ux0:data/bt3/bt4/starting.txt" /* BT4 was started and has not drawn yet */
 #define BT4_PROGRAM "app0:bt4.bin"
 
-int gVitaCheatUnlock; /* the save the game loads next is given everything (src/menu/menu_i_b.c BootCard_OnFlowDone) */
+int gVitaCheatUnlock;     /* the save the game loads next is given everything (src/menu/menu_i_b.c BootCard_OnFlowDone) */
+int gVitaStartMenuForce;  /* (development build, startmenu=1 in bt3.txt) the menu as if SELECT were held: the test runs' */
 
 static unsigned pad_now(void) {
     SceCtrlData pad;
@@ -53,6 +54,10 @@ static unsigned press(unsigned mask) {
         }
         prev = now;
     }
+}
+
+static int select_held(void) {
+    return (pad_now() & SCE_CTRL_SELECT) != 0 || gVitaStartMenuForce;
 }
 
 static int exists(const char *path) {
@@ -79,6 +84,20 @@ static int start_bt4_chosen(void) {
     return strncmp(b, "bt4", 3) == 0;
 }
 
+#ifndef BT3_BT4
+/* BT4 was started and has not drawn yet: "1" in starting.txt (a "0" there, as the test runs leave it, is not) */
+static int bt4_was_starting(void) {
+    char b[4] = {0};
+    SceUID fd = sceIoOpen(BT4_STARTING, SCE_O_RDONLY, 0);
+    if (fd < 0) {
+        return 0;
+    }
+    sceIoRead(fd, b, sizeof(b) - 1);
+    sceIoClose(fd);
+    return b[0] == '1';
+}
+#endif
+
 static void release_buttons(void) {
     while (pad_now() & (SCE_CTRL_CROSS | SCE_CTRL_CIRCLE | SCE_CTRL_START | SCE_CTRL_SELECT)) { /* (not a press in the game) */
         sceKernelDelayThread(16000);
@@ -92,9 +111,13 @@ static int bt4_ready(const char **why) {
         *why = "this package has no BT4 program";
         return 0;
     }
-    if (!exists("ux0:data/bt3/bt4/SLUS_219.78") || !exists("ux0:data/bt3/bt4/BIN/DBZ4.BIN")) {
-        *why = "copy SLUS_219.78, BIN and DATA of your BT4 B14 Rev2 disc to ux0:data/bt3/bt4/";
-        return 0;
+    if (!(exists("ux0:data/bt3/bt4/SLUS_219.78") && exists("ux0:data/bt3/bt4/BIN/DBZ4.BIN"))) {
+        extern int Vita_IsoFind(const char *dir, const char *file, int keep, char *out, int size, int *seen);
+        char iso[300];
+        if (!Vita_IsoFind("ux0:data/bt3/bt4", "BIN/DBZ4.BIN", 0, iso, sizeof(iso), NULL)) { /* (or its .iso: vita_iso.c) */
+            *why = "copy your BT4 B14 Rev2 disc's .iso (or its SLUS_219.78,\n  BIN and DATA) to ux0:data/bt3/bt4/";
+            return 0;
+        }
     }
     *why = NULL;
     return 1;
@@ -128,7 +151,7 @@ void Vita_StartMenu(void) {
     int bt4 = bt4_ready(&why);
 
     if (start_bt4_chosen()) {
-        if (exists(BT4_STARTING)) { /* (the last start of BT4 did not get going) */
+        if (bt4_was_starting()) { /* (the last start of BT4 did not get going) */
             sceIoRemove(BT4_STARTING);
             write_text(START_FILE, "bt3");
             Vita_Log("vita: BT4 did not get going the last time: Budokai Tenkaichi 3 instead\n");
@@ -138,7 +161,7 @@ void Vita_StartMenu(void) {
                                  "  game starts to choose BT4 again.\n\n  Press CROSS.\n");
             press(SCE_CTRL_CROSS);
             psvDebugScreenPrintf("\e[H\e[2J");
-        } else if (!(pad_now() & SCE_CTRL_SELECT)) {
+        } else if (!select_held()) {
             if (bt4) {
                 start_bt4();
             } else {
@@ -150,7 +173,7 @@ void Vita_StartMenu(void) {
     if (VitaEu_NeedsChoice()) {
         VitaEu_ChooseLanguage();
     }
-    if (!(pad_now() & SCE_CTRL_SELECT)) {
+    if (!select_held()) {
         return;
     }
     Vita_Log("vita: start menu (SELECT held)\n");
@@ -192,7 +215,7 @@ void Vita_StartMenu(void) {
         } else if (items[sel] == IT_GAME) {
 #ifndef BT3_BT4
             psvDebugScreenPrintf("\n  Team BT4's Budokai Tenkaichi 4 B14 Rev2 (NauTaro's\n"
-                                 "  BT4decomp), from your own BT4 disc's files in\n"
+                                 "  BT4decomp), from your own BT4 disc's .iso or files in\n"
                                  "  ux0:data/bt3/bt4/. It then starts each time, until\n"
                                  "  changed here again.%s%s\n", why != NULL ? "\n\n  \e[33mNot now: " : "", why != NULL ? why : "");
             if (why != NULL) {
