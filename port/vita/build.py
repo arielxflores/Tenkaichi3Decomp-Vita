@@ -240,7 +240,7 @@ def port_sources():
         # stages and songs added from outside the disc, their names in the game's lettering, MP3 files made into songs
         out += [(V / (n + ".c"), "hard") for n in ("vita_extras", "vita_names", "vita_namefont", "vita_mp3")]
         # multiplayer: a match against another Vita, ad hoc or over Wi-Fi (z3xox's lockstep design)
-        out += [(V / "vita_net.c", "hard")]
+        out += [(V / "vita_net.c", "hard"), (V / "vita_warm.c", "hard")]
     return out
 
 
@@ -311,7 +311,19 @@ def compile_all():
     bad = [(f, e) for o, f, e in res if o is None]
     for f, e in bad:
         print("FAILED", f.name, first_error(e))
-    objs = [str(o) for o, _, _ in res if o] + data
+    # The game's own variables lie in two runs of the program's memory: those of the game's source files (few: what the
+    # port added to them) and the data tables (the PS2 program's .data and .bss). A marker object before and after each
+    # run gives their addresses to the program (vita_warm.c: the game started again without the program ending), as
+    # the linker keeps the objects' order within .data and .bss; link() checks that it did.
+    marks = []
+    for name in ("G0", "G1", "D0", "D1"):
+        (GEN / f"warm_{name}.c").write_text(f"char gWarm{name}d[16] = {{1}};\nchar gWarm{name}b[16];\n")
+        o = OBJ / f"pc_warm_{name}.o"
+        subprocess.run([P + "gcc", "-c", "-O1", "-fno-common", str(GEN / f"warm_{name}.c"), "-o", str(o)], check=True)
+        marks.append(str(o))
+    game = [str(o) for o, _, _ in res[:len(portsrc.sources())] if o]
+    rest = [str(o) for o, _, _ in res[len(portsrc.sources()):] if o]
+    objs = [marks[0]] + game + [marks[1]] + rest + [marks[2]] + data + [marks[3]]
     (OBJ / "objects.txt").write_text("\n".join(objs) + "\n")
     print(f"{len(objs)} objects, {len(bad)} failed")
     return not bad
@@ -348,6 +360,50 @@ def link_cmd(objs, extra):
            [f"-Wl,-Map={OUT / 'bt3.map'}"]
 
 
+def warm_check():
+    """The markers of compile_all bracket what they should: every variable of the game's objects and of the data
+    tables lies between its two markers, and nothing else does (vita_warm.c copies those runs back)."""
+    out = subprocess.run([P + "nm", "-n", str(OUT / "bt3.elf")], capture_output=True, text=True).stdout
+    mark = {}
+    for line in out.splitlines():
+        p = line.split()
+        if len(p) == 3 and p[2].startswith("gWarm"):
+            mark[p[2]] = int(p[0], 16)
+    if len(mark) != 8:
+        print("  warm: the markers are not all in the program")
+        return False
+    runs = [(mark[f"gWarm{a}{k}"] + 16, mark[f"gWarm{b}{k}"]) for a, b in (("G0", "G1"), ("D0", "D1")) for k in "db"]
+    objs = (OBJ / "objects.txt").read_text().split()
+    names = [pathlib.Path(o).name for o in objs]
+    g0, g1, d0, d1 = (names.index(f"pc_warm_{n}.o") for n in ("G0", "G1", "D0", "D1"))
+    inside = set(names[g0 + 1:g1] + names[d0 + 1:d1])
+    bad = 0
+    m = (OUT / "bt3.map").read_text()
+    m = m[m.index("Linker script and memory map"):]
+    lines = m.split("\n")
+    k = 0
+    while k < len(lines):
+        l = lines[k]
+        if re.match(r"^ (\.data|\.bss)[\w.$]*\s*$", l) and k + 1 < len(lines):
+            k += 1
+            l += lines[k]
+        mm = re.match(r"^ (\.data|\.bss)[\w.$]*\s+0x([0-9a-f]+)\s+0x([0-9a-f]+)\s+(\S+)", l)
+        k += 1
+        if not mm or int(mm.group(3), 16) == 0:
+            continue
+        addr, size, name = int(mm.group(2), 16), int(mm.group(3), 16), pathlib.Path(mm.group(4)).name
+        if name.startswith("pc_warm_"):
+            continue
+        covered = any(a <= addr and addr + size <= b for a, b in runs)
+        if covered != (name in inside):
+            bad += 1
+            if bad <= 5:
+                print(f"  warm: {name} {mm.group(1)} at {addr:x} is {'inside' if covered else 'outside'} the game's runs")
+    total = sum(b - a for a, b in runs)
+    print(f"the game's own variables: {total} bytes in 4 runs" + (f"; {bad} sections out of place" if bad else ""))
+    return bad == 0 and all(b >= a for a, b in runs)
+
+
 def link():
     OUT.mkdir(parents=True, exist_ok=True)
     objs = (OBJ / "objects.txt").read_text().split()
@@ -375,6 +431,8 @@ def link():
         if t.returncode == 0:
             break
     errs = [l for l in r.stderr.splitlines() if "multiple definition" in l or "undefined reference" in l or "rror" in l]
+    if r.returncode == 0 and not warm_check():
+        return False
     print(f"{len(need)} stubs; link {'OK' if r.returncode == 0 else 'FAILED'}")
     for l in errs[:15]:
         print("  " + l[-200:])

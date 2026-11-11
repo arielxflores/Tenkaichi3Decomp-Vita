@@ -81,6 +81,12 @@ static int sFightH = 368;
 #define SCR_W_MENU 960
 #define SCR_H_MENU 544
 static int sScrW = 640, sScrH = 368; /* (set at the start: GsGpu_Init) */
+/* A dialog of the system's is open (vita_net.c: the ad hoc connection, from the versus menu): each picture is handed
+   to it before it is shown, and it draws itself over it. Only on the display's full size (the menus', by default). */
+volatile int gVitaDialogOn;
+int Vita_DialogCan(void) {
+    return sScrW == 960 && sScrH == 544;
+}
 int gVitaMenuHi = 1;
 int gVitaSprInset = 1; /* bt3.txt sprinset=0: sprites' coordinates as given (see GsGpu_Draw_impl) */
 #define SCR_W sScrW
@@ -2222,7 +2228,7 @@ static inline void wt_swap(void) {
     rt_sync();
     gVitaDrawWhere = 3;
     pace_swap(0);
-    vglSwapBuffers(GL_FALSE);
+    vglSwapBuffers(gVitaDialogOn ? GL_TRUE : GL_FALSE); /* (a dialog of the system's is drawn over the picture: vita_net.c) */
     pace_swap(1);
     gVitaDrawWhere = 0;
     gVitaWall[0] += sceKernelGetProcessTimeWide() - t0;

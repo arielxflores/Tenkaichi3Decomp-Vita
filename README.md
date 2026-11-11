@@ -131,7 +131,7 @@ On a PS TV, or with a DualShock paired, the controller's own L2, R2, L3 and R3 b
 
 - The rear touch pad's quarters are those of PS4 Remote Play, so the triggers and rear buttons of a grip attachment
   for it, such as HORI's Remote Play Assist Attachment, work as L2, R2, L3 and R3.
-- **Options → Controller → Vita Settings** has eight settings on two pages (Down from the lower row turns the page):
+- **Options → Controller → Vita Settings** has nine settings on three pages (Down from the lower row turns the page):
   - **Touch**: for each of L2, R2, L3 and R3, where it is touched: its quarter of the rear pad, a corner of the
     front screen (L2 / R2 the bottom corners, L3 / R3 the top ones), or nowhere (Off). A finger resting on the rear
     pad's lower half stops counting as L3 / R3 after a second, so the hands holding the Vita cannot hold R3 (which
@@ -154,6 +154,10 @@ On a PS TV, or with a DualShock paired, the controller's own L2, R2, L3 and R3 b
     changes your hitbox in the frame the attack arrives; **Bombardment** stops body contact from breaking a chain of
     smash Ki blasts with dashes between them. From the community's "BT3 PS2 Port Gameplay Source" through the PC
     version.
+  - **Game**: **BT3** or **BT4**, the package's other game ([Budokai Tenkaichi 4](#budokai-tenkaichi-4-experimental),
+    once its files are in place). Press CROSS twice on the other game: this one closes and the other starts, and
+    starts each time from then on, until changed back (BT4's Vita Settings have the same plate). Options changed and
+    not saved yet are lost with it.
 - **Options → Controller → Control Type → Custom** assigns the actions to other buttons, as on the PS2. The pause
   menu's skill list shows each command with the buttons of the control type in use, and L3 / R3 as buttons like L1,
   not as the PS2's sticks.
@@ -189,7 +193,9 @@ ux0:data/bt3/bt4/BIN/DBZP.BIN
 ux0:data/bt3/bt4/DATA/PZS4US0.AFS     (to PZS4US3.AFS, and the other files of the DATA folder: about 5.9 GB)
 ```
 
-Then hold SELECT while the game starts and choose **Game** in the [start menu](#start-menu). BT4 keeps its own saves,
+Then choose it in the game, **Options → Controller → Vita Settings → Game → BT4** (on the third page: Down from the
+lower row, twice), or hold SELECT while the game starts and choose **Game** in the [start menu](#start-menu). The
+way back is the same plate in BT4's own Vita Settings, or the start menu. BT4 keeps its own saves,
 settings and log in `ux0:data/bt3/bt4/`. The PC version's online play, Tag Team battles and its other PC features are
 not part of the Vita's. Should BT4 crash or freeze before its first pictures, the next start says so and starts BT3
 instead (`ux0:data/bt3/bt4/log.txt` and `crash.txt` tell what happened: please attach them to a report).
@@ -257,25 +263,32 @@ or over the **Wi-Fi** network both are connected to. Both need this same version
 same disc.
 
 1. In the game: Versus → **Multiplayer**, then **Ad Hoc: Host** on one Vita and **Ad Hoc: Join** on the other
-   (**Two Controllers** is the console's own two-player mode, for a PS TV or a paired controller). The game starts
-   again for the match; the host's Battle Settings are the match's. Or, before the game: hold SELECT while it
-   starts and choose **Multiplayer** in the start menu, which also has the Wi-Fi way (Host a match / Join a match).
-2. For ad hoc, the system's own dialog connects the two Vitas first. The one who joins sees the host's name in a
-   list and picks it with CROSS.
-3. Both games then start the match, straight into the versus mode's character select, where each player chooses
-   with their own Vita. The host is player 1 and chooses the stage.
+   (**Two Controllers** is the console's own two-player mode, for a PS TV or a paired controller). It all happens
+   there, in the versus menu: the system's own ad hoc dialog connects the two Vitas over the menu, then the menu's
+   message window says who is waited for (Triangle gives up). The host's Battle Settings are the match's; the one
+   who joins takes the host nearby.
+2. When the two have found each other the match loads (a few seconds: the game begins anew inside the running
+   program, so that both Vitas' games are exactly the same) and opens on the versus mode's character select, where
+   each player chooses with their own Vita. The host is player 1 and chooses the stage.
+3. Going back out of the character select ends the match: you are in the versus menu again, with your own save.
+
+The other way, which also has **Wi-Fi**: hold SELECT while the game starts and choose **Multiplayer** in the start
+menu (Host a match / Join a match, ad hoc or Wi-Fi; the one who joins picks the host from a list). A match begun
+there ends with the program starting again.
 
 - A match has a save of its own (`ux0:data/bt3/net_saves/`) with everything unlocked; your own save is not touched.
   The two games have to be exactly the same, so mods, the stages and songs added from outside the disc, the European
   languages and the Tech Fixes are left out of a match, and it starts without the logos and the opening film.
 - Each Vita shows its own player's view of the fight, full screen.
 - Hosting from the versus menu takes your Battle Settings (time, COM level, referee, transformations, map) into
-  the match; from the start menu, the time limit can be set there (Multiplayer → Time limit when hosting). Going
-  back from the character select leads to the versus menu, where player 1 can choose another kind of battle (team,
-  DP).
-- The match ends at the main menu, when the other player leaves or when the connection is lost; the game then
-  starts again as usual, with your own save. While the game waits for the other Vita, holding SELECT + START leaves
-  the match.
+  the match; from the start menu, the time limit can be set there (Multiplayer → Time limit when hosting).
+- The match ends when a player goes back out of the character select, when the other player leaves or when the
+  connection is lost. While the game waits for the other Vita, holding SELECT + START leaves the match.
+- What you had not saved when the match began (options changed in that session, say) is not kept: the game loads
+  your save again after the match.
+- `netwarm=0` in `ux0:data/bt3/bt3.txt` makes the versus menu start the whole program again for a match, as the
+  start menu's way does (should the way without it give trouble). The menus are drawn at the screen's full size
+  for the system's dialog to show over them; where they are not, the program starts again by itself.
 - The two games stay in step by sending each other the buttons pressed, as the PC version's online play does: when
   the connection is slow, both wait for it. If the two games ever stop agreeing (a desync), `log.txt` says so.
 

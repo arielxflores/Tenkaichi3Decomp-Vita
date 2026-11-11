@@ -1265,7 +1265,7 @@ static void read_settings(void) {
         /* the released program: only the player's settings. The test runs leave theirs in the same file
            (mode=demo, film=...): a game started from its bubble goes to its title screen, not into a test fight */
         if (strcmp(line, "disc") != 0 && strcmp(line, "heap") != 0 && strcmp(line, "wide") != 0 && strcmp(line, "report") != 0 &&
-            strcmp(line, "fightres") != 0 && strcmp(line, "weather") != 0 && strcmp(line, "moveblur") != 0) {
+            strcmp(line, "fightres") != 0 && strcmp(line, "weather") != 0 && strcmp(line, "moveblur") != 0 && strcmp(line, "netwarm") != 0) {
             continue;
         }
 #endif
@@ -1505,6 +1505,12 @@ static void read_settings(void) {
         } else if (strcmp(line, "netdelay") == 0) { /* (the host) the match's input delay in blanks, 1..8 (vita_net.c) */
             extern int gVitaNetDelay;
             gVitaNetDelay = atoi(eq);
+        } else if (strcmp(line, "netwarm") == 0) { /* 0: the versus menu's Multiplayer starts the program again for a match (vita_warm.c) */
+            extern int gVitaWarmOff;
+            gVitaWarmOff = atoi(eq) == 0;
+        } else if (strcmp(line, "warmtest") == 0) { /* the one-Vita test of a match begun from the running game, n seconds (vita_warm.c) */
+            extern int gVitaWarmTest;
+            gVitaWarmTest = atoi(eq);
 #endif
         } else if (strncmp(line, "BT3_", 4) == 0) {
             setenv(line, eq, 1);
@@ -1725,9 +1731,13 @@ static int watchdog_thread(SceSize args, void *argp) {
     return 0;
 }
 
-static int game_thread(SceSize args, void *argp) {
+/* the game, which does not return (Game_Main never ends; exit ends the program) */
+static void game_run(void) {
     static char *argv[] = {"bt3", NULL};
+    exit(__real_main(1, argv));
+}
 
+static int game_thread(SceSize args, void *argp) {
     (void)args;
     (void)argp;
     Vita_FloatMode(gPortFastFloat); /* the float unit's mode belongs to the thread */
@@ -1739,7 +1749,13 @@ static int game_thread(SceSize args, void *argp) {
         extern void Vita_PerfThreadStart(void);
         Vita_PerfThreadStart();
     }
-    exit(__real_main(1, argv));
+#ifndef BT3_BT4
+    {   /* (vita_warm.c: the game can be started again without the program ending, for a multiplayer match) */
+        extern void Vita_WarmGame(void (*game)(void));
+        Vita_WarmGame(game_run);
+    }
+#endif
+    game_run();
     return 0;
 }
 

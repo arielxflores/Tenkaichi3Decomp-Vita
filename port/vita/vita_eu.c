@@ -159,8 +159,15 @@ int VitaEu_Available(void) {
 
 /* (a multiplayer match, vita_net.c) the USA disc's text and voices on both Vitas, whatever each player chose: the
    languages' files differ in size, and the game sizes things from them. Not kept: the next start has the choice. */
-void VitaEu_MatchEnglish(void) {
+int VitaEu_MatchEnglish(void) {
+    int was = sLang;
     sLang = 0;
+    return was;
+}
+
+/* (a match begun in the running game has ended: the player's language again, as VitaEu_MatchEnglish found it) */
+void VitaEu_MatchRestore(int lang) {
+    sLang = lang;
 }
 
 int VitaEu_Lang(void) {
@@ -222,6 +229,16 @@ void VitaEu_ChooseLanguage(void) {
     while (pad_now() & SCE_CTRL_CROSS) { /* (not a press in the game) */
         sceKernelDelayThread(16000);
     }
+}
+
+/* (vita_file.c Vita_FileWarm: the game starts again inside the running program) the archives' tables are let go and
+   read again: what was kept of PZS3US1's is of a table that is gone */
+void VitaEu_TablesGone(void) {
+    free(sUs1Sizes);
+    sUs1Sizes = NULL;
+    sUs1Table = NULL;
+    sUs1Count = 0;
+    sUs1 = -1;
 }
 
 void VitaEu_NotePartition(int ptid, const char *name) {

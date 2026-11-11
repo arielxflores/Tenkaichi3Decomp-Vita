@@ -59,18 +59,53 @@ void *Port_Malloc(uint32_t size) {
     return (void *)(uintptr_t)p;
 }
 
-/* Memory the port hands to the game by address (file handles, the "second processor's" memory): zeroed. */
-void *Port_LowAlloc(size_t size) {
-    void *p = calloc(1, size);
+/* Memory the port hands to the game by address (file handles, the "second processor's" memory): zeroed. The blocks
+   are on a list, so that those the game still held can be let go when it starts again inside the running program
+   (Vita_MemWarm). The game's thread only. */
+typedef struct Low {
+    struct Low *prev, *next;
+    uint32_t size, pad; /* (16 bytes: the block keeps malloc's alignment) */
+} Low;
+static Low sLow = {&sLow, &sLow, 0, 0};
 
-    if (p == NULL) {
+void *Port_LowAlloc(size_t size) {
+    Low *l = calloc(1, sizeof(Low) + size);
+
+    if (l == NULL) {
         Vita_Fatal("out of memory (%u bytes)", (unsigned)size);
     }
-    return p;
+    l->size = (uint32_t)size;
+    l->next = &sLow;
+    l->prev = sLow.prev;
+    sLow.prev->next = l;
+    sLow.prev = l;
+    return l + 1;
 }
 
 void Port_LowFree(void *addr) {
-    free(addr);
+    if (addr != NULL) {
+        Low *l = (Low *)addr - 1;
+        l->prev->next = l->next;
+        l->next->prev = l->prev;
+        free(l);
+    }
+}
+
+/* (vita_warm.c) the game starts again inside the running program: its memory as a start of the program finds it.
+   The heap block empty and all zero, the hardware registers' arrays zero, the blocks handed out by address let go.
+   Returns how many of those there were. */
+int Vita_MemWarm(void) {
+    int n = 0;
+    while (sLow.next != &sLow) {
+        Port_LowFree(sLow.next + 1);
+        n++;
+    }
+    memset((void *)(uintptr_t)gVitaHeapBase, 0, HEAP_SIZE);
+    sHeapNext = gVitaHeapBase + HEAP_SKIP;
+    gVitaHeapUsed = 0;
+    memset(gPortHw, 0, sizeof(gPortHw));
+    memset(gPortGsReg, 0, sizeof(gPortGsReg));
+    return n;
 }
 
 static uint8_t *read_file(const char *path, size_t *size) {

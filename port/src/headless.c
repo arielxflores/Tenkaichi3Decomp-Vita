@@ -28,6 +28,15 @@ static int sFromMenu;
 extern int __real_Progress_Main(int arg);
 int gPortMenuMode;
 
+#ifdef PORT_VITA
+/* (port/vita/vita_warm.c) the game starts again inside the running program */
+void Port_HeadlessWarm(void) {
+    sBattles = 0;
+    sFromMenu = 0;
+    gPortMenuMode = 0;
+}
+#endif
+
 int __wrap_Progress_Main(int arg) {
     const char *path = getenv("BT3_REPLAY");
 

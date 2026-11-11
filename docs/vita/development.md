@@ -40,6 +40,8 @@ all of them. The full list, each with a comment, is `read_settings` in `port/vit
 | `zlayer=<n>` | Depth steps a stage layer laid on the stage leads by (default 2; 0: none) |
 | `nettest=<s>` | The one-Vita test of a multiplayer match (`port/vita/vita_net.c`): a match with no line, both players' buttons from a fixed script, the game's thread held up at random moments; every second the game's state into `ux0:data/bt3/net_test.txt`, for s seconds of blanks. Two runs must write the same file |
 | `netdelay=<n>` | (the host) a multiplayer match's input delay, 1..8 blanks (default 2 ad hoc, 3 Wi-Fi) |
+| `warmtest=<s>` | The same test begun from the running game, fifteen seconds in: the game is started again inside the program as the versus menu's Multiplayer does it (`port/vita/vita_warm.c`), then runs the match's test for s seconds and writes `net_test.txt`. The file must be the same as a `nettest=<s>` run's: the game begun again inside the program is then the game a new program runs |
+| `netwarm=0` | (the released program too) the versus menu's Multiplayer starts the program again for a match instead |
 
 Most of the remaining settings switch one optimisation of the renderer off (`fastlane=0`, `stx=0`, `wtc=0`, ...)
 so that its effect can be measured or a picture compared with and without it.
@@ -67,6 +69,9 @@ the texture count.
 | `port/vita/vita_float.c`, `vita_vu0_inline.h` | The PS2 vector unit's arithmetic |
 | `port/vita/srcfix.py` | Rewrites of the game's text at build time: the PS2's rule for shift counts, and its float division by zero (`__port_fdiv` in `port/include/port_compat.h`: no infinity or NaN where the PS2 gives its largest number) |
 | `port/vita/vita_text.c`, `vita_optart.c` | What the game's text and the menus' art say of the PS2, said of the Vita (the options' controller page and its Vita Settings, the Versus Menu's "Multiplayer", the L3 / R3 icons) |
+| `port/vita/vita_net.c` | Multiplayer between two Vitas: the line (ad hoc, Wi-Fi), finding the other Vita (the start menu's way and the versus menu's), the exchange of buttons blank by blank |
+| `port/vita/vita_warm.c` | The game started again inside the running program (a match begun from the versus menu, and its end): the game's variables copied back, its heap and stack cleared, `main` called again |
+| `port/vita/tests/net/` | `run.sh`: the multiplayer code on a PC, two copies as two Vitas over UDP, with packets lost on purpose; their games' records must be the same |
 | `port/vita/vitagl/` | The vitaGL patch and its build script |
 | `port/vita/tools/` | The scripts that made the new art of the menus and the button icons (`vita_optart.h`) |
 | `port/vita/sce_sys/` | The LiveArea |

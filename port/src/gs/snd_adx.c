@@ -446,6 +446,17 @@ void Port_AdxTick(void) {
     }
 }
 #define VIEW_START(p, path, found) do { if (Port_NetActive()) { view_start((p), (path), (found)); } } while (0)
+
+/* (port/vita/vita_warm.c) the game starts again inside the running program: every stream stopped and given back, the
+   players' list empty as at the program's start (the game makes its players again) */
+void Port_AdxWarm(void) {
+    int i;
+    for (i = 0; i < sCount; i++) {
+        stop(&sPlayers[i]);
+    }
+    memset(sPlayers, 0, sizeof(sPlayers));
+    sCount = 0;
+}
 #else
 #define VIEW_START(p, path, found) ((void)0)
 #endif

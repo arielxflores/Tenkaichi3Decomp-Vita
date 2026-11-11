@@ -71,6 +71,12 @@ void Port_VBlank(void) {
         vblank_wait();
     }
 #endif
+#if defined(PORT_VITA) && !defined(BT3_BT4)
+    {   /* (port/vita/vita_warm.c) asked to start again inside the running program: from here, between two frames */
+        extern void Vita_WarmPoll(void);
+        Vita_WarmPoll();
+    }
+#endif
     gPortVBlanks++;
 #ifdef PORT_VITA
     {
@@ -93,11 +99,22 @@ void Port_VBlank(void) {
     }
 }
 int sceGsSyncV() { Port_VBlank(); return 0; }
+#ifdef PORT_VITA
+static int sPadSockets;
+/* (port/vita/vita_warm.c) the game starts again inside the running program: its blank handler and its pads' sockets
+   are of the game that ended */
+void Port_StubWarm(void) {
+    sVsyncHandler = NULL;
+    sPadSockets = 0;
+}
+#endif
 
 /* ---- pads ---- */
 int sceDbcInit() { return 1; }
 int scePad2Init() { return 1; }
+#ifndef PORT_VITA
 static int sPadSockets;
+#endif
 int scePad2CreateSocket() { return sPadSockets++; }
 #ifdef PORT_VITA /* the second controller is there while a pad is paired for player 2 (PS TV; limeking614-dev's fork), and
                     in a multiplayer match (the other Vita's player) */

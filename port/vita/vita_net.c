@@ -23,6 +23,11 @@
  *     btl_scene.c, eft_aa.c), as the PC version does.
  *   - The match ends at the main menu (back from the versus menu), when the other player leaves, or when the line
  *     is lost (20 seconds without a word); the game then starts again as it normally is, with the player's own save.
+ *   - From the versus menu (Multiplayer > Ad Hoc: Host / Join) all of it happens in the running game: the system's
+ *     dialog is drawn over the menu, the menu's message window says who is waited for (Vita_NetPairBegin / Poll),
+ *     and the "fresh start of the game" is the game alone started again inside the program (vita_warm.c), on both
+ *     Vitas, with the connection kept. The match's end starts the game once more the same way, as it normally is,
+ *     at the versus menu. (The start menu's way, and bt3.txt netwarm=0: the program itself starts again.)
  *
  * The line: ad hoc is the PSP's ad hoc mode as the Vita has it (the system's own dialog connects the two Vitas,
  * then PDP sockets; the order of calls as in Rinnegatamante's vitaQuake), Wi-Fi is UDP on the local network. The host
@@ -51,6 +56,7 @@
 #include <psp2/pspnet_adhocctl.h>
 #include <psp2/sysmodule.h>
 #include <psp2/system_param.h>
+#include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -72,7 +78,7 @@ enum { MAGIC = 0x56335442 /* "BT3V" */, NET_VERSION = 1, NET_PORT = 18630, PAD =
        SYNC_EVERY = 30, SYNC_SLOTS = 16, NAME_LEN = 24, PKT_MAX = 512 };
 enum { T_OFFER = 1, T_JOIN, T_WELCOME, T_REFUSE, T_READY, T_ALIVE, T_ARRIVED, T_INPUT, T_BYE };
 enum { WHY_VERSION = 1, WHY_DATA = 2, WHY_BUSY = 3, WHY_FLOAT = 4 };
-enum { BYE_LEFT = 1, BYE_LOST = 2, BYE_APART = 3, BYE_QUIT = 4 };
+enum { BYE_LEFT = 1, BYE_LOST = 2, BYE_APART = 3, BYE_QUIT = 4, BYE_OVER = 5 /* both came to the match's end */ };
 enum { LINK_NONE = 0, LINK_ADHOC = 1, LINK_WIFI = 2 };
 
 static const uint8_t kIdle[PAD] = {0xFF, 0xFF, 0x80, 0x80, 0x80, 0x80};
@@ -88,6 +94,12 @@ int gVitaNetDelay = -1; /* bt3.txt netdelay=<blanks> (testing): the input delay 
 int gVitaNetTest;     /* (development build) bt3.txt nettest=<seconds>: the one-Vita test of the match's sameness */
 
 static int sOn;       /* the game runs as a match (from its start) */
+static int sWarm;     /* the match began in the running game (the versus menu): the game was started again inside the
+                         program for it (vita_warm.c), and is once more when it ends */
+static int sPending;  /* what the game's next start inside the program is: 1 a match begins, 2 a match has ended */
+static uint32_t sTickBase; /* the blank the match's own count of blanks starts from (0: the program's start) */
+extern int Vita_WarmCan(void);
+extern void Vita_WarmRestart(void);
 static int sMe;       /* this Vita's player: 0 (the host) or 1 */
 static int sConnected;
 static uint32_t sSession;
@@ -323,6 +335,62 @@ static int adhoc_dialog(void) {
     return ok;
 }
 
+/* Ad hoc in three steps: the system's ad hoc services started (adhoc_up), the two Vitas connected by the system's
+   dialog (adhoc_dialog above, or drawn over the versus menu: pair_*), this Vita's socket (adhoc_socket). */
+static int adhoc_up(void) {
+    SceNetAdhocctlAdhocId id;
+    int r;
+
+    if (sAdhocInit) {
+        return 1;
+    }
+    if ((r = sceSysmoduleLoadModule(SCE_SYSMODULE_PSPNET_ADHOC)) < 0) {
+        snprintf(sErr, sizeof(sErr), "the system's ad hoc module did not load (%08x)", (unsigned)r);
+        return 0;
+    }
+    r = sceNetAdhocInit();
+    Vita_Log("net: ad hoc %08x\n", (unsigned)r);
+    memset(&id, 0, sizeof(id));
+    id.type = SCE_NET_ADHOCCTL_ADHOCTYPE_RESERVED;
+    memcpy(id.data, "BT3VITA00", SCE_NET_ADHOCCTL_ADHOCID_LEN);
+    r = sceNetAdhocctlInit(&id);
+    Vita_Log("net: ad hoc control %08x\n", (unsigned)r);
+    if (r < 0 && (unsigned)r != SCE_ERROR_NET_ADHOCCTL_ALREADY_INITIALIZED) {
+        snprintf(sErr, sizeof(sErr), "ad hoc did not start (%08x)", (unsigned)r);
+        return 0;
+    }
+    sAdhocInit = 1;
+    return 1;
+}
+
+/* (a match begun in the running game has ended, or was not made: the next one connects anew) */
+static void adhoc_down(void) {
+    if (sAdhocInit) {
+        int a = sceNetAdhocctlTerm(), b = sceNetAdhocTerm();
+        Vita_Log("net: ad hoc ended (%08x, %08x)\n", (unsigned)a, (unsigned)b);
+        sAdhocInit = 0;
+    }
+}
+
+static int adhoc_socket(void) {
+    SceNetEtherAddr mac;
+    int r;
+
+    memset(&mac, 0, sizeof(mac));
+    r = sceNetAdhocctlGetEtherAddr(&mac);
+    sSock = sceNetAdhocPdpCreate(&mac, NET_PORT, 0x4000, 0);
+    Vita_Log("net: ad hoc address %02x:%02x:%02x:%02x:%02x:%02x (%08x), socket %08x\n", mac.data[0], mac.data[1], mac.data[2], mac.data[3],
+             mac.data[4], mac.data[5], (unsigned)r, (unsigned)sSock);
+    if (sSock < 0) {
+        snprintf(sErr, sizeof(sErr), "the ad hoc socket could not be made (%08x)", (unsigned)sSock);
+        return 0;
+    }
+    memset(&sMine, 0, sizeof(sMine));
+    memcpy(sMine.mac, mac.data, 6);
+    sMine.port = NET_PORT;
+    return 1;
+}
+
 static int link_open(int kind) {
     int r;
 
@@ -332,42 +400,7 @@ static int link_open(int kind) {
         return 0;
     }
     if (kind == LINK_ADHOC) {
-        SceNetAdhocctlAdhocId id;
-        SceNetEtherAddr mac;
-        if (!sAdhocInit) {
-            if ((r = sceSysmoduleLoadModule(SCE_SYSMODULE_PSPNET_ADHOC)) < 0) {
-                snprintf(sErr, sizeof(sErr), "the system's ad hoc module did not load (%08x)", (unsigned)r);
-                return 0;
-            }
-            r = sceNetAdhocInit();
-            Vita_Log("net: ad hoc %08x\n", (unsigned)r);
-            memset(&id, 0, sizeof(id));
-            id.type = SCE_NET_ADHOCCTL_ADHOCTYPE_RESERVED;
-            memcpy(id.data, "BT3VITA00", SCE_NET_ADHOCCTL_ADHOCID_LEN);
-            r = sceNetAdhocctlInit(&id);
-            Vita_Log("net: ad hoc control %08x\n", (unsigned)r);
-            if (r < 0 && (unsigned)r != SCE_ERROR_NET_ADHOCCTL_ALREADY_INITIALIZED) {
-                snprintf(sErr, sizeof(sErr), "ad hoc did not start (%08x)", (unsigned)r);
-                return 0;
-            }
-            sAdhocInit = 1;
-        }
-        if (!adhoc_dialog()) {
-            return 0;
-        }
-        memset(&mac, 0, sizeof(mac));
-        r = sceNetAdhocctlGetEtherAddr(&mac);
-        sSock = sceNetAdhocPdpCreate(&mac, NET_PORT, 0x4000, 0);
-        Vita_Log("net: ad hoc address %02x:%02x:%02x:%02x:%02x:%02x (%08x), socket %08x\n", mac.data[0], mac.data[1], mac.data[2], mac.data[3],
-                 mac.data[4], mac.data[5], (unsigned)r, (unsigned)sSock);
-        if (sSock < 0) {
-            snprintf(sErr, sizeof(sErr), "the ad hoc socket could not be made (%08x)", (unsigned)sSock);
-            return 0;
-        }
-        memset(&sMine, 0, sizeof(sMine));
-        memcpy(sMine.mac, mac.data, 6);
-        sMine.port = NET_PORT;
-        return 1;
+        return adhoc_up() && adhoc_dialog() && adhoc_socket();
     }
     {
         int state = 0, one = 1;
@@ -510,9 +543,11 @@ static void name_get(char *out, const uint8_t *p) {
    place and size; the data tables of the program are checked against the USA release at every start, vita_mem.c). */
 static unsigned long long build_id(void) {
     static const char kBuild[] = __DATE__ " " __TIME__ " " VITA_GAME_NAME;
-    extern int gPortFastFloat;
+    extern int gPortFastFloat, gVitaWide;
     unsigned long long h = fnv(0xCBF29CE484222325ull, kBuild, sizeof(kBuild));
-    return fnv(h, &gPortFastFloat, sizeof(gPortFastFloat));
+    int f = gPortFastFloat != 0, w = gVitaWide != 0; /* (bt3.txt float= and wide=: the game computes and culls by them) */
+    h = fnv(h, &f, sizeof(f));
+    return fnv(h, &w, sizeof(w));
 }
 
 static unsigned long long data_id(void) {
@@ -560,7 +595,7 @@ static const char *time_name(int t) {
 }
 
 static const char *refusal(int why) {
-    return why == WHY_VERSION ? "the two Vitas have different versions of the game" :
+    return why == WHY_VERSION ? "the two Vitas have different versions of the game (or their bt3.txt float= / wide= differ)" :
            why == WHY_DATA ? "the two Vitas' disc files are not the same (another dump of the disc?)" :
            why == WHY_FLOAT ? "the two Vitas' bt3.txt float= settings differ" :
            why == WHY_BUSY ? "the host is already playing with someone" : "the host said no";
@@ -902,9 +937,21 @@ int Vita_NetStartFile(void) {
 /* What would make the two games differ, put as the game has it: the test switches of bt3.txt (a replay, the demo
    fight, a starting screen, the game-side effect switches), the start menu's cheat, a European language, the vector
    stand-ins' check. Then the match's own save folder, empty. */
+static struct { int kept, fxOff, cheat, pad2Fake, lang, hadSaves; char saves[200]; } sWas;
+
 static void match_setup(void) {
     extern int gVitaGameFxOff, gVitaCheatUnlock, gVitaStartMode, gVitaPad2Fake, gVitaVufQuick;
-    extern void VitaEu_MatchEnglish(void);
+    extern int VitaEu_MatchEnglish(void);
+    int keep = !sWas.kept;
+    if (keep) { /* (a match begun in the running game: as it was, for after the match) */
+        const char *sv = getenv("BT3_SAVES");
+        sWas.kept = 1;
+        sWas.fxOff = gVitaGameFxOff;
+        sWas.cheat = gVitaCheatUnlock;
+        sWas.pad2Fake = gVitaPad2Fake;
+        sWas.hadSaves = sv != NULL;
+        snprintf(sWas.saves, sizeof(sWas.saves), "%s", sv != NULL ? sv : "");
+    }
     unsetenv("BT3_REPLAY");
     unsetenv("BT3_DEMO");
     unsetenv("BT3_DEMO_PICK");
@@ -914,8 +961,32 @@ static void match_setup(void) {
     gVitaStartMode = 0;
     gVitaPad2Fake = 0;
     gVitaVufQuick = -1;
-    VitaEu_MatchEnglish();
+    {
+        int lang = VitaEu_MatchEnglish();
+        if (keep) {
+            sWas.lang = lang;
+        }
+    }
     session_saves();
+}
+
+/* (a match begun in the running game has ended) the player's own settings and save folder again */
+static void match_undo(void) {
+    extern int gVitaGameFxOff, gVitaCheatUnlock, gVitaPad2Fake;
+    extern void VitaEu_MatchRestore(int lang);
+    if (!sWas.kept) {
+        return;
+    }
+    sWas.kept = 0;
+    gVitaGameFxOff = sWas.fxOff;
+    gVitaCheatUnlock = sWas.cheat;
+    gVitaPad2Fake = sWas.pad2Fake;
+    VitaEu_MatchRestore(sWas.lang);
+    if (sWas.hadSaves) {
+        setenv("BT3_SAVES", sWas.saves, 1);
+    } else {
+        unsetenv("BT3_SAVES");
+    }
 }
 
 /* (vita_main.c, after the disc's files were found and before the game starts) the start menu chose Multiplayer:
@@ -963,6 +1034,334 @@ void Vita_NetConnect(void) {
     match_setup();
     psvDebugScreenPrintf("\e[H\e[2J\n  Multiplayer: %s vs %s. The match begins at the character\n  select (both players choose with their own Vita).\n\n"
                          "  Going back to the main menu ends the match.\n", sMe == 0 ? sMyName : sTheirName, sMe == 0 ? sTheirName : sMyName);
+}
+
+/* ------------------------------------------------------------------------------------------------- from the versus menu */
+/* The same finding of the other Vita as host_wait and join_wait above, a step at a time: called once a frame by the
+   versus menu while its Multiplayer choice waits (src/menu/menu_g_c.c), which shows `line` in its message window. The
+   system's ad hoc dialog is drawn over the menu's picture by the drawing thread (vita_vgl.c gVitaDialogOn). The one
+   who joins takes the first host heard that fits (two Vitas next to each other: there is one). */
+enum { PAIR_OFF, PAIR_DIALOG, PAIR_DIALOG_END, PAIR_HOST, PAIR_SEEK, PAIR_ASK, PAIR_DONE, PAIR_FAIL };
+static struct {
+    int state, role, count, joined;
+    uint64_t lastSend, since;
+    uint32_t nonce, hostSession, refused;
+    NetAddr host;
+    char hostName[NAME_LEN];
+    char line[80];
+    unsigned lineGen;
+} sPair;
+extern volatile int gVitaDialogOn;
+extern int Vita_DialogCan(void);
+
+static void pair_say(const char *fmt, ...) {
+    char text[sizeof(sPair.line)];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(text, sizeof(text), fmt, ap);
+    va_end(ap);
+    if (strcmp(text, sPair.line) != 0) {
+        snprintf(sPair.line, sizeof(sPair.line), "%s", text);
+        sPair.lineGen++;
+    }
+}
+
+static void pair_fail(const char *fmt, ...) {
+    char text[sizeof(sPair.line)];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(text, sizeof(text), fmt, ap);
+    va_end(ap);
+    snprintf(sPair.line, sizeof(sPair.line), "%s", text);
+    sPair.lineGen++;
+    sPair.state = PAIR_FAIL;
+    Vita_Log("net: versus menu: no match: %s (%s)\n", text, sErr);
+    link_close();
+    adhoc_down();
+}
+
+/* 1: the versus menu can host or join without the program starting again (the game can be started again inside it,
+   the display has the size the system's dialog draws at, no match is on) */
+int Vita_NetPairCan(void) {
+    return Vita_WarmCan() && Vita_DialogCan() && !sOn && gVitaNetTest <= 0;
+}
+
+/* role 1 host (with the battle settings `rules`, the save's six), 2 join. 1: begun (Vita_NetPairPoll from now on);
+   0: it cannot be done from the running game (the caller starts the program again for it, as before). */
+int Vita_NetPairBegin(int role, const int *rules) {
+    extern int gPortFastFloat;
+    SceNetCheckDialogParam p;
+    static SceNetAdhocctlGroupName group;
+    int k, r;
+
+    if (!Vita_NetPairCan() || sPair.state != PAIR_OFF) {
+        return 0;
+    }
+    memset(&sPair, 0, sizeof(sPair));
+    sPair.role = role;
+    sErr[0] = '\0';
+    sLink = LINK_ADHOC;
+    gPortFastFloat = gPortFastFloat != 0;
+    sMyBuild = build_id();
+    if (sMyData == 0) {
+        sMyData = data_id();
+    }
+    for (k = 0; k < 6; k++) {
+        gVitaNetRules[k] = role == 1 && rules != NULL ? rules[k] : -1;
+    }
+    if (!net_base() || !adhoc_up()) {
+        Vita_Log("net: versus menu: %s\n", sErr);
+        adhoc_down();
+        return 0;
+    }
+    app_util();
+    sceNetCheckDialogParamInit(&p);
+    memset(&group, 0, sizeof(group));
+    memcpy(group.data, "BT3VITA", 7);
+    p.groupName = &group;
+    memcpy(p.npCommunicationId.data, "BT3VITA00", 9);
+    p.npCommunicationId.term = '\0';
+    p.npCommunicationId.num = 0;
+    p.mode = SCE_NETCHECK_DIALOG_MODE_PSP_ADHOC_CONN;
+    p.timeoutUs = 0;
+    r = sceNetCheckDialogInit(&p);
+    Vita_Log("net: versus menu: %s, the ad hoc dialog over the menu: %08x\n", role == 1 ? "host" : "join", (unsigned)r);
+    if (r < 0) {
+        adhoc_down();
+        return 0;
+    }
+    gVitaDialogOn = 1;
+    sPair.state = PAIR_DIALOG;
+    pair_say("Connecting (ad hoc) ...");
+    return 1;
+}
+
+/* One step. 0: going on; 1: the other Vita is found and the match agreed (Vita_NetPairStart next); -1: it failed or
+   was refused (*line says why; over). *line: what to show, *gen: counts its changes. */
+int Vita_NetPairPoll(const char **line, unsigned *gen) {
+    uint8_t pkt[PKT_MAX], in[PKT_MAX];
+    uint64_t t = now_us();
+    NetAddr from;
+    int n, k;
+
+    sceKernelPowerTick(SCE_KERNEL_POWER_TICK_DISABLE_AUTO_SUSPEND);
+    switch (sPair.state) {
+    case PAIR_DIALOG:
+        if (sceNetCheckDialogGetStatus() == SCE_COMMON_DIALOG_STATUS_FINISHED) {
+            gVitaDialogOn = 0; /* (the drawing thread hands it no more pictures: a few frames, then it is closed) */
+            sPair.count = 4;
+            sPair.state = PAIR_DIALOG_END;
+        }
+        break;
+    case PAIR_DIALOG_END:
+        if (--sPair.count <= 0) {
+            SceNetCheckDialogResult res;
+            memset(&res, 0, sizeof(res));
+            sceNetCheckDialogGetResult(&res);
+            sceNetCheckDialogTerm();
+            Vita_Log("net: versus menu: the ad hoc dialog ended: result %d\n", res.result);
+            if (res.result != SCE_COMMON_DIALOG_RESULT_OK) {
+                pair_fail(res.result == SCE_COMMON_DIALOG_RESULT_USER_CANCELED ? "The ad hoc connection was\ncancelled." : "The ad hoc connection was\nnot made.");
+            } else if (!adhoc_socket()) {
+                pair_fail("The ad hoc connection could\nnot be used.");
+            } else {
+                my_name();
+                if (sPair.role == 1) {
+                    sSession = (uint32_t)(now_us() ^ (now_us() >> 21)) | 1u;
+                    sSeed = (unsigned)(now_us() * 2654435761u) | 1u;
+                    sDelay = gVitaNetDelay >= 1 && gVitaNetDelay <= 8 ? gVitaNetDelay : 2;
+                    sPair.state = PAIR_HOST;
+                    pair_say("Waiting for a player to join ...\n(Triangle: cancel)");
+                } else {
+                    sPair.nonce = (uint32_t)now_us() | 1u;
+                    sPair.state = PAIR_SEEK;
+                    pair_say("Looking for a match nearby ...\n(Triangle: cancel)");
+                }
+            }
+        }
+        break;
+    case PAIR_HOST:
+        if (!sPair.joined && t - sPair.lastSend > 250000) {
+            k = head(pkt, T_OFFER);
+            put64(pkt + k, sMyBuild);
+            put64(pkt + k + 8, sMyData);
+            name_put(pkt + k + 16, sMyName);
+            link_broadcast(pkt, k + 16 + NAME_LEN);
+            sPair.lastSend = t;
+        }
+        if (sPair.joined && t - sPair.lastSend > 100000) {
+            memset(pkt, 0, 64);
+            k = head(pkt, T_WELCOME);
+            put32(pkt + k, sPair.nonce);
+            put32(pkt + k + 4, sSeed);
+            pkt[k + 8] = (uint8_t)sDelay;
+            for (n = 0; n < 6; n++) {
+                pkt[k + 12 + n] = (uint8_t)(int8_t)gVitaNetRules[n];
+            }
+            name_put(pkt + k + 20, sMyName);
+            link_send(&sPeer, pkt, k + 20 + NAME_LEN);
+            sPair.lastSend = t;
+            if (t - sPair.since > 30000000) { /* (the other Vita went quiet half-way) */
+                sPair.joined = 0;
+                pair_say("Waiting for a player to join ...\n(Triangle: cancel)");
+            }
+        }
+        while ((n = link_recv(in, sizeof(in), &from)) > 0) {
+            int type;
+            if (n < 12 || get32(in) != MAGIC) {
+                continue;
+            }
+            type = in[4];
+            if (type == T_JOIN && n >= 12 + 16 + NAME_LEN + 4 && get32(in + 8) == sSession) {
+                uint32_t why = 0;
+                char name[NAME_LEN];
+                name_get(name, in + 28);
+                if (in[5] != NET_VERSION || get64(in + 12) != sMyBuild) {
+                    why = WHY_VERSION;
+                } else if (get64(in + 20) != sMyData) {
+                    why = WHY_DATA;
+                } else if (sPair.joined && !same_addr(&from, &sPeer)) {
+                    why = WHY_BUSY;
+                }
+                if (why != 0) {
+                    k = head(pkt, T_REFUSE);
+                    put32(pkt + k, get32(in + 28 + NAME_LEN));
+                    put32(pkt + k + 4, why);
+                    link_send(&from, pkt, k + 8);
+                    if (why != WHY_BUSY && sPair.refused != get32(in + 28 + NAME_LEN)) {
+                        sPair.refused = get32(in + 28 + NAME_LEN);
+                        Vita_Log("net: versus menu: %s could not join: %s\n", name, refusal((int)why));
+                    }
+                    continue;
+                }
+                if (!sPair.joined) {
+                    sPeer = from;
+                    sPair.nonce = get32(in + 28 + NAME_LEN);
+                    snprintf(sTheirName, sizeof(sTheirName), "%s", name);
+                    sPair.joined = 1;
+                    sPair.since = t;
+                    sPair.lastSend = 0;
+                    Vita_Log("net: versus menu: %s asks to join\n", name);
+                    pair_say("%.23s is joining ...", name);
+                }
+            } else if (type == T_READY && sPair.joined && same_addr(&from, &sPeer) && get32(in + 8) == sSession && n >= 16 && get32(in + 12) == sPair.nonce) {
+                Vita_Log("net: versus menu: %s joined: match %08x, seed %08x, input delay %d\n", sTheirName, (unsigned)sSession, sSeed, sDelay);
+                gVitaNetRole = 1;
+                gVitaNetLink = LINK_ADHOC;
+                sPair.state = PAIR_DONE;
+                pair_say("%.23s joined.\nThe match begins ...", sTheirName);
+                break;
+            }
+        }
+        break;
+    case PAIR_SEEK:
+    case PAIR_ASK:
+        if (sPair.state == PAIR_ASK && t - sPair.lastSend > 200000) {
+            sSession = sPair.hostSession;
+            k = head(pkt, T_JOIN);
+            put64(pkt + k, sMyBuild);
+            put64(pkt + k + 8, sMyData);
+            name_put(pkt + k + 16, sMyName);
+            put32(pkt + k + 16 + NAME_LEN, sPair.nonce);
+            link_send(&sPair.host, pkt, k + 16 + NAME_LEN + 4);
+            sPair.lastSend = t;
+            if (t - sPair.since > 10000000) {
+                pair_say("%.23s did not answer.\nLooking again ...", sPair.hostName);
+                sPair.state = PAIR_SEEK;
+            }
+        }
+        while ((n = link_recv(in, sizeof(in), &from)) > 0) {
+            int type;
+            if (n < 12 || get32(in) != MAGIC) {
+                continue;
+            }
+            type = in[4];
+            if (type == T_OFFER && n >= 12 + 16 + NAME_LEN && sPair.state == PAIR_SEEK) {
+                char name[NAME_LEN];
+                name_get(name, in + 28);
+                if (!(in[5] == NET_VERSION && get64(in + 12) == sMyBuild)) {
+                    pair_say("%.23s has another version\nof the game: cannot join.", name);
+                } else if (get64(in + 20) != sMyData) {
+                    pair_say("%.23s has other disc files:\ncannot join.", name);
+                } else if (get32(in + 8) != sPair.refused) {
+                    sPair.host = from;
+                    sPair.hostSession = get32(in + 8);
+                    snprintf(sPair.hostName, sizeof(sPair.hostName), "%s", name);
+                    sPair.since = t;
+                    sPair.lastSend = 0;
+                    sPair.state = PAIR_ASK;
+                    pair_say("Joining %.23s ...", name);
+                }
+            } else if (sPair.state == PAIR_ASK && same_addr(&from, &sPair.host) && get32(in + 8) == sPair.hostSession && n >= 16 &&
+                       get32(in + 12) == sPair.nonce) {
+                if (type == T_REFUSE && n >= 20) {
+                    int why = (int)get32(in + 16);
+                    Vita_Log("net: versus menu: %s: %s\n", sPair.hostName, refusal(why));
+                    sPair.refused = sPair.hostSession; /* (not asked again) */
+                    sPair.state = PAIR_SEEK;
+                    pair_say(why == WHY_BUSY ? "%.23s is already playing\nwith someone." : why == WHY_DATA ? "%.23s has other disc files:\ncannot join." :
+                             "%.23s has another version\nof the game: cannot join.", sPair.hostName);
+                } else if (type == T_WELCOME && n >= 12 + 20 + NAME_LEN) {
+                    sPeer = from;
+                    sSeed = get32(in + 16);
+                    sDelay = in[20] >= 1 && in[20] <= 8 ? in[20] : 2;
+                    for (k = 0; k < 6; k++) {
+                        gVitaNetRules[k] = (int8_t)in[24 + k];
+                    }
+                    name_get(sTheirName, in + 32);
+                    k = head(pkt, T_READY);
+                    put32(pkt + k, sPair.nonce);
+                    link_send(&sPeer, pkt, k + 4);
+                    link_send(&sPeer, pkt, k + 4);
+                    sJoinNonce = sPair.nonce;
+                    gVitaNetRole = 2;
+                    gVitaNetLink = LINK_ADHOC;
+                    Vita_Log("net: versus menu: joined %s: match %08x, seed %08x, input delay %d, battle settings %d %d %d %d %d %d\n", sTheirName,
+                             (unsigned)sSession, sSeed, sDelay, gVitaNetRules[0], gVitaNetRules[1], gVitaNetRules[2], gVitaNetRules[3], gVitaNetRules[4],
+                             gVitaNetRules[5]);
+                    sPair.state = PAIR_DONE;
+                    pair_say("Joined %.23s.\nThe match begins ...", sTheirName);
+                    break;
+                }
+            }
+        }
+        break;
+    default:
+        break;
+    }
+    *line = sPair.line;
+    *gen = sPair.lineGen;
+    return sPair.state == PAIR_DONE ? 1 : sPair.state == PAIR_FAIL ? -1 : 0;
+}
+
+/* 1 while the system's dialog is up (the menu takes no buttons then: they are the dialog's) */
+int Vita_NetPairDialog(void) {
+    return sPair.state == PAIR_DIALOG || sPair.state == PAIR_DIALOG_END;
+}
+
+/* Given up by the player (or the menu is left): the line closed. Not while the system's dialog is up. */
+void Vita_NetPairCancel(void) {
+    if (sPair.state == PAIR_OFF || Vita_NetPairDialog()) {
+        return;
+    }
+    if (sPair.state != PAIR_FAIL) {
+        Vita_Log("net: versus menu: given up\n");
+        link_close();
+        adhoc_down();
+    }
+    sPair.state = PAIR_OFF;
+}
+
+/* The match agreed (Vita_NetPairPoll gave 1), the menu faded out: the game starts again inside the program as the
+   match (vita_warm.c > Vita_NetWarm), on both Vitas. Does not return. */
+void Vita_NetPairStart(void) {
+    sPair.state = PAIR_OFF;
+    sPending = 1;
+    Vita_WarmRestart();
+    sPending = 0; /* (it could not: the program starts again, as before) */
+    link_close();
+    adhoc_down();
+    Vita_NetRestartInto(gVitaNetRole, LINK_ADHOC, gVitaNetRules);
 }
 
 /* ------------------------------------------------------------------------------------------------- in the game */
@@ -1057,8 +1456,11 @@ static void note_check(void) {
     }
 }
 
+static uint32_t sNoteTaken; /* (the newest one taken: each comes with every packet until the next) */
+
 static void note_take(uint32_t tick, uint64_t value) {
-    if (tick != 0) {
+    if (tick != 0 && tick > sNoteTaken) {
+        sNoteTaken = tick;
         SyncNote *o = &sNoteTheirs[tick / SYNC_EVERY % SYNC_SLOTS];
         o->tick = tick;
         o->value = value;
@@ -1138,11 +1540,95 @@ static void ended(const char *why, int bye) {
         fclose(sTestLog);
         sTestLog = NULL;
     }
+    if (sWarm && Vita_WarmCan()) {
+        /* begun in the running game (the versus menu): back there, the game alone started again (vita_warm.c). Said
+           on the screen only when it was not this player's own doing or the match's ordinary end. */
+        if (bye != BYE_OVER) {
+            Vita_TextScreen();
+            psvDebugScreenPrintf("\e[H\e[2J\n  Multiplayer: %s\n%s\n  Press CROSS: back to the versus menu, with your own save.\n", why,
+                                 sApartAt != 0 ? "\n  (The two Vitas' games had stopped agreeing: see log.txt.)\n" : "");
+            wait_cross();
+        }
+        gVitaNetWaiting = 0;
+        sPending = 2;
+        Vita_WarmRestart(); /* (does not return) */
+    }
     Vita_TextScreen();
     psvDebugScreenPrintf("\e[H\e[2J\n  Multiplayer: %s\n%s\n  Press CROSS: the game starts again with your own save.\n", why,
                          sApartAt != 0 ? "\n  (The two Vitas' games had stopped agreeing: see log.txt.)\n" : "");
     wait_cross();
     restart();
+}
+
+/* A match's own counts and flags, as the program's start has them. */
+static void session_reset(void) {
+    memset(sNoteMine, 0, sizeof(sNoteMine));
+    memset(sNoteTheirs, 0, sizeof(sNoteTheirs));
+    sNoteOutTick = 0;
+    sNoteOutValue = 0;
+    sNoteTaken = 0;
+    sApartAt = 0;
+    sApartCount = sCompared = 0;
+    memset(sIn, 0, sizeof(sIn));
+    sHave[0] = sHave[1] = 0;
+    sTick = 0;
+    sArrivedFlag = sMet = 0;
+    sMyArrival = sTheirArrival = 0;
+    sHeardUs = sStartUs = 0;
+    sEnding = sShownWait = 0;
+    sWaits = 0;
+    sWaitUs = 0;
+}
+
+/* (vita_warm.c) the game is being started again inside the program, at blank `blank` of the program's count: a match
+   begins with this start (the versus menu's pairing, or the development build's warmtest=), or one has ended. */
+void Vita_NetWarm(unsigned blank) {
+    extern int gVitaStartMode;
+    if (sPending == 1) {
+        session_reset();
+        sTickBase = blank;
+        sOn = 1;
+        sWarm = 1;
+        sConnected = gVitaNetTest <= 0;
+        sMe = gVitaNetTest > 0 ? 0 : gVitaNetRole == 1 ? 0 : 1;
+        match_setup();
+        if (gVitaNetTest > 0) {
+            sceIoRemove(NET_LOG);
+        }
+        Vita_Log("net: the game starts again as a match: player %d, the match's blanks counted from %u\n", sMe + 1, (unsigned)blank);
+    } else if (sOn || sPending == 2) {
+        int test = gVitaNetTest > 0;
+        sOn = 0;
+        sWarm = 0;
+        sConnected = 0;
+        sTickBase = 0;
+        gVitaNetTest = 0;
+        gVitaNetRole = 0;
+        link_close();
+        adhoc_down();
+        match_undo();
+        session_reset();
+        if (!test) {
+            gVitaStartMode = 38; /* (back where the match was begun: the versus menu) */
+        }
+        Vita_Log("net: the game starts again as it normally is\n");
+    }
+    sPending = 0;
+}
+
+/* (vita_warm.c, the development build's warmtest=<seconds>) the one-Vita test of a match, begun in the running game */
+void Vita_NetTestBegin(int seconds) {
+    gVitaNetTest = seconds;
+    sSeed = 0x5EED1234;
+    sDelay = 2;
+    sPending = 1;
+}
+
+/* Nothing has come from the other Vita for longer than `us`. (The clock read here, after the last receive: a time
+   taken before it lies before the moment of a packet it brought, and the difference goes round.) */
+static int quiet_for(uint64_t us) {
+    uint64_t now = now_us();
+    return now > sHeardUs && now - sHeardUs > us;
 }
 
 /* What came from the other Vita. 1 when anything did. */
@@ -1206,6 +1692,9 @@ static int receive(void) {
             }
             break;
         case T_BYE:
+            if (n >= 16 && get32(in + 12) == BYE_OVER && sWarm) {
+                ended("the match is over.", BYE_OVER); /* (the other Vita came to the match's end a moment earlier) */
+            }
             ended(n >= 16 && get32(in + 12) == BYE_APART ? "the two games no longer agreed (see log.txt): the match has ended." :
                   "the other player left the match.", 0);
             break;
@@ -1287,7 +1776,7 @@ static void meet(uint32_t tick) {
             sceKernelDelayThread(500);
         }
         wait_screen(t0, "waiting at the character select for");
-        if (now - sHeardUs > 60000000ull) {
+        if (quiet_for(60000000ull)) {
             ended("the other Vita did not come to the character select (a minute): the match has ended.", BYE_LOST);
         }
     }
@@ -1326,6 +1815,7 @@ void Port_NetBeginTick(unsigned tick) {
     if (!sOn) {
         return;
     }
+    tick -= sTickBase; /* (a match begun in the running game counts its blanks from its own start) */
     sTick = tick;
     if (sStartUs == 0) {
         sStartUs = sHeardUs = now_us();
@@ -1350,6 +1840,10 @@ void Port_NetBeginTick(unsigned tick) {
             fflush(sTestLog); /* (the test runs' closing of the game keeps what was written) */
         }
         if (tick >= (unsigned)gVitaNetTest * 60u) {
+            if (sWarm) { /* (warmtest=: the record is complete; the game goes on as it normally is) */
+                Vita_Log("net: the test begun in the running game is over at blank %u\n", tick);
+                ended("the test is over.", BYE_OVER);
+            }
             ended("the test is over: compare ux0:data/bt3/net_test.txt with another run's.", 0);
         }
     }
@@ -1362,7 +1856,7 @@ void Port_NetBeginTick(unsigned tick) {
             send_alive();
             lastAlive = now;
         }
-        if (gVitaNetTest <= 0 && now - sHeardUs > 90000000ull) {
+        if (gVitaNetTest <= 0 && quiet_for(90000000ull)) {
             ended("nothing came from the other Vita for a minute and a half: the match has ended.", BYE_LOST);
         }
         return;
@@ -1408,7 +1902,7 @@ void Port_NetBeginTick(unsigned tick) {
                 sceKernelDelayThread(200);
             }
             wait_screen(t0, "waiting for");
-            if (now - sHeardUs > 20000000ull) {
+            if (quiet_for(20000000ull)) {
                 ended("the connection to the other Vita was lost.", BYE_LOST);
             }
         }
@@ -1476,6 +1970,6 @@ void Vita_NetEnter(void *progress, void *save) {
 /* (menu_a.c) back at the main menu: the match is over */
 void Port_NetLeave(void) {
     if (sOn) {
-        ended("the match is over.", BYE_LEFT);
+        ended("the match is over.", BYE_OVER);
     }
 }

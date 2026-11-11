@@ -64,6 +64,10 @@ typedef struct PortFile {
 } PortFile;
 
 static Partition sPart[8];
+static uint8_t sPartScanned[8]; /* (its folder of mods was looked through: once) */
+/* the handles the game holds (to close them should it start again inside the running program: Vita_FileWarm) */
+#define PF_OPEN 96
+static PortFile *sOpenF[PF_OPEN];
 
 /* ---- mods ---- */
 #include "vita_home.h"
@@ -331,6 +335,14 @@ static int mod_path(int ptid, uint32_t flid, const char *name, char *out, size_t
     if (!mods_on() || sModN == 0) {
         return 0;
     }
+#ifndef BT3_BT4
+    {   /* (a multiplayer match, begun at the start or from the versus menu: the disc's own files on both Vitas) */
+        extern int Port_NetActive(void);
+        if (Port_NetActive()) {
+            return 0;
+        }
+    }
+#endif
     for (i = 0; i < sModN; i++) {
         if ((ptid < 8 && sMods[i].ptid == ptid && sMods[i].flid == flid) ||
             (ptid == 8 && sMods[i].ptid == 8 && strcasecmp(sMods[i].name, name) == 0)) {
@@ -446,6 +458,28 @@ int Vita_FileSpan(const char *path, SceUID *fd, uint32_t *base, uint32_t *size, 
     }
 }
 
+static PortFile *pf_new(void) {
+    PortFile *f = Port_LowAlloc(sizeof(PortFile));
+    int k;
+    for (k = 0; k < PF_OPEN; k++) {
+        if (sOpenF[k] == NULL) {
+            sOpenF[k] = f;
+            break;
+        }
+    }
+    return f;
+}
+
+static void pf_gone(PortFile *f) {
+    int k;
+    for (k = 0; k < PF_OPEN; k++) {
+        if (sOpenF[k] == f) {
+            sOpenF[k] = NULL;
+            break;
+        }
+    }
+}
+
 int ADXF_LoadPartitionNw(int ptid, char *fname, void *dir, void *ptinfo) {
     Partition *pt = &sPart[ptid & 7];
     char path[300];
@@ -469,7 +503,8 @@ int ADXF_LoadPartitionNw(int ptid, char *fname, void *dir, void *ptinfo) {
             pt->name[i] = (char)tolower((unsigned char)b[i]);
         }
         pt->name[i] = '\0';
-        if (mods_on()) {
+        if (mods_on() && !sPartScanned[ptid & 7]) {
+            sPartScanned[ptid & 7] = 1;
             mods_scan_archive(pt->name, ptid & 7);
         }
         VitaEu_NotePartition(ptid & 7, pt->name);
@@ -524,7 +559,7 @@ void *ADXF_OpenAfs(int ptid, int flid) {
                 return NULL;
             }
             size = sceIoLseek(fd, 0, SCE_SEEK_END);
-            f = Port_LowAlloc(sizeof(PortFile));
+            f = pf_new();
             memset(f, 0, sizeof(*f));
             f->fd = fd;
             f->owned = 1;
@@ -546,7 +581,7 @@ void *ADXF_OpenAfs(int ptid, int flid) {
             SceUID fd = sceIoOpen(path, SCE_O_RDONLY, 0);
             if (fd >= 0) {
                 SceOff size = sceIoLseek(fd, 0, SCE_SEEK_END);
-                f = Port_LowAlloc(sizeof(PortFile));
+                f = pf_new();
                 memset(f, 0, sizeof(*f));
                 f->fd = fd;
                 f->owned = 1;
@@ -565,7 +600,7 @@ void *ADXF_OpenAfs(int ptid, int flid) {
         uint32_t base, size;
         int own;
         if (VitaEu_Member(ptid, flid, &fd, &base, &size, &own)) {
-            f = Port_LowAlloc(sizeof(PortFile));
+            f = pf_new();
             memset(f, 0, sizeof(*f));
             f->fd = fd;
             f->owned = own ? 1 : 2;
@@ -579,7 +614,7 @@ void *ADXF_OpenAfs(int ptid, int flid) {
             return f;
         }
     }
-    f = Port_LowAlloc(sizeof(PortFile));
+    f = pf_new();
     memset(f, 0, sizeof(*f));
     f->fd = pt->fd;
     f->owned = 0;
@@ -614,7 +649,7 @@ void *ADXF_Open(char *fname, void *atr) {
         n = 0; /* (below: the handle is a film's) */
     }
     size = sceIoLseek(fd, 0, SCE_SEEK_END);
-    f = Port_LowAlloc(sizeof(PortFile));
+    f = pf_new();
     memset(f, 0, sizeof(*f));
     f->film = n == 0; /* (the game feeds what it reads of a film to sceMpegDemuxPss, which takes none of it: the
                          opening read its first 2 MB for nothing) */
@@ -637,9 +672,40 @@ void ADXF_Close(void *h) {
         if (f->owned == 1) {
             sceIoClose(f->fd);
         }
+        pf_gone(f);
         Port_LowFree(f);
     }
 }
+
+#ifndef BT3_BT4
+/* (vita_warm.c) the game starts again inside the running program: the handles it held closed (its memory of them is
+   gone), no archive loaded, as the program's start finds it (the game opens its archives again). */
+void Vita_FileWarm(void) {
+    int k, n = 0;
+    for (k = 0; k < PF_OPEN; k++) {
+        if (sOpenF[k] != NULL) {
+            ADXF_Close(sOpenF[k]);
+            n++;
+        }
+    }
+    {
+        extern void VitaEu_TablesGone(void);
+        VitaEu_TablesGone(); /* (vita_eu.c keeps a pointer into PZS3US1's table) */
+    }
+    for (k = 0; k < 8; k++) {
+        Partition *pt = &sPart[k];
+        if (pt->fd > 0) {
+            sceIoClose(pt->fd);
+            free(pt->table);
+        }
+        memset(pt, 0, sizeof(*pt));
+    }
+    if (n != 0) {
+        extern void Vita_Log(const char *fmt, ...);
+        Vita_Log("files: %d handles of the game that ended closed\n", n);
+    }
+}
+#endif
 
 int ADXF_GetFsizeSct(void *h) {
     return ((PortFile *)h)->sizeSct;

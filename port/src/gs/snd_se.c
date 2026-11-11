@@ -374,6 +374,18 @@ static void stop(int mask, int id, int handle) {
 typedef struct SifDmaData { uint32_t data, addr; int32_t size, mode; } SifDmaData;
 
 /* sceSifSetDma: main memory -> the second processor's memory. Here both are ordinary memory. */
+#ifdef PORT_VITA
+/* (port/vita/vita_warm.c) the game starts again inside the running program: no voice sounding, no bank loaded, the
+   sound memory empty, as at the program's start (the game loads its banks again) */
+void Port_SeWarm(void) {
+    if (sStream != NULL) { SDL_LockAudioStream(sStream); }
+    memset(sVoices, 0, sizeof(sVoices));
+    memset(sBanks, 0, sizeof(sBanks));
+    memset(sSpu, 0, sizeof(sSpu));
+    if (sStream != NULL) { SDL_UnlockAudioStream(sStream); }
+}
+#endif
+
 uint32_t sceSifSetDma(SifDmaData *d, int count) {
     int i;
 

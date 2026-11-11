@@ -27,7 +27,12 @@ New
   Wi-Fi network: Versus → Multiplayer → Ad Hoc: Host / Ad Hoc: Join (the host's Battle Settings go with it), or the
   start menu (ad hoc and Wi-Fi). One hosts, the other joins. Both games are kept in step by the buttons
   pressed, as in the PC version's online play; each Vita shows its own player's view of the fight. A match has its
-  own save with everything unlocked (yours is not touched). See the README.
+  own save with everything unlocked (yours is not touched). From the versus menu it all happens in the running
+  game: the system's ad hoc dialog over the menu, the wait for the other Vita in the menu's message window, and
+  after the match the versus menu again, without the program starting anew. See the README.
+- **The other game from the options**: Options → Controller → Vita Settings → **Game** (the third page) switches
+  between Budokai Tenkaichi 3 and Team BT4's Budokai Tenkaichi 4, as the start menu's Game does; BT4's own
+  Vita Settings have the way back.
 - **Disc Fusion**: the modes of the two earlier games' discs are open (the Vita has no disc to swap).
 - A crash writes `ux0:data/bt3/crash.txt` and closes the game, instead of leaving it frozen (with the kubridge
   plugin, which most setups have).
