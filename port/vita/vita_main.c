@@ -1512,6 +1512,12 @@ SceUID Vita_ThreadOnCore3(const char *name, SceKernelThreadEntry entry, int prio
     return th;
 }
 
+/* For the menus (Options > Controller, the "Vita Settings" row's guide line): 1 the fourth core takes our threads
+   (the CapUnlocker plugin is in), 0 it does not, -1 not tried yet. */
+int Vita_Core3State(void) {
+    return gVitaCore3;
+}
+
 /* The threads that matter, as the system sees them (for the log): processor time, where they ran, how often
    something else took their core. */
 static struct { int id; const char *name; unsigned long long run; unsigned pre, ipre; int chg; } sWatch[8];
