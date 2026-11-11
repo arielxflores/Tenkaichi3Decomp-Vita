@@ -1194,6 +1194,7 @@ static void find_disc(void) {
 static void read_settings(void) {
     FILE *fp = fopen(HOME "/bt3.txt", "r");
     char line[400];
+    int sweepSet = 0;
 
     if (fp == NULL) {
         return;
@@ -1228,6 +1229,7 @@ static void read_settings(void) {
             sMode = strcmp(eq, "demo") == 0;
         } else if (strcmp(line, "sweep") == 0) {
             sSweepSec = atoi(eq);
+            sweepSet = 1;
         } else if (strcmp(line, "wide") == 0) {
             extern int gVitaWide;
             gVitaWide = atoi(eq) != 0; /* wide=0: the console's 4:3 picture with bars at the sides */
@@ -1399,6 +1401,10 @@ static void read_settings(void) {
             if (atoi(eq) != 0) {
                 setenv("BT3_SOAK", "1", 1);
             }
+        } else if (strcmp(line, "soakstages") == 0) { /* the soak's stages in turn: ids and ranges, "0-34" or "1,6,0x10" */
+            setenv("BT3_SOAK_STAGES", eq, 1);
+        } else if (strcmp(line, "soakduel") == 0) { /* 1: the soak's battles all duels (the same work on every stage) */
+            setenv("BT3_SOAK_DUEL", eq, 1);
         } else if (strcmp(line, "startmode") == 0) { /* the menus start on this screen (62 the options) */
             extern int gVitaStartMode;
             gVitaStartMode = atoi(eq);
@@ -1410,6 +1416,11 @@ static void read_settings(void) {
         logf_("vita: setting %s=%s\n", line, eq);
     }
     fclose(fp);
+    if (getenv("BT3_SOAK") != NULL && !sweepSet) {
+        /* the soak goes from battle to battle itself: the sweep's start again after 32 s would put it back to its first
+           battle every time (a sweep= line still has its say) */
+        sSweepSec = 0;
+    }
 }
 
 static void start_screen(void) {

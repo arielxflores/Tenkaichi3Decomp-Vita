@@ -135,8 +135,41 @@ int Port_SoakNext(int first) {
     extern void BattleSetup_Finish(void);
     extern int CpuLevel_FromSetting(unsigned setting);
     extern void Vita_Log(const char *fmt, ...);
+    /* bt3.txt soakstages=<ids and ranges>: these stages in turn instead of the demo's (a speed survey of the stages);
+       soakduel=1: duels only, so that every stage is measured with the same work */
+    static int sStages[64], sStageN = -1;
     const int nc = (int)(sizeof(kChara) / sizeof(kChara[0]));
-    int team = n & 1, members = team ? 3 : 1, stage = kStage[n % (int)(sizeof(kStage) / sizeof(kStage[0]))], i, k;
+    int duelOnly = getenv("BT3_SOAK_DUEL") != NULL && atoi(getenv("BT3_SOAK_DUEL")) != 0;
+    int team, members, stage, i, k;
+
+    if (sStageN < 0) {
+        const char *s = getenv("BT3_SOAK_STAGES");
+        char *e;
+        sStageN = 0;
+        while (s != NULL && *s != '\0' && sStageN < 64) {
+            long a = strtol(s, &e, 0), b = a;
+            if (e == s) {
+                break;
+            }
+            if (*e == '-') {
+                const char *t = e + 1;
+                b = strtol(t, &e, 0);
+                if (e == t) {
+                    b = a;
+                }
+            }
+            for (; a <= b && sStageN < 64; a++) {
+                sStages[sStageN++] = (int)a;
+            }
+            s = e;
+            while (*s == ',' || *s == ' ') {
+                s++;
+            }
+        }
+    }
+    team = duelOnly ? 0 : n & 1;
+    members = team ? 3 : 1;
+    stage = sStageN > 0 ? sStages[n % sStageN] : kStage[n % (int)(sizeof(kStage) / sizeof(kStage[0]))];
 
     if (first) {
         extern int File_LoadPartitionNw(int pt);

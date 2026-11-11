@@ -30,7 +30,8 @@ all of them. The full list, each with a comment, is `read_settings` in `port/vit
 | `wide=0` | The PS2's 4:3 picture (also in the release) |
 | `msaa=0/2/4` | The GPU's multisampling |
 | `touchlr=rear/front/off`, `touchlog=1` | Where L2, R2, L3 and R3 are touched, all four (over the player's Vita Settings → Touch); the touches in the log |
-| `soak=1` | With `mode=demo`: duels and three-against-three team battles one after another without end (`port/src/headless.c`), to find what goes wrong after a long time |
+| `soak=1` | With `mode=demo`: duels and three-against-three team battles one after another without end (`port/src/headless.c`), to find what goes wrong after a long time. The sweep is off in a soak unless `sweep=` is given |
+| `soakstages=<ids>`, `soakduel=1` | The soak's stages in turn (ids and ranges: `0-34`, `1,6,0x10`) instead of the demo's, and only duels: a survey of the stages' speed, summed up by `port/vita/tools/perfsum.py log-vgl.txt` |
 | `perf=0` | No processor counters (libperf), to measure the speed as the release has it |
 | `safe=<bits>`, `safe2=<bits>` | Parts of the renderer switched off or done the plain way, to find the cause of a fault (`gVglSafe` and `gVglSafe2` in `port/vita/vita_vgl.c`) |
 | `dump=1` | A copy of each file the game loads whole, in `ux0:data/bt3/dump/` |
