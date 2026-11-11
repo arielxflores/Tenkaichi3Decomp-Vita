@@ -22,7 +22,7 @@
 #include <string.h>
 
 extern void Vita_Log(const char *fmt, ...);
-extern void Vita_Fatal(const char *fmt, ...);
+extern void Vita_Fatal(const char *fmt, ...) __attribute__((noreturn));
 
 int gPortVariant = 1; /* (src/sys/file.c: the BT4 mod's file numbers) */
 

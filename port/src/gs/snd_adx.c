@@ -275,7 +275,7 @@ static void start(Player *p, const char *path) {
 #ifdef PORT_VITA /* the archives are read as they are on the disc: no file of its own to open (vita_file.c) */
     {   /* the first piece now (the header and about a second of sound), the rest on the reading thread */
         SceUID fd;
-        uint32_t base, first;
+        uint32_t base, first = 0;
         int own;
         (void)fp; (void)size;
         p->size = 0;

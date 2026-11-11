@@ -616,7 +616,11 @@ void Vita_VBlank(unsigned vblanks) {
                     extern void Vita_PgoDump(const char *why);
                     Vita_PgoDump("the sweep starts the program again");
                 }
+#ifdef BT3_BT4
+                r = sceAppMgrLoadExec("app0:bt4.bin", NULL, NULL); /* (this program again: BT4's) */
+#else
                 r = sceAppMgrLoadExec("app0:eboot.bin", NULL, NULL);
+#endif
                 logf_("vita: sweep: starting again failed (%08x); this pairing goes on\n", (unsigned)r);
             }
         }
