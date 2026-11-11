@@ -428,8 +428,9 @@ extern int gVitaAbSide;
 static volatile unsigned sGrHead, sGrTail; /* (below, with the queue) */
 int Port_InGr(const void *p);
 typedef struct FeJob { const uint8_t *d; uint32_t len, seq, at; uint32_t inGr; } FeJob;
-/* (above the render thread's priority, asleep on a semaphore when there is nothing: below it, with 64 waiting at
-   most, the drawing thread found a number not ready 4.7 times as often as the reader alone had left it, and worked
+/* (at the render thread's priority, the highest an application's thread can have (60 was refused: the helper
+   was not made, the reader worked the numbers out as before), asleep on a semaphore when there is nothing: below
+   it, with 64 waiting at most, the drawing thread found a number not ready 4.7 times as often as the reader alone had left it, and worked
    out the rest itself: its uploads' part 60-90 ms a 2 s longer in an A/B test) */
 #define FEJ_N 512
 #define FEJ_MAX 384
@@ -491,7 +492,10 @@ static int fe_helper_use(void) {
         SceUID th = -1;
         sFeSema = sceKernelCreateSema("bt3_fehash", 0, 0, 1, NULL);
         if (gVitaCore3 == 1 && sFeSema >= 0) {
-            th = Vita_ThreadOnCore3("bt3_fehash", fe_helper_thread, 60, 0x4000, 0);
+            th = Vita_ThreadOnCore3("bt3_fehash", fe_helper_thread, 64, 0x4000, 0);
+        }
+        if (th < 0) {
+            Vita_Log("gs: the uploads' numbers' helper not made (%08x, semaphore %08x)\n", (unsigned)th, (unsigned)sFeSema);
         }
         sFeHelperUp = th >= 0 && gVitaCore3 == 1 && sceKernelStartThread(th, 0, NULL) >= 0 ? 1 : -1;
         Vita_Log("gs: the uploads' numbers %s\n", sFeHelperUp > 0 ? "worked out on the fourth core" : "worked out by the list reader (no fourth core)");
@@ -3812,6 +3816,9 @@ static void *gr_thread(void *arg) {
         if (h == sGrTail) {
             if (idle == 0) {
                 sGrIdleFrom = sceKernelGetProcessTimeWide();
+#ifdef PORT_VITA
+                gProf = 0; /* (waiting for the list reader: idle, not the last record's place) */
+#endif
             }
             if (++idle > 2000) {
                 extern unsigned long long gVitaWall[6];
