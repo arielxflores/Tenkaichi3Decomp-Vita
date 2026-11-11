@@ -1324,6 +1324,8 @@ static void read_settings(void) {
 #endif
         if (strcmp(line, "disc") == 0) {
             snprintf(gVitaDisc, sizeof(gVitaDisc), "%s", eq);
+        } else if (strcmp(line, "discdir") == 0) { /* (the test runs, whose settings cannot hold a path) disc=<home>/<name> */
+            snprintf(gVitaDisc, sizeof(gVitaDisc), HOME "/%s", eq);
         } else if (strcmp(line, "float") == 0) {
             sFloatChoice = strcmp(eq, "fast") == 0;
         } else if (strcmp(line, "heap") == 0) {
@@ -1606,6 +1608,23 @@ static void read_settings(void) {
             gVitaDpBank = atoi(eq) != 0;
         } else if (strcmp(line, "soakduel") == 0) { /* 1: the soak's battles all duels (the same work on every stage) */
             setenv("BT3_SOAK_DUEL", eq, 1);
+        } else if (strcmp(line, "pgoname") == 0) { /* (a BT3_PGO=gen build) its counts in pgo/<name>.pgo (vita_pgo.c) */
+            extern char gVitaPgoName[32];
+            int k;
+            for (k = 0; eq[k] != '\0' && k < 31; k++) { /* (letters, digits, '-' and '_' only: a file name) */
+                char c = eq[k];
+                gVitaPgoName[k] = (char)((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' ? c : '_');
+            }
+            gVitaPgoName[k] = '\0';
+        } else if (strcmp(line, "pgodump") == 0) { /* (a BT3_PGO=gen build) its counts written every <seconds> */
+            extern int gVitaPgoEvery;
+            gVitaPgoEvery = atoi(eq);
+        } else if (strcmp(line, "asyncread") == 0) { /* 0: reads on the caller's thread (vita_read.c) */
+            extern int gVitaAsyncRead;
+            gVitaAsyncRead = atoi(eq) != 0;
+        } else if (strcmp(line, "vufquick") == 0) { /* the vector stand-ins' check: 1 short, 0 full (port_vufast.c) */
+            extern int gVitaVufQuick;
+            gVitaVufQuick = atoi(eq) != 0;
         } else if (strcmp(line, "startmode") == 0) { /* the menus start on this screen (62 the options) */
             extern int gVitaStartMode;
             gVitaStartMode = atoi(eq);
@@ -1768,13 +1787,6 @@ static int watchdog_thread(SceSize args, void *argp) {
     (void)argp;
     for (;;) {
         sceKernelDelayThread(500000);
-        {   /* (a BT3_PGO=gen build: its counts so far every five minutes, vita_pgo.c) */
-            static unsigned pgoTicks;
-            if (++pgoTicks % 600 == 0) {
-                extern void Vita_PgoDump(const char *why);
-                Vita_PgoDump("every five minutes");
-            }
-        }
         {   /* a line a minute for bug reports, in the released program too: the picture rate and the memory in use */
             static unsigned ticks, drawn0, minutes;
             extern unsigned gVitaGsDrawn;
@@ -1790,6 +1802,10 @@ static int watchdog_thread(SceSize args, void *argp) {
                 logf_("vita: minute %u: %u.%u pictures/s, in the %s; heap %u KB; %s\n", minutes, d / 60, (d % 60) * 10 / 60,
                       gVitaInMenus ? "menus" : "fights", (unsigned)mi.uordblks >> 10, tables);
             }
+        }
+        {   /* (a BT3_PGO=gen build: its counts so far now and then, vita_pgo.c) */
+            extern void Vita_PgoTick(void);
+            Vita_PgoTick();
         }
         if (gGsFrame != last) {
             last = gGsFrame;

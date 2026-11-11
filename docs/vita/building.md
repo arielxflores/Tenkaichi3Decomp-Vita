@@ -63,17 +63,18 @@ values on the disc (`vita_dat.c`) and the stubs (`stubs.c`). `port/build/vita_re
 A build laid out by how the game really runs (which branches are taken, which calls are hot) is made in two steps:
 
 1. `BT3_PGO=gen python3 port/vita/build.py` makes `port/build/vita_rel_pgogen/Tenkaichi3Decomp-Vita-pgogen.vpk`, a
-   slower build that counts. Each start of it writes its counts to a new folder `ux0:data/bt3/pgo/run-<n>/` at exit,
-   every five minutes, and before a test sweep starts the program again (`port/vita/vita_pgo.c`). Play what should
-   be fast: fights on several stages, transformations, ultimate attacks, the menus.
-2. Copy the `run-<n>` folders to the build machine and add them up:
-   `port/vita/pgo_merge.sh rel <folder> [<folder> ...]` (they go into `port/vita/pgo/rel/`; later runs can be added
-   the same way). `BT3_PGO=use python3 port/vita/build.py` then builds with them
+   slower build that counts. Each start of it writes its counts to a new file `ux0:data/bt3/pgo/run-<n>.pgo` (or
+   `<name>.pgo` with `pgoname=<name>` in `bt3.txt`) at exit, every five minutes (`pgodump=<seconds>`), and before a
+   test sweep starts the program again (`port/vita/vita_pgo.c`). Play what should be fast: fights on several stages,
+   transformations, ultimate attacks, the menus.
+2. Copy the `.pgo` files to the build machine and add them up:
+   `port/vita/pgo_merge.sh rel <file.pgo> [...]` (they go into `port/vita/pgo/rel/`; later runs can be added the
+   same way). `BT3_PGO=use python3 port/vita/build.py` then builds with them
    (`port/build/vita_rel_pgouse/Tenkaichi3Decomp-Vita-pgouse.vpk`).
 
 The counts belong to the source they were made from: after larger changes, make new ones (a function whose code
 changed is built without its counts, with a warning). `BT3_VITA_DEV=1` works the same way with `dev` in place of
-`rel`.
+`rel`; a development build's counts serve the release build too.
 
 ## vitaGL
 
