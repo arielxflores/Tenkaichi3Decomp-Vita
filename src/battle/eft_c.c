@@ -640,6 +640,17 @@ void EftWeatherPtcl_Draw(EftTask *task) {
             }
         }
         if (!(gBtlStage->flags & 1)) {
+#ifdef PORT
+            /* (z3xox's PC version: the setting "Weather"; on the Vita bt3.txt weather=light / off: the particles go on
+               moving, as they would, and are not drawn) */
+            extern int Port_FxOff(int bit);
+            if (Port_FxOff(64)) {
+                return;
+            }
+            if (Port_FxOff(128)) { /* (and "Light": half of them) */
+                count = (count + 1) / 2;
+            }
+#endif
             if (EftStage_IsDrawOn()) {
                 EftWeather_DrawPtcls(p, count);
             }

@@ -45,6 +45,11 @@
 #define GAME_STACK 0x00800000
 
 unsigned int _newlib_heap_size_user = 80 * 1024 * 1024;
+int gVitaGameFxOff; /* the effects switched off (bt3.txt weather=, moveblur=): Port_FxOff's bits, as the PC version's fx_off */
+/* (the game's code asks: src/battle/eft_c.c, src/sys/gfxm_a.c; BT4's the same) */
+int Port_FxOff(int bit) {
+    return (gVitaGameFxOff & bit) != 0;
+}
 unsigned int sceUserMainThreadStackSize = 0x00100000;
 
 char gVitaDisc[256] = VITA_DISC_DEFAULT;
@@ -1251,7 +1256,7 @@ static void read_settings(void) {
         /* the released program: only the player's settings. The test runs leave theirs in the same file
            (mode=demo, film=...): a game started from its bubble goes to its title screen, not into a test fight */
         if (strcmp(line, "disc") != 0 && strcmp(line, "heap") != 0 && strcmp(line, "wide") != 0 && strcmp(line, "report") != 0 &&
-            strcmp(line, "fightres") != 0) {
+            strcmp(line, "fightres") != 0 && strcmp(line, "weather") != 0 && strcmp(line, "moveblur") != 0) {
             continue;
         }
 #endif
@@ -1272,6 +1277,13 @@ static void read_settings(void) {
         } else if (strcmp(line, "texearly") == 0) { /* 0: a new texture waits for the render thread before its pixels are read (vita_vgl.c) */
             extern int gVitaTexEarly;
             gVitaTexEarly = atoi(eq);
+        } else if (strcmp(line, "weather") == 0) {
+            /* z3xox's PC version's effect switches, game-side (src/battle/eft_c.c, src/sys/gfxm_a.c: Port_FxOff): the
+               haze of big soft sprites some stages have (Desert and Rocky Area at noon, Rocky Area in the evening,
+               Kami's Lookout; a little on Glacier, Muscle Tower, the Time Chamber), full, light (half of them) or off */
+            gVitaGameFxOff = (gVitaGameFxOff & ~(64 | 128)) | (strcmp(eq, "off") == 0 ? 64 : strcmp(eq, "light") == 0 ? 128 : 0);
+        } else if (strcmp(line, "moveblur") == 0) { /* the scenery's blur while the view turns or moves fast: 0 off */
+            gVitaGameFxOff = (gVitaGameFxOff & ~32) | (atoi(eq) == 0 ? 32 : 0);
         } else if (strcmp(line, "fightres") == 0) { /* the fights drawn at 640 x 368 (default), 720 x 408 or 960 x 544 (vita_vgl.c) */
             extern int gVitaFightW;
             gVitaFightW = atoi(eq);

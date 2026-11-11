@@ -273,7 +273,11 @@ songs folder, a line `file|Name In The Menu` each; the files they do not name fo
   `disc=<folder>` reads the game files from another folder, `fightres=720` draws the fights at 720 x 408 instead of
   640 x 368 (sharper, about the same speed; `fightres=960`, the screen's own resolution, is slower), `lang=0` to
   `4` sets the language (English, Spanish, German, French, Italian), `asyncread=0` reads the game's files on its
-  own thread as before.
+  own thread as before. `weather=light` or `weather=off` thins out or leaves out the haze some stages have drifting
+  over them (Desert and Rocky Area at noon, Rocky Area in the evening, Kami's Lookout; a little on Glacier, Muscle
+  Tower and the Time Chamber: big see-through sprites over the whole picture, the heaviest thing on those stages
+  for the graphics chip), and `moveblur=0` the blur of the scenery while the view turns fast (both from the PC
+  version). For Budokai Tenkaichi 4 these two go in `ux0:data/bt3/bt4/bt3.txt`.
 
 ## Building
 

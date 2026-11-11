@@ -57,7 +57,7 @@ int Port_DataFingerprintNeed(void) { return 0; }
 int Port_DataFingerprintOriginal(void) { return 0; }
 const char *Port_DataFingerprintText(void) { return ""; }
 void Port_DevRulesEncode(unsigned char *out) { (void)out; }
-int Port_FxOff(int bit) { (void)bit; return 0; }
+/* (Port_FxOff: vita_main.c, BT3's and BT4's alike: bt3.txt weather=, moveblur=) */
 void Port_HudFeed(int kind, int side, int a, int b) { (void)kind; (void)side; (void)a; (void)b; }
 int Port_HudLayout(void) { return 0; }
 int Port_HudSwap(void) { return 0; }

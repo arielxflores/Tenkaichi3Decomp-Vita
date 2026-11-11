@@ -28,6 +28,9 @@ New
   plugin, which most setups have).
 - The log has a line a minute with the picture rate and the memory in use, for bug reports.
 - `bt3.txt` `fightres=720` draws the fights at 720 x 408 instead of 640 x 368 (sharper; about the same speed).
+- `bt3.txt` `weather=light` / `weather=off` and `moveblur=0` (from the PC version): the haze of big see-through
+  sprites some stages have, and the scenery's blur while the view turns fast, thinned out or left out (lighter work
+  for the graphics chip on those stages).
 
 Fixed
 
