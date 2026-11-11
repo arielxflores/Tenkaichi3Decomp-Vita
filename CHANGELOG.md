@@ -37,6 +37,16 @@ New
   sprites some stages have, and the scenery's blur while the view turns fast, thinned out or left out (lighter work
   for the graphics chip on those stages).
 
+Sound
+
+- Clearer music and voices: the game's 24 kHz streams are brought to the Vita's 48 kHz through a proper filter
+  (32 samples around each output sample) instead of straight lines between samples. The treble is no longer dulled
+  (it was 1.4 dB down at 6 kHz and 4 dB at 10 kHz) and the rough edge above 12 kHz is gone (70 dB down, from 9 to
+  17 dB).
+- Sound effects played at a changed pitch are drawn through four samples instead of two (less dull, less rough).
+- Sound follows the picture more closely: it goes out in blocks of about a hundredth of a second, half as long as
+  before. If that ever leaves the output empty, the game goes back to the longer blocks by itself.
+
 Fixed
 
 - A second controller paired with the VitaControl plugin moved player 1 as well as player 2.

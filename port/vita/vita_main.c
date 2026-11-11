@@ -674,12 +674,14 @@ void Vita_VBlank(unsigned vblanks) {
                     logf_("vita:   list now %u\n", gGsFrame);
                 }
                 {
-                    extern unsigned gVitaAudioBlocks, gVitaAudioStarved;
+                    extern unsigned gVitaAudioBlocks, gVitaAudioStarved, gVitaAudioLate;
                     static unsigned ab;
                     if (gVitaAudioBlocks != ab) {
-                        logf_("vita:   sound: %u blocks played in this time, %u times a stream ran dry\n", gVitaAudioBlocks - ab, gVitaAudioStarved);
+                        logf_("vita:   sound: %u blocks played in this time, %u times a stream ran dry, %u times the port ran empty (short blocks)\n",
+                              gVitaAudioBlocks - ab, gVitaAudioStarved, gVitaAudioLate);
                         ab = gVitaAudioBlocks;
                         gVitaAudioStarved = 0;
+                        gVitaAudioLate = 0;
                     }
                 }
                 {
