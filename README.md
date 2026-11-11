@@ -141,10 +141,14 @@ On a PS TV, or with a DualShock paired, the controller's own L2, R2, L3 and R3 b
     works too).
   - **2nd Pad**: a second controller plays as player 2 (on by default).
   - **Mods**: the files in `ux0:data/bt3/mods/` are used (on by default; see [Mods](#mods)).
-  - **Cheats → Unlock All**: the game's own unlock of everything, left in by its developers and never used by the
-    game (the PC version's Cheats tab): every character, stage, song and item, and the most Zenni, given to the save
-    now in play. It empties the records list. Press CROSS twice; it is kept when the options are saved as you leave
-    them, and cannot be taken back (copy `ux0:data/bt3/saves/` first to keep the save as it is).
+  - **Unlock All** (ON / OFF): every character and transformation, every stage, every song, every item (the
+    Evolution Z items and the Potaras among them) and 9,999,999 Zenni, by the game's own unlock of everything (left
+    in by its developers and never used by the game; the PC version's Cheats tab). Your records list is kept.
+    **ON** (CROSS twice) first copies your save as it is to `ux0:data/bt3/unlock_backup.bin`, then unlocks
+    everything; every save loaded while it is on gets it too. **OFF** (CROSS twice) gives your save its own unlocks
+    and Zenni back from that copy (progress since then in other things, such as Dragon History, stays). The change
+    is written to your save as you leave the options. BT4's Vita Settings have the same switch (on their second
+    page, with its own copy in `ux0:data/bt3/bt4/`).
   - **Quick Start**: the game starts at its title screen, without the logos, the opening film and the copyright
     page (off by default).
   - **Quick Save**: saving and loading without the memory card window and its waits; a question to answer or an
@@ -173,9 +177,9 @@ Hold SELECT while the game starts (from the LiveArea until the text screen shows
   then starts each time, until you change it here again.
 - **Language**: with the European archive (see [Languages](#languages)).
 - **Unlock everything (cheat)**: the game's own unlock, which the game never uses: every character, stage, song and
-  item, and 4,850,000 Zenni, given to the save the game loads (its records list is emptied). It stays once the game
-  saves, and cannot be taken back: copy `ux0:data/bt3/saves/` first if you want to keep the save as it is. The same
-  is in the game: Vita Settings → Cheats.
+  item, and 4,850,000 Zenni, given to the save the game loads, once (its records list is emptied). It stays once
+  the game saves, and cannot be taken back: copy `ux0:data/bt3/saves/` first if you want to keep the save as it is.
+  The game's own switch, which can be taken back, is Vita Settings → Unlock All.
 - **Multiplayer**: a match against another Vita, see [Multiplayer](#multiplayer-two-vitas).
 
 ## Budokai Tenkaichi 4 (experimental)

@@ -1398,7 +1398,7 @@ int Vita_NetSetting(const char *name, int def, int *value) {
         return 1;
     }
     if (strcmp(name, "save_quick") == 0 || strcmp(name, "mods") == 0 || strcmp(name, "tech_zcounter2") == 0 ||
-        strcmp(name, "tech_bombardment") == 0) {
+        strcmp(name, "tech_bombardment") == 0 || strcmp(name, "unlock_all") == 0) {
         *value = 0;
         return 1;
     }

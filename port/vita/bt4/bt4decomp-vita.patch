@@ -1090,10 +1090,10 @@ index a55a3d5..31dc49c 100644
      DM->bg = res;
      DM_RES(2);
 diff --git a/src/menu/menu_i_b.c b/src/menu/menu_i_b.c
-index a3bc025..a63c85c 100644
+index a3bc025..0e35a04 100644
 --- a/src/menu/menu_i_b.c
 +++ b/src/menu/menu_i_b.c
-@@ -11,6 +11,17 @@ BootCard *gBootCard = NULL; /* 0x3B5908 */
+@@ -11,6 +11,19 @@ BootCard *gBootCard = NULL; /* 0x3B5908 */
  
  /* Card-flow callback (both outcomes): start the 15-frame countdown to the fade out. */
  void BootCard_OnFlowDone(void) {
@@ -1101,17 +1101,19 @@ index a3bc025..a63c85c 100644
 +    { /* the start menu's cheat (port/vita/vita_start.c): the save just loaded (or made) is given everything */
 +        extern int gVitaCheatUnlock;
 +        extern void Vita_Log(const char *fmt, ...);
++        extern void Vita_UnlockOnLoad(void);
 +        if (gVitaCheatUnlock) {
 +            gVitaCheatUnlock = 0;
 +            Save_UnlockAll(gSaveData);
 +            Vita_Log("vita: everything unlocked (start menu)\n");
 +        }
++        Vita_UnlockOnLoad(); /* (the options' Unlock All, while it is on: src/menu/menu_x_c.c) */
 +    }
 +#endif
      gBootCard->flags |= BOOTCARD_DONE;
      gBootCard->flags |= BOOTCARD_LEAVING;
      gBootCard->timer = 0xF;
-@@ -20,6 +31,27 @@ void BootCard_OnFlowDone(void) {
+@@ -20,6 +33,27 @@ void BootCard_OnFlowDone(void) {
  void BootCard_Init(s32 section) {
      gBootCard = Heap_Alloc(0x14, 0x20, 0, 2);
      memset(gBootCard, 0, 0x14);
@@ -1225,7 +1227,7 @@ index c0c0ba1..91f869d 100644
      TM_RES(22);
      IconWin_Init(MPACK_AT(gTourMenu->res, 21), res);
 diff --git a/src/menu/menu_x_c.c b/src/menu/menu_x_c.c
-index d89aefe..068d812 100644
+index d89aefe..40da88d 100644
 --- a/src/menu/menu_x_c.c
 +++ b/src/menu/menu_x_c.c
 @@ -50,6 +50,13 @@ s32 Option_Init(s32 section) {
@@ -1252,7 +1254,7 @@ index d89aefe..068d812 100644
          }
      } while (0);
      return 1;
-@@ -211,9 +221,381 @@ s32 Option_Run(s32 section) {
+@@ -211,9 +221,501 @@ s32 Option_Run(s32 section) {
      return 0;
  }
  
@@ -1342,14 +1344,19 @@ index d89aefe..068d812 100644
 +/* "Vita Settings", the controller page's second row (the console's Vibration). Its page holds four plates of the
 +   console's two-way pickers, captioned from the second caption strip, whose rows take turns between two sets
 +   (vita_optart.c Vita_OptionCaptions):
-+     level 1: Touch, Clashes / 2nd Pad, Mods, the four settings, and on a second page (Down from the lower row) Game;
++     level 1: Touch, Clashes / 2nd Pad, Mods, the four settings, and on a second page (Down from the lower row) Game,
++              Unlock All;
 +     level 2: Touch: L2, R2 / L3, R3, laid out as the rear pad's quarters; level 3: where the chosen one is touched,
 +              Rear / Front, Off (port/vita/vita_touch.c, which keeps it in ux0:data/bt3/touch.txt);
 +     level 4: Clashes: Square / Stick, what wins a beam or rush clash (port/vita/vita_gfx.c, clash_square);
 +     level 5: 2nd Pad: ON / OFF, a second controller as player 2 (a PS TV's second DualShock);
 +     level 6: Mods: ON / OFF, the files of ux0:data/bt3/mods (port/vita/vita_file.c), from the next start;
 +     level 7: Game: BT3 / BT4, back to the package's Budokai Tenkaichi 3 (port/vita/vita_start.c, as the start menu's
-+              Game): CROSS twice, as this game closes for it.
++              Game): CROSS twice, as this game closes for it;
++     level 9: Unlock All: ON / OFF, a switch (CROSS twice either way), as in BT3's options: ON gives every fighter
++              and form, stage, song and item and 9,999,999 Zenni (Save_UnlockAll, the records list kept) to the save
++              now and to each save loaded; the save as it was is copied aside first, and OFF gives it its own unlocks
++              and Zenni back from that copy. (Level 8 is level 1's second page in the plates' tables.)
 +   The last three are kept in ux0:data/bt3/bt3_settings.txt, not in the save. In each level Cross chooses (the setting
 +   is taken at once), Triangle or Circle go back a level; the plate of the current setting is lit when a level opens.
 +   The guide line says what the plate under the cursor does. */
@@ -1369,9 +1376,52 @@ index d89aefe..068d812 100644
 +static s32 sVitaSetItem;  /* the setting chosen on level 1 */
 +static s32 sVitaTouchBtn; /* the button chosen on level 2 */
 +static s32 sVitaItem1;    /* level 1's item under the cursor: 0..3 the first page's, 4 the second's (its plate: item % 4) */
-+static s32 sVitaGameArmed; /* level 7: CROSS was pressed once (2: the other game did not start) */
-+#define VITA_L1_ITEMS 5
++static s32 sVitaGameArmed; /* level 7 and 9: CROSS was pressed once (7: 2 the other game did not start; 9: 2 turned
++                              on, 3 turned off, 4 off but the copy of the save was not there, 5 the copy could not be
++                              made) */
++#define VITA_L1_ITEMS 6
 +extern void Vita_GameSwitch(void);
++extern void Vita_Log(const char *fmt, ...);
++extern int Vita_UnlockBackupWrite(const void *save, int size);
++extern int Vita_UnlockBackupRead(void *save, int size);
++extern void Vita_UnlockBackupDrop(void);
++extern int Vita_UnlockBackupThere(void);
++
++/* Unlock All, ON: everything, the most Zenni; the records list (which the game's unlock empties) kept */
++void Vita_UnlockEverything(SaveData *s) {
++    SaveRec keep[SAVE_REC_COUNT];
++    __builtin_memcpy(keep, s->rec, sizeof(keep));
++    Save_UnlockAll(s);
++    __builtin_memcpy(s->rec, keep, sizeof(keep));
++    s->money = SAVE_MONEY_MAX;
++}
++
++/* (src/menu/menu_i_b.c BootCard_OnFlowDone) the save just loaded or made, while Unlock All is on */
++void Vita_UnlockOnLoad(void) {
++    if (Port_Setting("unlock_all", 0)) {
++        Vita_UnlockEverything(gSaveData);
++        Vita_Log("vita: everything unlocked (Unlock All is on)\n");
++    }
++}
++
++/* Unlock All, OFF: what the unlock changes, as the copy taken before it has it */
++static s32 Option_VitaUnlockUndo(void) {
++    static SaveData copy;
++    SaveData *b = &copy, *s = gSaveData;
++    if (!Vita_UnlockBackupRead(b, SAVE_SIZE)) {
++        return 0;
++    }
++    s->unlockFlags = b->unlockFlags;
++    __builtin_memcpy(s->slot, b->slot, sizeof(s->slot));
++    s->unk208 = b->unk208;
++    s->unk20C = b->unk20C;
++    __builtin_memcpy(s->charaBits, b->charaBits, sizeof(s->charaBits));
++    s->stageBits = b->stageBits;
++    s->bgmBits = b->bgmBits;
++    __builtin_memcpy(s->item, b->item, sizeof(s->item));
++    s->money = b->money;
++    return 1;
++}
 +
 +static int Option_VitaModsOn(void) {
 +    return Port_Setting("mods", 1) != 0;
@@ -1389,7 +1439,9 @@ index d89aefe..068d812 100644
 +    }
 +    switch (sVitaSetLevel) {
 +    case 1: /* the setting under the cursor, and what it is now */
-+        if (v == 4) {
++        if (v == 5) {
++            sprintf(text, "Unlock All (%s): every fighter and\nform, stage, song and item, and\n9,999,999 Zenni.", Port_Setting("unlock_all", 0) ? "ON" : "OFF");
++        } else if (v == 4) {
 +            sprintf(text, "Game: Team BT4's Budokai Tenkaichi\n4, or Budokai Tenkaichi 3.");
 +        } else if (v == 0) {
 +            sprintf(text, "Touch: where L2, R2, L3 and R3\nare touched.");
@@ -1458,6 +1510,28 @@ index d89aefe..068d812 100644
 +                      : sVitaGameArmed ? "Press CROSS again: this game closes\nand BT3 starts. Options not saved\nyet are lost (Circle: no)."
 +                                       : "Budokai Tenkaichi 3. It then starts\neach time, until changed back.\nCROSS.");
 +        break;
++    case 9: {
++        s32 on = Port_Setting("unlock_all", 0);
++        if (sVitaGameArmed == 2) {
++            sprintf(text, "Done: everything is unlocked. It\nis saved as you leave the options.");
++        } else if (sVitaGameArmed == 3) {
++            sprintf(text, "Done: your save's own unlocks and\nZenni are back. Saved as you\nleave the options.");
++        } else if (sVitaGameArmed == 4) {
++            sprintf(text, "OFF: no longer given to each save.\nWhat is unlocked stays (there was\nno copy of the save from before).");
++        } else if (sVitaGameArmed == 5) {
++            sprintf(text, "Not turned on: the copy of your\nsave could not be made (see the\nlog).");
++        } else if (v == 0) {
++            sprintf(text, on ? "ON: everything is unlocked, for\neach save loaded."
++                          : sVitaGameArmed ? "Press CROSS again to unlock\neverything (Circle: no)."
++                                           : "Every fighter and form, stage, song\nand item (Evolution Z, Potara),\n9,999,999 Zenni. CROSS twice.");
++        } else {
++            sprintf(text, !on ? "OFF: your save's own unlocks."
++                          : sVitaGameArmed ? "Press CROSS again: the unlocks and\nZenni go back to how they were\n(Circle: no)."
++                          : Vita_UnlockBackupThere() ? "Your save's unlocks and Zenni as\nthey were before ON. CROSS twice."
++                                                     : "Stops unlocking each save; what is\nunlocked stays. CROSS twice.");
++        }
++        break;
++    }
 +    default:
 +        sprintf(text, v == 0 ? "ON: files in ux0:data/bt3/mods\nreplace the disc's, from the\nnext start."
 +                             : "OFF: the disc's files only, from\nthe next start.");
@@ -1483,7 +1557,7 @@ index d89aefe..068d812 100644
 +        sVitaItem1 = value;
 +        value %= 4;
 +    }
-+    Vita_OptionCaptions(level == 2 || level == 3 ? 0 : level == 7 || (level == 1 && sVitaItem1 >= 4) ? 5 : 1);
++    Vita_OptionCaptions(level == 2 || level == 3 ? 0 : level == 7 || level == 9 || (level == 1 && sVitaItem1 >= 4) ? 5 : 1);
 +    Option_DimPickers();
 +    gOption->value = value;
 +    OPT_PLATE(OPT_CLIP_PICK, "fl_on_start");
@@ -1535,8 +1609,9 @@ index d89aefe..068d812 100644
 +        } else if (pressed & PADG_CROSS) {
 +            sVitaSetItem = v;
 +            Snd_PlaySe(1, 1);
-+            Option_VitaSetLevel(v == 0 ? 2 : v == 1 ? 4 : v == 2 ? 5 : v == 3 ? 6 : 7,
-+                                v == 0 ? 0 : v == 1 ? !Port_ClashSquare() : v == 2 ? !Vita_Pad2Setting() : v == 3 ? !Option_VitaModsOn() : 1);
++            Option_VitaSetLevel(v == 0 ? 2 : v == 1 ? 4 : v == 2 ? 5 : v == 3 ? 6 : v == 4 ? 7 : 9,
++                                v == 0 ? 0 : v == 1 ? !Port_ClashSquare() : v == 2 ? !Vita_Pad2Setting() : v == 3 ? !Option_VitaModsOn()
++                                : v == 4 ? 1 : !Port_Setting("unlock_all", 0));
 +        } else if (back) { /* back to the page */
 +            OPT_PLATE(OPT_CLIP_PICK, "fl_off_start");
 +            Snd_PlaySe(1, 2);
@@ -1608,6 +1683,53 @@ index d89aefe..068d812 100644
 +            Option_VitaSetLevel(1, sVitaSetItem);
 +        }
 +        break;
++    case 9: /* Unlock All: ON / OFF, CROSS twice to change it */
++        if (pressed & (PADG_LEFT | PADG_RIGHT)) {
++            sVitaGameArmed = 0;
++            Option_VitaSetMove(v ^ 1);
++        } else if (pressed & PADG_CROSS) {
++            s32 on = Port_Setting("unlock_all", 0) != 0;
++            if (sVitaGameArmed >= 2 || (v == 0) == on) { /* (done, or already so: back) */
++                Snd_PlaySe(1, 1);
++                Option_VitaSetLevel(1, sVitaSetItem);
++                break;
++            }
++            if (sVitaGameArmed == 0) {
++                sVitaGameArmed = 1;
++                Snd_PlaySe(1, 0);
++            } else if (v == 0) { /* ON: the save as it is copied aside, then everything */
++                if (!Vita_UnlockBackupWrite(gSaveData, SAVE_SIZE)) {
++                    sVitaGameArmed = 5;
++                    Snd_PlaySe(1, 7);
++                } else {
++                    Vita_UnlockEverything(gSaveData);
++                    Port_SettingSave("unlock_all", 1);
++                    Port_SettingsWrite();
++                    gOption->dirty = 1;
++                    sVitaGameArmed = 2;
++                    OPT_PLATE(OPT_CLIP_PICK, "fl_ok");
++                    Snd_PlaySe(1, 1);
++                    Vita_Log("vita: Unlock All turned on\n");
++                }
++            } else { /* OFF: the save's own unlocks again, from the copy */
++                s32 undone = Option_VitaUnlockUndo();
++                if (undone) {
++                    Vita_UnlockBackupDrop();
++                    gOption->dirty = 1;
++                }
++                Port_SettingSave("unlock_all", 0);
++                Port_SettingsWrite();
++                sVitaGameArmed = undone ? 3 : 4;
++                OPT_PLATE(OPT_CLIP_PICK, "fl_ok");
++                Snd_PlaySe(1, 1);
++                Vita_Log("vita: Unlock All turned off (%s)\n", undone ? "the save's own unlocks back" : "no copy of the save: what is unlocked stays");
++            }
++            Option_VitaSetGuide();
++        } else if (back) {
++            Snd_PlaySe(1, 2);
++            Option_VitaSetLevel(1, sVitaSetItem);
++        }
++        break;
 +    default: /* 4 Square Stick, 5 and 6 ON OFF */
 +        if (pressed & (PADG_LEFT | PADG_RIGHT)) {
 +            Option_VitaSetMove(v ^ 1);
@@ -1634,7 +1756,7 @@ index d89aefe..068d812 100644
  /*
   * Pad 0, one state per frame; does nothing until the movie accepts input. Returns 0 when the screen is over
   * (faded out), else 1. Option.state:
-@@ -808,6 +1190,9 @@ s32 Option_Input(void) {
+@@ -808,6 +1310,9 @@ s32 Option_Input(void) {
              gOption->pad = 0;
              Option_DimPickers();
              if (gOption->state == OPT_ITEM_VIB) {
@@ -1644,7 +1766,7 @@ index d89aefe..068d812 100644
                  OPT_PLATE(OPT_CLIP_ROW_CTRL, "fl_ok");
                  gOption->ctrlKind = 0;
                  gOption->picker = 2;
-@@ -815,15 +1200,22 @@ s32 Option_Input(void) {
+@@ -815,15 +1320,22 @@ s32 Option_Input(void) {
                  OPT_PLATE(OPT_CLIP_PICK, "fl_on_start");
                  OPT_PLATE(OPT_CLIP_VIB_OFF, "fl_ok");
                  Snd_PlaySe(1, 1);
@@ -1667,7 +1789,7 @@ index d89aefe..068d812 100644
              } else {
                  OPT_PLATE(OPT_CLIP_BOTTOM, "fl_ok");
              }
-@@ -892,6 +1284,38 @@ s32 Option_Input(void) {
+@@ -892,6 +1404,38 @@ s32 Option_Input(void) {
          }
          break;
      case OPT_ST_KEYS_PAD:
@@ -1706,7 +1828,7 @@ index d89aefe..068d812 100644
          if (((gPad[0].gamePressed & PADG_LEFT) || (gPad[0].gamePressed & PADG_RIGHT)) && gOption->keyEdit == 0) {
              OPT_PLATE(OPT_CLIP_KEY_OFF, "fl_off_start");
              gOption->value ^= 1;
-@@ -980,7 +1404,11 @@ s32 Option_Input(void) {
+@@ -980,7 +1524,11 @@ s32 Option_Input(void) {
                  gOption->keyCursor++;
              }
              Snd_PlaySe(1, 0);
@@ -1719,7 +1841,7 @@ index d89aefe..068d812 100644
              /* original bug: address comparisons again, always true */
              if (gOption->key[0] != gSaveData->keyEdit[0] || gOption->key[1] != gSaveData->keyEdit[1]) {
                  gOption->dirty = 1;
-@@ -1025,13 +1453,20 @@ s32 Option_Input(void) {
+@@ -1025,13 +1573,20 @@ s32 Option_Input(void) {
                  gOption->keyOld = gSaveData->keyEdit[gOption->pad][gOption->keyRow];
              }
          }
@@ -1742,7 +1864,7 @@ index d89aefe..068d812 100644
                  gSaveData->keyEdit[gOption->pad][gOption->keyRow] = 0;
              }
              Snd_PlaySe(1, 0);
-@@ -1054,6 +1489,10 @@ s32 Option_Input(void) {
+@@ -1054,6 +1609,10 @@ s32 Option_Input(void) {
          }
          break;
      case OPT_ITEM_VIB:
@@ -1753,7 +1875,7 @@ index d89aefe..068d812 100644
          if ((gPad[0].gamePressed & PADG_LEFT) || (gPad[0].gamePressed & PADG_RIGHT)) {
              OPT_PLATE(OPT_CLIP_VIB_OFF, "fl_off_start");
              OPT_PLATE(OPT_CLIP_PICK, "fl_off_start");
-@@ -1319,6 +1758,111 @@ s32 Option_Input(void) {
+@@ -1319,6 +1878,111 @@ s32 Option_Input(void) {
                          Flash_ClipSetUv(flash, &ref, &uv); \
                      }
  
@@ -1814,12 +1936,12 @@ index d89aefe..068d812 100644
 +
 +static void Option_VitaTouchPlates(MFlash *flash) {
 +    /* per level: the plates used, and each plate's strip (0 the first, 1 the second) and row; 8 is level 1's second
-+       page (Game) */
-+    static const s8 kCount[9] = {0, 4, 4, 3, 2, 2, 2, 2, 1};
-+    static const s8 kTex[9][4] = {{0}, {1, 1, 1, 1}, {1, 1, 1, 1}, {1, 1, 0, 0}, {1, 1, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0},
-+                                  {1, 1, 0, 0}, {1, 0, 0, 0}};
-+    static const s8 kRow[9][4] = {{0}, {0, 1, 4, 5}, {0, 1, 4, 7}, {5, 6, 1, 0}, {6, 7, 0, 0}, {0, 1, 0, 0}, {0, 1, 0, 0},
-+                                  {6, 7, 0, 0}, {0, 0, 0, 0}};
++       page (Game, Unlock All) */
++    static const s8 kCount[10] = {0, 4, 4, 3, 2, 2, 2, 2, 2, 2};
++    static const s8 kTex[10][4] = {{0}, {1, 1, 1, 1}, {1, 1, 1, 1}, {1, 1, 0, 0}, {1, 1, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0},
++                                   {1, 1, 0, 0}, {1, 1, 0, 0}, {0, 0, 0, 0}};
++    static const s8 kRow[10][4] = {{0}, {0, 1, 4, 5}, {0, 1, 4, 7}, {5, 6, 1, 0}, {6, 7, 0, 0}, {0, 1, 0, 0}, {0, 1, 0, 0},
++                                   {6, 7, 0, 0}, {0, 1, 0, 0}, {0, 1, 0, 0}};
 +    MFlashRef ref;
 +    MFlashUv uv;
 +    char name[0x40];
@@ -1828,7 +1950,7 @@ index d89aefe..068d812 100644
 +    if (lv == 1 && sVitaItem1 >= 4) {
 +        lv = 8;
 +    }
-+    if (gOption->picker != 5 || lv < 1 || lv > 8) {
++    if (gOption->picker != 5 || lv < 1 || lv > 9) {
 +        if (sVitaPlatesHidden) {
 +            for (i = 0; i < 4; i++) {
 +                sprintf(name, "mc_select_plate_%d", i + 1);
@@ -1865,7 +1987,7 @@ index d89aefe..068d812 100644
  /* Per frame: sets up every clip of the movie from the screen's state and draws the screen. */
  void Option_Draw(void) {
      MFlashRef ref;
-@@ -1768,6 +2312,9 @@ void Option_Draw(void) {
+@@ -1768,6 +2432,9 @@ void Option_Draw(void) {
              break;
      }
  
@@ -1875,7 +1997,7 @@ index d89aefe..068d812 100644
      /* the two-way picker's captions */
      if (gOption->picker == 4 || gOption->picker == 2) {
          baseY = 0;
-@@ -1823,6 +2370,9 @@ void Option_Draw(void) {
+@@ -1823,6 +2490,9 @@ void Option_Draw(void) {
              Flash_ClipSetFlags(flash, &ref, 2, 0);
          }
      }
@@ -1885,7 +2007,7 @@ index d89aefe..068d812 100644
  
      /* the volume window: ten numbered plates per volume */
      for (i = 0; i < 3; i++) {
-@@ -2178,6 +2728,13 @@ void Option_UpdateReset(void) {
+@@ -2178,6 +2848,13 @@ void Option_UpdateReset(void) {
                  if (!(gSaveData->flags & 4)) {
                      gSaveData->flags |= 4;
                  }
@@ -1899,7 +2021,7 @@ index d89aefe..068d812 100644
                  for (i = 0; i < 2; i++) {
                      gSaveData->keyEdit[i][0] = 2;
                      gSaveData->keyEdit[i][1] = 1;
-@@ -2187,6 +2744,10 @@ void Option_UpdateReset(void) {
+@@ -2187,6 +2864,10 @@ void Option_UpdateReset(void) {
                      gSaveData->keyEdit[i][5] = 5;
                      gSaveData->keyEdit[i][6] = 6;
                      gSaveData->keyEdit[i][7] = 7;
@@ -1910,7 +2032,7 @@ index d89aefe..068d812 100644
                  }
              }
              gOption->resetStep = 3;
-@@ -2275,6 +2836,12 @@ void Option_OnSaved(void) {
+@@ -2275,6 +2956,12 @@ void Option_OnSaved(void) {
  /* Frees the screen. */
  void Option_Term(void) {
      s32 i;

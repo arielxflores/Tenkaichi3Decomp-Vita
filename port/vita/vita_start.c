@@ -148,6 +148,58 @@ void Vita_Bt4Started(void) {
    menu's Game does it: the choice is kept, and the other program started in this one's place.
    Vita_GameSwitchCheck: 0 it can be started, 1 the package has no BT4 program, 2 the player's BT4 files are not there.
    Vita_GameSwitch returns only when the other program could not be started (the choice is then taken back). */
+/* Unlock All (the options' Vita Settings, src/menu/menu_x_c.c): the save as it was before it was turned on, kept in a
+   file of its own so that turning it off can give the save its own unlocks back. Each game its own (their saves
+   differ). */
+#ifdef BT3_BT4
+#define UNLOCK_BACKUP "ux0:data/bt3/bt4/unlock_backup.bin"
+#else
+#define UNLOCK_BACKUP "ux0:data/bt3/unlock_backup.bin"
+#endif
+
+/* 1: kept (now, or it was already: the first copy is the one before everything was unlocked) */
+int Vita_UnlockBackupWrite(const void *save, int size) {
+    SceUID fd;
+    int n;
+    if (exists(UNLOCK_BACKUP)) {
+        return 1;
+    }
+    fd = sceIoOpen(UNLOCK_BACKUP ".new", SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
+    if (fd < 0) {
+        Vita_Log("vita: unlock all: the save's copy could not be made (%08x)\n", (unsigned)fd);
+        return 0;
+    }
+    n = sceIoWrite(fd, save, (SceSize)size);
+    sceIoClose(fd);
+    if (n != size || sceIoRename(UNLOCK_BACKUP ".new", UNLOCK_BACKUP) < 0) {
+        sceIoRemove(UNLOCK_BACKUP ".new");
+        Vita_Log("vita: unlock all: the save's copy could not be written\n");
+        return 0;
+    }
+    Vita_Log("vita: unlock all: the save as it was kept in %s\n", UNLOCK_BACKUP);
+    return 1;
+}
+
+/* 1: the copy was read into `save` */
+int Vita_UnlockBackupRead(void *save, int size) {
+    SceUID fd = sceIoOpen(UNLOCK_BACKUP, SCE_O_RDONLY, 0);
+    int n;
+    if (fd < 0) {
+        return 0;
+    }
+    n = sceIoRead(fd, save, (SceSize)size);
+    sceIoClose(fd);
+    return n == size;
+}
+
+void Vita_UnlockBackupDrop(void) {
+    sceIoRemove(UNLOCK_BACKUP);
+}
+
+int Vita_UnlockBackupThere(void) {
+    return exists(UNLOCK_BACKUP);
+}
+
 int Vita_GameSwitchCheck(void) {
 #ifndef BT3_BT4
     const char *why;

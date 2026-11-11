@@ -15,11 +15,13 @@ void BootCard_OnFlowDone(void) {
     { /* the start menu's cheat (port/vita/vita_start.c): the save just loaded (or made) is given everything */
         extern int gVitaCheatUnlock;
         extern void Vita_Log(const char *fmt, ...);
+        extern void Vita_UnlockOnLoad(void);
         if (gVitaCheatUnlock) {
             gVitaCheatUnlock = 0;
             Save_UnlockAll(gSaveData);
             Vita_Log("vita: everything unlocked (start menu)\n");
         }
+        Vita_UnlockOnLoad(); /* (the options' Unlock All, while it is on: src/menu/menu_x_c.c) */
     }
 #endif
     gBootCard->flags |= BOOTCARD_DONE;

@@ -33,6 +33,10 @@ New
 - **The other game from the options**: Options → Controller → Vita Settings → **Game** (the third page) switches
   between Budokai Tenkaichi 3 and Team BT4's Budokai Tenkaichi 4, as the start menu's Game does; BT4's own
   Vita Settings have the way back.
+- **Unlock All, a switch**: Vita Settings → Unlock All (second page; in BT4's options next to Game) turns on every
+  character and transformation, stage, song and item (Evolution Z items, Potaras) and 9,999,999 Zenni, for the save
+  in play and each one loaded while it is on. Your save is copied aside first, and turning it off gives the save
+  its own unlocks and Zenni back. It replaces the one-way Cheats plate, and keeps the records list.
 - **Disc Fusion**: the modes of the two earlier games' discs are open (the Vita has no disc to swap).
 - A crash writes `ux0:data/bt3/crash.txt` and closes the game, instead of leaving it frozen (with the kubridge
   plugin, which most setups have).

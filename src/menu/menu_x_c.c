@@ -285,16 +285,19 @@ static void Option_VitaKeysLeave(void) {
 /* "Vita Settings", the controller page's second row (the console's Vibration). Its page holds four plates of the
    console's two-way pickers, captioned from the second caption strip, whose rows take turns between two sets
    (vita_optart.c Vita_OptionCaptions):
-     level 1: Touch, Clashes / 2nd Pad, Mods, the four settings, on a second page (Down from the lower row) Cheats,
-              Quick Start / Quick Save, Tech Fixes, and on a third Game;
+     level 1: Touch, Clashes / 2nd Pad, Mods, the four settings, on a second page (Down from the lower row) Unlock
+              All, Quick Start / Quick Save, Tech Fixes, and on a third Game;
      level 2: Touch: L2, R2 / L3, R3, laid out as the rear pad's quarters; level 3: where the chosen one is touched,
               Rear / Front, Off (port/vita/vita_touch.c, which keeps it in ux0:data/bt3/touch.txt);
      level 4: Clashes: Square / Stick, what wins a beam or rush clash (port/vita/vita_gfx.c, clash_square);
      level 5: 2nd Pad: ON / OFF, a second controller as player 2 (a PS TV's second DualShock);
      level 6: Mods: ON / OFF, the files of ux0:data/bt3/mods (port/vita/vita_file.c), from the next start;
-     level 7: Cheats: Unlock All, the game's own unlock of everything that its developers left in (Save_UnlockAll,
-              which the game never calls; the PC version's Cheats tab): CROSS twice, as it empties the records list
-              and is kept when the options are saved;
+     level 7: Unlock All: ON / OFF, a switch (CROSS twice either way). ON: every fighter and form, stage, song and
+              item (Evolution Z's and the Potaras among them) and the most Zenni (9,999,999), by the game's own unlock
+              of everything that its developers left in (Save_UnlockAll, which the game never calls; the PC
+              version's Cheats tab), the records list kept; given to each save loaded while it is on. The save as it
+              was is copied aside first (port/vita/vita_start.c); OFF gives the save its own unlocks and Zenni back
+              from that copy. Kept when the options are saved (as they are left);
      level 8: Quick Start: ON / OFF, the logos, the opening film and the copyright page left out at the start;
      level 9: Quick Save: ON / OFF, saving and loading without the memory card window and its waits, unless the
               player has something to answer (src/sys/mcflow_a.c, the PC version's quick saving);
@@ -322,11 +325,56 @@ static s32 sVitaSetLevel; /* 0 closed, 1..9 above */
 static s32 sVitaSetItem;  /* the setting chosen on level 1 */
 static s32 sVitaTouchBtn; /* the button chosen on level 2 */
 static s32 sVitaItem1;    /* level 1's item under the cursor: 0..3 the first page's, 4..7 the second's, 8 the third's (its plate: item % 4) */
-static s32 sVitaCheatArmed; /* level 7 and 12: CROSS was pressed once (2: done; 12: 3 the other game did not start) */
+static s32 sVitaCheatArmed; /* level 7 and 12: CROSS was pressed once (7: 2 turned on, 3 turned off, 4 off but the
+                               copy of the save was not there, 5 the copy could not be made; 12: 3 the other game
+                               did not start) */
 #define VITA_L1_ITEMS 9
 extern int Vita_GameSwitchCheck(void);
 extern void Vita_GameSwitch(void);
 /* (Save_UnlockAll: include/sys/save.h) */
+extern void Vita_Log(const char *fmt, ...);
+extern int Vita_UnlockBackupWrite(const void *save, int size);
+extern int Vita_UnlockBackupRead(void *save, int size);
+extern void Vita_UnlockBackupDrop(void);
+extern int Vita_UnlockBackupThere(void);
+
+/* Unlock All, ON: everything, the most Zenni; the records list (which the game's unlock empties) kept */
+void Vita_UnlockEverything(SaveData *s) {
+    SaveRec keep[SAVE_REC_COUNT];
+    __builtin_memcpy(keep, s->rec, sizeof(keep));
+    Save_UnlockAll(s);
+    __builtin_memcpy(s->rec, keep, sizeof(keep));
+    s->money = SAVE_MONEY_MAX;
+}
+
+/* (src/menu/menu_i_b.c BootCard_OnFlowDone) the save just loaded or made, while Unlock All is on. Never in a
+   multiplayer match (its own save, the same on both Vitas: the setting reads 0 there, port/vita/vita_net.c). */
+void Vita_UnlockOnLoad(void) {
+    if (Port_Setting("unlock_all", 0)) {
+        Vita_UnlockEverything(gSaveData);
+        Vita_Log("vita: everything unlocked (Unlock All is on)\n");
+    }
+}
+
+/* Unlock All, OFF: what the unlock changes, as the copy taken before it has it */
+static s32 Option_VitaUnlockUndo(void) {
+    static SaveData copy;
+    SaveData *b = &copy;
+    s32 ok = Vita_UnlockBackupRead(b, SAVE_SIZE);
+    if (ok) {
+        SaveData *s = gSaveData;
+        s->unlockFlags = b->unlockFlags;
+        __builtin_memcpy(s->slot, b->slot, sizeof(s->slot));
+        s->unk208 = b->unk208;
+        s->unk20C = b->unk20C;
+        __builtin_memcpy(s->charaBits, b->charaBits, sizeof(s->charaBits));
+        s->stageBits = b->stageBits;
+        s->bgmBits = b->bgmBits;
+        __builtin_memcpy(s->item, b->item, sizeof(s->item));
+        s->money = b->money;
+    }
+    return ok;
+}
 
 static int Option_VitaQuickStart(void) {
     return Port_Setting("quick_start", 0) != 0;
@@ -355,7 +403,7 @@ static void Option_VitaSetGuide(void) {
         if (v == 8) {
             sprintf(text, "Game: Budokai Tenkaichi 3, or Team\nBT4's Budokai Tenkaichi 4 mod\n(from your own BT4 disc).");
         } else if (v == 4) {
-            sprintf(text, "Cheats: the unlock of everything\nthat the game's developers left in.");
+            sprintf(text, "Unlock All (%s): every fighter and\nform, stage, song and item, and\n9,999,999 Zenni.", Port_Setting("unlock_all", 0) ? "ON" : "OFF");
         } else if (v == 5) {
             sprintf(text, "Quick Start: no logos, opening film\nor copyright page at the start: %s.", Option_VitaQuickStart() ? "ON" : "OFF");
         } else if (v == 6) {
@@ -429,9 +477,25 @@ static void Option_VitaSetGuide(void) {
                              : "OFF: the disc's files only, from\nthe next start.");
         break;
     case 7:
-        sprintf(text, sVitaCheatArmed == 2 ? "Done: everything is unlocked. It is\nkept when the options are saved\n(as you leave them)."
-                      : sVitaCheatArmed ? "Press CROSS again to unlock\neverything (Circle: no)."
-                                        : "Every character, stage, song and\nitem, and the most Zenni. Empties\nthe records list. CROSS twice.");
+        b = Port_Setting("unlock_all", 0);
+        if (sVitaCheatArmed == 2) {
+            sprintf(text, "Done: everything is unlocked. It\nis saved as you leave the options.");
+        } else if (sVitaCheatArmed == 3) {
+            sprintf(text, "Done: your save's own unlocks and\nZenni are back. Saved as you\nleave the options.");
+        } else if (sVitaCheatArmed == 4) {
+            sprintf(text, "OFF: no longer given to each save.\nWhat is unlocked stays (there was\nno copy of the save from before).");
+        } else if (sVitaCheatArmed == 5) {
+            sprintf(text, "Not turned on: the copy of your\nsave could not be made (see\nux0:data/bt3/log.txt).");
+        } else if (v == 0) {
+            sprintf(text, b ? "ON: everything is unlocked, for\neach save loaded."
+                          : sVitaCheatArmed ? "Press CROSS again to unlock\neverything (Circle: no)."
+                                            : "Every fighter and form, stage, song\nand item (Evolution Z, Potara),\n9,999,999 Zenni. CROSS twice.");
+        } else {
+            sprintf(text, !b ? "OFF: your save's own unlocks."
+                          : sVitaCheatArmed ? "Press CROSS again: the unlocks and\nZenni go back to how they were\n(Circle: no)."
+                          : Vita_UnlockBackupThere() ? "Your save's unlocks and Zenni as\nthey were before ON. CROSS twice."
+                                                     : "Stops unlocking each save; what is\nunlocked stays. CROSS twice.");
+        }
         break;
     case 10:
         if (v == 0) {
@@ -533,7 +597,7 @@ static void Option_VitaTouchInput(void) {
             Snd_PlaySe(1, 1);
             Option_VitaSetLevel(v == 0 ? 2 : v == 1 ? 4 : v == 2 ? 5 : v == 3 ? 6 : v == 4 ? 7 : v == 5 ? 8 : v == 6 ? 9 : v == 7 ? 10 : 12,
                                 v == 0 ? 0 : v == 1 ? !Port_ClashSquare() : v == 2 ? !Vita_Pad2Setting() : v == 3 ? !Option_VitaModsOn()
-                                : v == 4 ? 0 : v == 5 ? !Option_VitaQuickStart() : v == 6 ? !Option_VitaQuickSave() : 0);
+                                : v == 4 ? !Port_Setting("unlock_all", 0) : v == 5 ? !Option_VitaQuickStart() : v == 6 ? !Option_VitaQuickSave() : 0);
         } else if (back) { /* back to the page */
             OPT_PLATE(OPT_CLIP_PICK, "fl_off_start");
             Snd_PlaySe(1, 2);
@@ -622,17 +686,46 @@ static void Option_VitaTouchInput(void) {
             Option_VitaSetLevel(1, sVitaSetItem);
         }
         break;
-    case 7: /* Unlock All: CROSS twice */
-        if (pressed & PADG_CROSS) {
-            if (sVitaCheatArmed == 1) {
-                Save_UnlockAll(gSaveData); /* (the save in memory: kept when the options are saved, as they are left) */
-                gOption->dirty = 1;
-                sVitaCheatArmed = 2;
-                OPT_PLATE(OPT_CLIP_PICK, "fl_ok");
+    case 7: /* Unlock All: ON / OFF, CROSS twice to change it */
+        if (pressed & (PADG_LEFT | PADG_RIGHT)) {
+            sVitaCheatArmed = 0;
+            Option_VitaSetMove(v ^ 1);
+        } else if (pressed & PADG_CROSS) {
+            s32 on = Port_Setting("unlock_all", 0) != 0;
+            if (sVitaCheatArmed >= 2 || (v == 0) == on) { /* (done, or already so: back) */
                 Snd_PlaySe(1, 1);
-            } else if (sVitaCheatArmed == 0) {
+                Option_VitaSetLevel(1, sVitaSetItem);
+                break;
+            }
+            if (sVitaCheatArmed == 0) {
                 sVitaCheatArmed = 1;
                 Snd_PlaySe(1, 0);
+            } else if (v == 0) { /* ON: the save as it is copied aside, then everything */
+                if (!Vita_UnlockBackupWrite(gSaveData, SAVE_SIZE)) {
+                    sVitaCheatArmed = 5;
+                    Snd_PlaySe(1, 7);
+                } else {
+                    Vita_UnlockEverything(gSaveData); /* (the save in memory: kept when the options are saved, as they are left) */
+                    Port_SettingSave("unlock_all", 1);
+                    Port_SettingsWrite();
+                    gOption->dirty = 1;
+                    sVitaCheatArmed = 2;
+                    OPT_PLATE(OPT_CLIP_PICK, "fl_ok");
+                    Snd_PlaySe(1, 1);
+                    Vita_Log("vita: Unlock All turned on\n");
+                }
+            } else { /* OFF: the save's own unlocks again, from the copy */
+                s32 undone = Option_VitaUnlockUndo();
+                if (undone) {
+                    Vita_UnlockBackupDrop();
+                    gOption->dirty = 1;
+                }
+                Port_SettingSave("unlock_all", 0);
+                Port_SettingsWrite();
+                sVitaCheatArmed = undone ? 3 : 4;
+                OPT_PLATE(OPT_CLIP_PICK, "fl_ok");
+                Snd_PlaySe(1, 1);
+                Vita_Log("vita: Unlock All turned off (%s)\n", undone ? "the save's own unlocks back" : "no copy of the save: what is unlocked stays");
             }
             Option_VitaSetGuide();
         } else if (back) {
@@ -2080,12 +2173,12 @@ static s32 sVitaPlatesHidden;
 static void Option_VitaTouchPlates(MFlash *flash) {
     /* per level: the plates used, and each plate's strip (0 the first, 1 the second) and row; 11 is level 1's second
        page (Cheats, Quick Start / Quick Save, Tech Fixes), 13 its third (Game) */
-    static const s8 kCount[14] = {0, 4, 4, 3, 2, 2, 2, 1, 2, 2, 2, 4, 2, 1};
+    static const s8 kCount[14] = {0, 4, 4, 3, 2, 2, 2, 2, 2, 2, 2, 4, 2, 1};
     static const s8 kTex[14][4] = {{0}, {1, 1, 1, 1}, {1, 1, 1, 1}, {1, 1, 0, 0}, {1, 1, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0},
-                                   {1, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {1, 1, 0, 0}, {1, 1, 1, 1}, {1, 1, 0, 0},
+                                   {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {1, 1, 0, 0}, {1, 1, 1, 1}, {1, 1, 0, 0},
                                    {1, 0, 0, 0}};
     static const s8 kRow[14][4] = {{0}, {0, 1, 4, 5}, {0, 1, 4, 7}, {5, 6, 1, 0}, {6, 7, 0, 0}, {0, 1, 0, 0}, {0, 1, 0, 0},
-                                   {6, 0, 0, 0}, {0, 1, 0, 0}, {0, 1, 0, 0}, {0, 1, 0, 0}, {0, 1, 4, 5}, {6, 7, 0, 0},
+                                   {0, 1, 0, 0}, {0, 1, 0, 0}, {0, 1, 0, 0}, {0, 1, 0, 0}, {0, 1, 4, 5}, {6, 7, 0, 0},
                                    {0, 0, 0, 0}};
     MFlashRef ref;
     MFlashUv uv;

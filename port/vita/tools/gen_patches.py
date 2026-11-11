@@ -193,23 +193,23 @@ for e in (1, 3):
     cap_l = label_job(14, e, [(0, 'Espa\u00f1ol', 128.5, 'center'), (32, 'Deutsch', 128.5, 'center'),
                               (128, 'Fran\u00e7ais', 128.5, 'center'), (160, 'Italiano', 128.5, 'center')],
                       64, base_sec=cap_l, keep=False)
-# a fourth: Vita Settings' second page (Cheats, Quick Start, Quick Save, Tech Fixes) and the cheat's plate (Unlock
-# All); a fifth: the Tech Fixes' two (Z Counter, Bombardment). Normal and Custom stay in every set (the control
+# a fourth: Vita Settings' second page (Unlock All, Quick Start, Quick Save, Tech Fixes); a fifth: the Tech Fixes' two (Z Counter, Bombardment). Normal and Custom stay in every set (the control
 # type's picker, whichever set was put in last).
 cap_x = bytearray(cap_t)
 for e in (1, 3):
-    cap_x = label_job(14, e, [(0, 'Cheats', 128.5, 'center'), (32, 'Quick Start', 128.5, 'center'),
-                              (128, 'Quick Save', 128.5, 'center'), (160, 'Tech Fixes', 128.5, 'center'),
-                              (192, 'Unlock All', 128.5, 'center')],
+    cap_x = label_job(14, e, [(0, 'Unlock All', 128.5, 'center'), (32, 'Quick Start', 128.5, 'center'),
+                              (128, 'Quick Save', 128.5, 'center'), (160, 'Tech Fixes', 128.5, 'center')],
                       64, base_sec=cap_x, keep=False)
 cap_y = bytearray(cap_t)
 for e in (1, 3):
     cap_y = label_job(14, e, [(0, 'Z Counter', 128.5, 'center'), (32, 'Bombardment', 128.5, 'center')],
                       64, base_sec=cap_y, keep=False)
-# a sixth: Vita Settings' third page (Game) and its two plates (BT3, BT4: the package's two games)
+# a sixth: Vita Settings' third page (Game; in BT4's options also Unlock All) and Game's two plates (BT3, BT4: the
+# package's two games)
 cap_g = bytearray(cap_t)
 for e in (1, 3):
-    cap_g = label_job(14, e, [(0, 'Game', 128.5, 'center'), (192, 'BT3', 128.5, 'center'), (224, 'BT4', 128.5, 'center')],
+    cap_g = label_job(14, e, [(0, 'Game', 128.5, 'center'), (32, 'Unlock All', 128.5, 'center'),
+                              (192, 'BT3', 128.5, 'center'), (224, 'BT4', 128.5, 'center')],
                       64, base_sec=cap_g, keep=False)
 def differs(k):
     return k < len(cap_t) and any(cap_t[k] != c[k] for c in (cap_v, cap_l, cap_x, cap_y, cap_g))
