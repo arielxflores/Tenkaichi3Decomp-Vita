@@ -44,8 +44,10 @@ extern int psvDebugScreenPrintf(const char *fmt, ...);
 #define BTL_SHIFT 5     /* USA stories 0..4 sit in the previous bank's slots 45..49 */
 #define BTL_MAIN 45
 
-/* The USA menu archives with lettering or text (454..458: Dragon World Tour's brackets, 464..471: the sagas). */
-static const uint16_t kUsaMenu[] = {448, 449, 450, 451, 452, 453, 454, 455, 456, 457, 458, 459,
+/* The USA menu archives with lettering or text (454..458: Dragon World Tour's brackets, 464..471: the sagas). 453, the
+   options screen, stays the USA disc's: the Vita's rows (Vita Settings, Language: vita_optart.c) are drawn into its
+   pictures, and the Language row is where the language is changed back. */
+static const uint16_t kUsaMenu[] = {448, 449, 450, 451, 452, 454, 455, 456, 457, 458, 459,
                                     460, 461, 463, 464, 465, 466, 467, 468, 469, 470, 471, 472};
 static const char *const kNames[LANGS] = {"English", "Espanol", "Deutsch", "Francais", "Italiano"};
 static const uint16_t kBtlBase[LANGS] = {661, 711, 761, 811, 861};
@@ -58,6 +60,9 @@ static uint32_t *sToc;        /* its (offset, size) per member */
 static int sDir;              /* the members as files under pzs3eu1/ instead */
 static int sLang;             /* 0 English .. 4 Italian */
 static int sUs1 = -1;         /* PZS3US1's partition */
+static uint32_t *sUs1Table;   /* its file table (vita_file.c's), patched with the language's sizes */
+static uint32_t *sUs1Sizes;   /* the USA disc's sizes of the members that are remapped, as they were */
+static uint32_t sUs1Count;
 
 static int file_ok(const char *path) {
     SceUID fd = sceIoOpen(path, SCE_O_RDONLY, 0);
@@ -268,6 +273,17 @@ void VitaEu_PatchToc(int ptid, uint32_t *table, uint32_t count) {
     SceUID fd;
     int own, n = 0;
 
+    if (VitaEu_Available() && (ptid & 7) == sUs1 && sUs1Sizes == NULL) { /* (kept: the language can change, vita_eu's SetLang) */
+        uint32_t k, m = count < BTL_FLID0 + BTL_COUNT ? count : BTL_FLID0 + BTL_COUNT;
+        sUs1Sizes = malloc(m * sizeof(uint32_t));
+        if (sUs1Sizes != NULL) {
+            for (k = 0; k < m; k++) {
+                sUs1Sizes[k] = table[k * 2 + 1];
+            }
+            sUs1Table = table;
+            sUs1Count = m;
+        }
+    }
     for (flid = 0; flid < count && flid < BTL_FLID0 + BTL_COUNT; flid++) {
         if (VitaEu_Member(ptid, (int)flid, &fd, &base, &size, &own)) {
             if (own) {
@@ -279,6 +295,28 @@ void VitaEu_PatchToc(int ptid, uint32_t *table, uint32_t count) {
     }
     if (n != 0) {
         Vita_Log("eu: %d members of the archive in %s\n", n, kNames[sLang]);
+    }
+}
+
+/* The language changed in the game (the options' Language row, src/menu/menu_x_c.c): kept in bt3_settings.txt, and
+   the archive's table set to its sizes. What is loaded from now on is in it: the screen that is up stays as it is,
+   the next ones (and the battles: their HUD and subtitles) are in the new language. */
+void VitaEu_SetLang(int lang) {
+    uint32_t k;
+    if (lang < 0 || lang >= LANGS || (lang != 0 && !VitaEu_Available())) {
+        return;
+    }
+    if (lang != sLang || Port_Setting("lang", -1) != lang) {
+        sLang = lang;
+        Port_SettingSave("lang", lang);
+        Port_SettingsWrite();
+        Vita_Log("eu: language %d (%s) chosen in the options\n", lang, kNames[lang]);
+    }
+    if (sUs1Table != NULL && sUs1Sizes != NULL) {
+        for (k = 0; k < sUs1Count; k++) {
+            sUs1Table[k * 2 + 1] = sUs1Sizes[k];
+        }
+        VitaEu_PatchToc(sUs1, sUs1Table, sUs1Count);
     }
 }
 

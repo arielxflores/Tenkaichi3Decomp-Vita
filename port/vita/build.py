@@ -235,6 +235,8 @@ def port_sources():
     if BT4:  # BT4's own services (port/vita/bt4) and the game-side rules of BT4decomp's platform layer
         out += [(V / "bt4/vita_bt4.c", "hard"), (V / "bt4/vita_bt4_shim.c", "hard")]
         out += [(GROOT / "port/src" / (n + ".c"), "bt4ee") for n in ("bt3_gameplay_rules", "bt3_bombardment", "bt3_zcounter2")]
+    else:  # the community's fixes of the fighting mechanics (the PC version's Tech tab: Vita Settings > Tech Fixes)
+        out += [(S / (n + ".c"), "ee") for n in ("bt3_gameplay_rules", "bt3_bombardment", "bt3_zcounter2")]
     return out
 
 

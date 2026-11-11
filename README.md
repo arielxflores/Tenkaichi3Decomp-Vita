@@ -85,19 +85,28 @@ ux0:data/bt3/disc/DATA/ZS3USOP.PSS        (and the other files of the DATA folde
 Then copy the `disc` folder to `ux0:data/bt3/`. Either way, the game checks at start that the files are the
 unmodified USA release and tells you if they are not.
 
-### Languages (optional)
+### Languages
 
-The USA release is in English only. With your own copy of the European release (SLES-54945) the menus, the HUD
-and the battle subtitles can be in Spanish, German, French or Italian: copy its disc image (`.iso`) to
-`ux0:data/bt3/eu/` (or beside the USA one in `ux0:data/bt3/`), or only `DATA/PZS3EU1.AFS` from it to
+**Options → Sound → Language** sets the language of the text and of the voices together:
+
+| Language | Text (menus, HUD, battle subtitles) | Voices |
+|---|---|---|
+| English | English | English |
+| Japanese | English (no release has other text) | Japanese |
+| Español, Deutsch, Français, Italiano | Spanish, German, French, Italian | English or Japanese, chosen next |
+
+English and Japanese come with the USA disc. Spanish, German, French and Italian need your own copy of the European
+release (SLES-54945); the European disc has only English and Japanese voices, so those are the voices it offers.
+Copy its disc image (`.iso`) to `ux0:data/bt3/eu/` (or beside the USA one in `ux0:data/bt3/`), or only
+`DATA/PZS3EU1.AFS` from it to
 
 ```
 ux0:data/bt3/eu/PZS3EU1.AFS
 ```
 
-The game asks for the language at its next start. To change it later, hold SELECT while the game starts (the
-[start menu](#start-menu)). English keeps the USA disc's files. The folder `ux0:data/bt3/pzs3eu1/` written by the
-PC version's `extract_eu.py` is read too.
+With it, the game asks for the language at its next start; the [start menu](#start-menu) has the list too. A new
+language shows from the next screen (the options screen itself stays in English, with the Vita's rows). The folder
+`ux0:data/bt3/pzs3eu1/` written by the PC version's `extract_eu.py` is read too.
 
 ## Controls
 
@@ -121,7 +130,7 @@ On a PS TV, or with a DualShock paired, the controller's own L2, R2, L3 and R3 b
 
 - The rear touch pad's quarters are those of PS4 Remote Play, so the triggers and rear buttons of a grip attachment
   for it, such as HORI's Remote Play Assist Attachment, work as L2, R2, L3 and R3.
-- **Options → Controller → Vita Settings** has four settings:
+- **Options → Controller → Vita Settings** has eight settings on two pages (Down from the lower row turns the page):
   - **Touch**: for each of L2, R2, L3 and R3, where it is touched: its quarter of the rear pad, a corner of the
     front screen (L2 / R2 the bottom corners, L3 / R3 the top ones), or nowhere (Off). A finger resting on the rear
     pad's lower half stops counting as L3 / R3 after a second, so the hands holding the Vita cannot hold R3 (which
@@ -131,6 +140,19 @@ On a PS TV, or with a DualShock paired, the controller's own L2, R2, L3 and R3 b
     works too).
   - **2nd Pad**: a second controller plays as player 2 (on by default).
   - **Mods**: the files in `ux0:data/bt3/mods/` are used (on by default; see [Mods](#mods)).
+  - **Cheats → Unlock All**: the game's own unlock of everything, left in by its developers and never used by the
+    game (the PC version's Cheats tab): every character, stage, song and item, and the most Zenni, given to the save
+    now in play. It empties the records list. Press CROSS twice; it is kept when the options are saved as you leave
+    them, and cannot be taken back (copy `ux0:data/bt3/saves/` first to keep the save as it is).
+  - **Quick Start**: the game starts at its title screen, without the logos, the opening film and the copyright
+    page (off by default).
+  - **Quick Save**: saving and loading without the memory card window and its waits; a question to answer or an
+    error still shows the window (on by default; the PC version's quick saving).
+  - **Tech Fixes**: the community's fixes of the fighting mechanics, each on or off (both off by default), from the
+    next fight and never in a replay: **Z Counter** keeps a timed Z Counter that the game loses when your movement
+    changes your hitbox in the frame the attack arrives; **Bombardment** stops body contact from breaking a chain of
+    smash Ki blasts with dashes between them. From the community's "BT3 PS2 Port Gameplay Source" through the PC
+    version.
 - **Options → Controller → Control Type → Custom** assigns the actions to other buttons, as on the PS2. The pause
   menu's skill list shows each command with the buttons of the control type in use, and L3 / R3 as buttons like L1,
   not as the PS2's sticks.
@@ -144,10 +166,11 @@ Hold SELECT while the game starts (from the LiveArea until the text screen shows
 
 - **Game**: Budokai Tenkaichi 3 or [Budokai Tenkaichi 4](#budokai-tenkaichi-4-experimental). The choice is kept: BT4
   then starts each time, until you change it here again.
-- **Language**: with the European archive (see [Languages](#languages-optional)).
+- **Language**: with the European archive (see [Languages](#languages)).
 - **Unlock everything (cheat)**: the game's own unlock, which the game never uses: every character, stage, song and
-  item, and 4,850,000 Zenni, given to the save the game loads. It stays once the game saves, and cannot be taken
-  back: copy `ux0:data/bt3/saves/` first if you want to keep the save as it is.
+  item, and 4,850,000 Zenni, given to the save the game loads (its records list is emptied). It stays once the game
+  saves, and cannot be taken back: copy `ux0:data/bt3/saves/` first if you want to keep the save as it is. The same
+  is in the game: Vita Settings → Cheats.
 
 ## Budokai Tenkaichi 4 (experimental)
 

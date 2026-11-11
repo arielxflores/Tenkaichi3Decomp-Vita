@@ -202,10 +202,10 @@ s32 Option_Run(s32 section) {
 #ifdef PORT_VITA
 /* The Vita has no vibration: that row of the controller page is "Vita Settings" (below: the touch buttons, clashes, a
    second controller, mods). Its guide lines (24, 39, 40) are spoken of vibration: their text is new (vita_optart.c),
-   their voice is not played. */
+   their voice is not played; nor that of line 18, the sound page's Language row (of the voices alone before). */
 extern void Voice_StopWithLip(void);
 static void Option_VoiceVita(s32 line) {
-    if (line == 24 || line == 39 || line == 40) {
+    if (line == 18 || line == 24 || line == 39 || line == 40) { /* (18: the Language row's, vita_optart.c) */
         Voice_StopWithLip();
     } else {
         Voice_PlayWithSubtitle(gOption->subtitles, OPTION_VOICE_BASE, line);
@@ -285,13 +285,23 @@ static void Option_VitaKeysLeave(void) {
 /* "Vita Settings", the controller page's second row (the console's Vibration). Its page holds four plates of the
    console's two-way pickers, captioned from the second caption strip, whose rows take turns between two sets
    (vita_optart.c Vita_OptionCaptions):
-     level 1: Touch, Clashes / 2nd Pad, Mods, the four settings;
+     level 1: Touch, Clashes / 2nd Pad, Mods, the four settings, and on a second page (Down from the lower row) Cheats,
+              Quick Start / Quick Save, Tech Fixes;
      level 2: Touch: L2, R2 / L3, R3, laid out as the rear pad's quarters; level 3: where the chosen one is touched,
               Rear / Front, Off (port/vita/vita_touch.c, which keeps it in ux0:data/bt3/touch.txt);
      level 4: Clashes: Square / Stick, what wins a beam or rush clash (port/vita/vita_gfx.c, clash_square);
      level 5: 2nd Pad: ON / OFF, a second controller as player 2 (a PS TV's second DualShock);
-     level 6: Mods: ON / OFF, the files of ux0:data/bt3/mods (port/vita/vita_file.c), from the next start.
-   The last three are kept in ux0:data/bt3/bt3_settings.txt, not in the save. In each level Cross chooses (the setting
+     level 6: Mods: ON / OFF, the files of ux0:data/bt3/mods (port/vita/vita_file.c), from the next start;
+     level 7: Cheats: Unlock All, the game's own unlock of everything that its developers left in (Save_UnlockAll,
+              which the game never calls; the PC version's Cheats tab): CROSS twice, as it empties the records list
+              and is kept when the options are saved;
+     level 8: Quick Start: ON / OFF, the logos, the opening film and the copyright page left out at the start;
+     level 9: Quick Save: ON / OFF, saving and loading without the memory card window and its waits, unless the
+              player has something to answer (src/sys/mcflow_a.c, the PC version's quick saving);
+     level 10: Tech Fixes: Z Counter / Bombardment, the community's fixes of the fighting mechanics (the PC version's
+              Tech tab: port/src/bt3_zcounter2.c, bt3_bombardment.c), CROSS turns the one under the cursor on or off;
+              from the next fight, never in a replay.
+   The settings of levels 4 to 10 are kept in ux0:data/bt3/bt3_settings.txt, not in the save. In each level Cross chooses (the setting
    is taken at once), Triangle or Circle go back a level; the plate of the current setting is lit when a level opens.
    The guide line says what the plate under the cursor does. */
 extern int Vita_TouchGetSpot(int b);
@@ -306,9 +316,21 @@ extern int Port_Setting(const char *name, int def);
 extern void Port_SettingSave(const char *name, int value);
 extern void Port_SettingsWrite(void);
 extern void Vita_ModsSummary(char *out, int size);
-static s32 sVitaSetLevel; /* 0 closed, 1..6 above */
+static s32 sVitaSetLevel; /* 0 closed, 1..9 above */
 static s32 sVitaSetItem;  /* the setting chosen on level 1 */
 static s32 sVitaTouchBtn; /* the button chosen on level 2 */
+static s32 sVitaItem1;    /* level 1's item under the cursor: 0..3 the first page's, 4..7 the second's (its plate: item % 4) */
+static s32 sVitaCheatArmed; /* level 7: CROSS was pressed once */
+#define VITA_L1_ITEMS 8
+/* (Save_UnlockAll: include/sys/save.h) */
+
+static int Option_VitaQuickStart(void) {
+    return Port_Setting("quick_start", 0) != 0;
+}
+
+static int Option_VitaQuickSave(void) {
+    return Port_Setting("save_quick", 1) != 0;
+}
 
 static int Option_VitaModsOn(void) {
     return Port_Setting("mods", 1) != 0;
@@ -321,9 +343,21 @@ static void Option_VitaSetGuide(void) {
     char text[120], more[64];
     s32 b, spot, v = gOption->value;
 
+    if (sVitaSetLevel == 1) {
+        v = sVitaItem1;
+    }
     switch (sVitaSetLevel) {
     case 1: /* the setting under the cursor, and what it is now */
-        if (v == 0) {
+        if (v == 4) {
+            sprintf(text, "Cheats: the unlock of everything\nthat the game's developers left in.");
+        } else if (v == 5) {
+            sprintf(text, "Quick Start: no logos, opening film\nor copyright page at the start: %s.", Option_VitaQuickStart() ? "ON" : "OFF");
+        } else if (v == 6) {
+            sprintf(text, "Quick Save: saving and loading\nwithout the memory card window: %s.", Option_VitaQuickSave() ? "ON" : "OFF");
+        } else if (v == 7) {
+            sprintf(text, "Tech Fixes: the community's fixes\nof the fighting: Z Counter %s,\nBombardment %s.",
+                    Port_Setting("tech_zcounter2", 0) ? "ON" : "OFF", Port_Setting("tech_bombardment", 0) ? "ON" : "OFF");
+        } else if (v == 0) {
             sprintf(text, "Touch: where L2, R2, L3 and R3\nare touched.");
         } else if (v == 1) {
             sprintf(text, "Clashes: %s\nwins beam and rush clashes.", Port_ClashSquare() ? "pressing Square fast" : "turning the left stick");
@@ -384,9 +418,29 @@ static void Option_VitaSetGuide(void) {
         sprintf(text, v == 0 ? "ON: a second controller plays\nas player 2 (Versus: Multiplayer)."
                              : "OFF: a second controller is not\nused.");
         break;
-    default:
+    case 6:
         sprintf(text, v == 0 ? "ON: files in ux0:data/bt3/mods\nreplace the disc's, from the\nnext start."
                              : "OFF: the disc's files only, from\nthe next start.");
+        break;
+    case 7:
+        sprintf(text, sVitaCheatArmed == 2 ? "Done: everything is unlocked. It is\nkept when the options are saved\n(as you leave them)."
+                      : sVitaCheatArmed ? "Press CROSS again to unlock\neverything (Circle: no)."
+                                        : "Every character, stage, song and\nitem, and the most Zenni. Empties\nthe records list. CROSS twice.");
+        break;
+    case 10:
+        if (v == 0) {
+            sprintf(text, "Z Counter fix (%s): keeps a timed\nZ Counter the game loses when you\nmove as the attack lands.", Port_Setting("tech_zcounter2", 0) ? "ON" : "OFF");
+        } else {
+            sprintf(text, "Bombardment fix (%s): a chain of\nsmash Ki blasts with dashes is not\nbroken by body contact.", Port_Setting("tech_bombardment", 0) ? "ON" : "OFF");
+        }
+        break;
+    case 8:
+        sprintf(text, v == 0 ? "ON: the game starts at its title\nscreen (no logos, opening film or\ncopyright page)."
+                             : "OFF: the logos, the opening film\nand the copyright page, as the\ngame has them.");
+        break;
+    default:
+        sprintf(text, v == 0 ? "ON: saving and loading go without\nthe memory card window, unless\nthere is a question to answer."
+                             : "OFF: the memory card window and\nits pages, as the game has them.");
         break;
     }
     gOption->voiceLine = Vita_OptionGuide(text);
@@ -401,13 +455,33 @@ static void Option_VitaSetMove(s32 to) {
     Option_VitaSetGuide();
 }
 
-/* to `level`, the cursor on plate `value` */
+/* to `level`, the cursor on plate `value` (level 1: on item `value`, on its page) */
 static void Option_VitaSetLevel(s32 level, s32 value) {
     sVitaSetLevel = level;
-    Vita_OptionCaptions(level == 2 || level == 3 ? 0 : 1);
+    sVitaCheatArmed = 0;
+    if (level == 1) {
+        sVitaItem1 = value;
+        value %= 4;
+    }
+    Vita_OptionCaptions(level == 2 || level == 3 ? 0 : level == 7 || (level == 1 && sVitaItem1 >= 4) ? 3 : level == 10 ? 4 : 1);
     Option_DimPickers();
     gOption->value = value;
     OPT_PLATE(OPT_CLIP_PICK, "fl_on_start");
+    Option_VitaSetGuide();
+}
+
+/* level 1: the cursor to `item` (the page turned when it is on the other one) */
+static void Option_VitaL1Move(s32 item) {
+    s32 page = sVitaItem1 / 4;
+    OPT_PLATE(OPT_CLIP_PICK, "fl_off_start");
+    sVitaItem1 = item;
+    if (item / 4 != page) {
+        Vita_OptionCaptions(item >= 4 ? 3 : 1);
+        Option_DimPickers();
+    }
+    gOption->value = item % 4;
+    OPT_PLATE(OPT_CLIP_PICK, "fl_on_start");
+    Snd_PlaySe(1, 0);
     Option_VitaSetGuide();
 }
 
@@ -427,16 +501,23 @@ static void Option_VitaTouchInput(void) {
     s32 back = (pressed & (PADG_TRIANGLE | PADG_CIRCLE)) != 0;
 
     switch (sVitaSetLevel) {
-    case 1: /* Touch Clashes / 2nd Pad Mods */
+    case 1: /* Touch Clashes / 2nd Pad Mods; Cheats Quick Start / Quick Save: rows of two, Up / Down from row to row */
+        v = sVitaItem1;
         if (pressed & (PADG_LEFT | PADG_RIGHT)) {
-            Option_VitaSetMove(v ^ 1);
+            if ((v ^ 1) < VITA_L1_ITEMS) {
+                Option_VitaL1Move(v ^ 1);
+            }
         } else if (pressed & (PADG_UP | PADG_DOWN)) {
-            Option_VitaSetMove(v ^ 2);
+            s32 rows = (VITA_L1_ITEMS + 1) / 2, row = v / 2, to;
+            row = (row + ((pressed & PADG_DOWN) ? 1 : rows - 1)) % rows;
+            to = row * 2 + (v & 1);
+            Option_VitaL1Move(to < VITA_L1_ITEMS ? to : row * 2);
         } else if (pressed & PADG_CROSS) {
             sVitaSetItem = v;
             Snd_PlaySe(1, 1);
-            Option_VitaSetLevel(v == 0 ? 2 : v == 1 ? 4 : v == 2 ? 5 : 6,
-                                v == 0 ? 0 : v == 1 ? !Port_ClashSquare() : v == 2 ? !Vita_Pad2Setting() : !Option_VitaModsOn());
+            Option_VitaSetLevel(v == 0 ? 2 : v == 1 ? 4 : v == 2 ? 5 : v == 3 ? 6 : v == 4 ? 7 : v == 5 ? 8 : v == 6 ? 9 : 10,
+                                v == 0 ? 0 : v == 1 ? !Port_ClashSquare() : v == 2 ? !Vita_Pad2Setting() : v == 3 ? !Option_VitaModsOn()
+                                : v == 4 ? 0 : v == 5 ? !Option_VitaQuickStart() : v == 6 ? !Option_VitaQuickSave() : 0);
         } else if (back) { /* back to the page */
             OPT_PLATE(OPT_CLIP_PICK, "fl_off_start");
             Snd_PlaySe(1, 2);
@@ -485,7 +566,40 @@ static void Option_VitaTouchInput(void) {
             Option_VitaSetLevel(2, sVitaTouchBtn);
         }
         break;
-    default: /* 4 Square Stick, 5 and 6 ON OFF */
+    case 10: /* Z Counter / Bombardment: CROSS turns the one under the cursor on or off */
+        if (pressed & (PADG_LEFT | PADG_RIGHT)) {
+            Option_VitaSetMove(v ^ 1);
+        } else if (pressed & PADG_CROSS) {
+            const char *name = v == 0 ? "tech_zcounter2" : "tech_bombardment";
+            Port_SettingSave(name, !Port_Setting(name, 0));
+            Port_SettingsWrite();
+            OPT_PLATE(OPT_CLIP_PICK, "fl_ok");
+            Snd_PlaySe(1, 1);
+            Option_VitaSetGuide();
+        } else if (back) {
+            Snd_PlaySe(1, 2);
+            Option_VitaSetLevel(1, sVitaSetItem);
+        }
+        break;
+    case 7: /* Unlock All: CROSS twice */
+        if (pressed & PADG_CROSS) {
+            if (sVitaCheatArmed == 1) {
+                Save_UnlockAll(gSaveData); /* (the save in memory: kept when the options are saved, as they are left) */
+                gOption->dirty = 1;
+                sVitaCheatArmed = 2;
+                OPT_PLATE(OPT_CLIP_PICK, "fl_ok");
+                Snd_PlaySe(1, 1);
+            } else if (sVitaCheatArmed == 0) {
+                sVitaCheatArmed = 1;
+                Snd_PlaySe(1, 0);
+            }
+            Option_VitaSetGuide();
+        } else if (back) {
+            Snd_PlaySe(1, 2);
+            Option_VitaSetLevel(1, sVitaSetItem);
+        }
+        break;
+    default: /* 4 Square Stick, 5 6 8 9 ON OFF */
         if (pressed & (PADG_LEFT | PADG_RIGHT)) {
             Option_VitaSetMove(v ^ 1);
         } else if (pressed & PADG_CROSS) {
@@ -494,7 +608,7 @@ static void Option_VitaTouchInput(void) {
             } else if (sVitaSetLevel == 5) {
                 Vita_Pad2SettingSet(v == 0);
             } else {
-                Port_SettingSave("mods", v == 0);
+                Port_SettingSave(sVitaSetLevel == 6 ? "mods" : sVitaSetLevel == 8 ? "quick_start" : "save_quick", v == 0);
                 Port_SettingsWrite();
             }
             Snd_PlaySe(1, 1);
@@ -504,6 +618,188 @@ static void Option_VitaTouchInput(void) {
             Option_VitaSetLevel(1, sVitaSetItem);
         }
         break;
+    }
+}
+
+/* The sound page's third row, "Language" (the console's Change Voice, vita_optart.c): the language of the text and of
+   the voices together, every one there is. English and Japanese are the voices of the USA disc (Japanese: its text,
+   the menus and the subtitles stay in English, the only text of the USA and European discs that is not European);
+   Espanol, Deutsch, Francais and Italiano the menus, the HUD and the battle subtitles of the player's European disc
+   (port/vita/vita_eu.c: offered when its archive is there), and then the voices, English or Japanese (the European
+   disc has no others). The console's two plates show two languages at a time; Left / Right go on to the next two.
+   The text's language holds from the next screen (this one, the options, stays the USA disc's: vita_eu.c). */
+extern int VitaEu_Available(void);
+extern int VitaEu_Lang(void);
+extern void VitaEu_SetLang(int lang);
+extern int Vita_OptionCaptionsOk(void);
+static const struct {
+    s8 tex, row; /* the caption: the first strip's English / Japanese, or the second's European set */
+    const char *guide;
+} kVitaLang[6] = {
+    {0, 6, "English: the menus, the text and\nthe voices in English."},
+    {0, 7, "Japanese: the voices in Japanese,\nthe menus and subtitles in\nEnglish."},
+    {1, 0, "Espanol: the menus, the HUD and\nthe subtitles in Spanish, from\nthe next screen."},
+    {1, 1, "Deutsch: the menus, the HUD and\nthe subtitles in German, from\nthe next screen."},
+    {1, 4, "Francais: the menus, the HUD and\nthe subtitles in French, from\nthe next screen."},
+    {1, 5, "Italiano: the menus, the HUD and\nthe subtitles in Italian, from\nthe next screen."},
+};
+static s32 sVitaLangN;    /* languages offered: 2, or 6 with the European disc's archive */
+static s32 sVitaLangSel;  /* the one under the cursor (step 1) */
+static s32 sVitaLangStep; /* 0 closed, 1 the languages, 2 the voices after a European language */
+static s32 sVitaLangTex;  /* the plates were given the second strip: given back the first once closed */
+
+static void Option_VitaLangGuide(void) {
+    const char *text;
+    if (sVitaLangStep == 2) {
+        text = gOption->value == 0 ? "The voices in English (the\nEuropean disc has English and\nJapanese ones)."
+                                   : "The voices in Japanese.";
+    } else if (sVitaLangN == 2 && sVitaLangSel == 0) {
+        text = "English: the menus, text and\nvoices. More languages: your\nEuropean disc in ux0:data/bt3/eu/.";
+    } else {
+        text = kVitaLang[sVitaLangSel].guide;
+    }
+    gOption->voiceLine = Vita_OptionGuide(text);
+    OPT_VOICE(gOption->voiceLine);
+}
+
+/* the plates lit and unlit as the console's picker does it, the cursor on plate `value` */
+static void Option_VitaLangPlatesSet(s32 value) {
+    gOption->value = 0;
+    OPT_PLATE(OPT_CLIP_PICK, "fl_off_start");
+    gOption->value = 1;
+    OPT_PLATE(OPT_CLIP_PICK, "fl_off_start");
+    gOption->value = value;
+    OPT_PLATE(OPT_CLIP_PICK, "fl_on_start");
+}
+
+static void Option_VitaLangOpen(void) {
+    s32 lang = VitaEu_Lang();
+    sVitaLangN = VitaEu_Available() && Vita_OptionCaptionsOk() ? 6 : 2;
+    if (sVitaLangN == 6) {
+        Vita_OptionCaptions(2);
+    }
+    sVitaLangSel = lang > 0 && sVitaLangN == 6 ? lang + 1 : (gSaveData->flags & SAVE_FLAG_VOICE) ? 0 : 1;
+    sVitaLangStep = 1;
+    OPT_PLATE(OPT_CLIP_ROW_SOUND, "fl_ok");
+    Option_VitaLangPlatesSet(sVitaLangSel & 1);
+    gOption->state = OPT_ITEM_VOICE;
+    gOption->picker = 6;
+    Flash_GotoLabel(&gOption->flash[0], "fl_value_in", 1);
+    Snd_PlaySe(1, 1);
+    Option_VitaLangGuide();
+}
+
+/* back to the sound page; `done`: a choice was made (the options are saved when left) */
+static void Option_VitaLangClose(s32 done) {
+    sVitaLangStep = 0;
+    if (done) {
+        gOption->dirty = 1;
+    }
+    gOption->state = OPT_ITEM_SOUND;
+    gOption->cursor = OPT_ITEM_VOICE;
+    Flash_GotoLabel(&gOption->flash[0], "fl_value_out", 1);
+    OPT_PLATE(OPT_CLIP_ROW_SOUND, "fl_on_start");
+    if (!done) {
+        OPT_VOICE(18);
+    }
+}
+
+static void Option_VitaLangVoices(s32 japanese) {
+    if (japanese) {
+        gSaveData->flags &= ~SAVE_FLAG_VOICE;
+    } else {
+        gSaveData->flags |= SAVE_FLAG_VOICE;
+    }
+}
+
+static void Option_VitaLangInput(void) {
+    u32 pressed = gPad[0].gamePressed;
+    s32 back = (pressed & (PADG_TRIANGLE | PADG_CIRCLE)) != 0;
+
+    if (sVitaLangStep == 1) {
+        if (pressed & (PADG_LEFT | PADG_RIGHT)) {
+            OPT_PLATE(OPT_CLIP_PICK, "fl_off_start");
+            sVitaLangSel = (sVitaLangSel + ((pressed & PADG_RIGHT) ? 1 : sVitaLangN - 1)) % sVitaLangN;
+            gOption->value = sVitaLangSel & 1;
+            OPT_PLATE(OPT_CLIP_PICK, "fl_on_start");
+            Snd_PlaySe(1, 0);
+            Option_VitaLangGuide();
+        } else if (pressed & PADG_CROSS) {
+            OPT_PLATE(OPT_CLIP_PICK, "fl_ok");
+            Snd_PlaySe(1, 1);
+            if (sVitaLangSel >= 2) { /* a European language: its text now, the voices next */
+                VitaEu_SetLang(sVitaLangSel - 1);
+                sVitaLangStep = 2;
+                Option_VitaLangPlatesSet((gSaveData->flags & SAVE_FLAG_VOICE) ? 0 : 1);
+                Option_VitaLangGuide();
+            } else {
+                if (sVitaLangN == 6) {
+                    VitaEu_SetLang(0); /* (the USA disc's text) */
+                }
+                Option_VitaLangVoices(sVitaLangSel == 1);
+                Option_VitaLangClose(1);
+            }
+        } else if (back) {
+            Snd_PlaySe(1, 2);
+            OPT_PLATE(OPT_CLIP_PICK, "fl_off_start");
+            Option_VitaLangClose(0);
+        }
+    } else if (sVitaLangStep == 2) { /* English / Japanese voices */
+        if (pressed & (PADG_LEFT | PADG_RIGHT)) {
+            OPT_PLATE(OPT_CLIP_PICK, "fl_off_start");
+            gOption->value ^= 1;
+            OPT_PLATE(OPT_CLIP_PICK, "fl_on_start");
+            Snd_PlaySe(1, 0);
+            Option_VitaLangGuide();
+        } else if (pressed & PADG_CROSS) {
+            OPT_PLATE(OPT_CLIP_PICK, "fl_ok");
+            Snd_PlaySe(1, 1);
+            Option_VitaLangVoices(gOption->value != 0);
+            Option_VitaLangClose(1);
+        } else if (back) { /* back to the languages (the text's language is kept: it was chosen) */
+            Snd_PlaySe(1, 2);
+            sVitaLangStep = 1;
+            Option_VitaLangPlatesSet(sVitaLangSel & 1);
+            Option_VitaLangGuide();
+        }
+    }
+}
+
+/* (Option_Draw) the two plates' captions: the two languages of the cursor's pair, or English / Japanese for the
+   voices; the first strip given back to the plates once the picker is closed (the other pickers do not set it) */
+static void Option_VitaLangPlates(MFlash *flash) {
+    MFlashRef ref;
+    MFlashUv uv;
+    char name[0x40];
+    s32 i;
+
+    if (gOption->picker != 6 || sVitaLangStep == 0) {
+        if (sVitaLangTex) {
+            for (i = 0; i < 2; i++) {
+                sprintf(name, "mc_select_plate_%d", i + 1);
+                Flash_FindLabel(flash, name, "mc_select_text_off", &ref);
+                Flash_ClipSetTex(flash, &ref, 0);
+                Flash_FindLabel(flash, name, "mc_select_text_on", &ref);
+                Flash_ClipSetTex(flash, &ref, 0);
+            }
+            sVitaLangTex = 0;
+        }
+        return;
+    }
+    for (i = 0; i < 2; i++) {
+        s32 item = sVitaLangStep == 2 ? i : (sVitaLangSel & ~1) + i;
+        memset(&uv, 0, sizeof(uv));
+        uv.x1 = 0x100;
+        uv.y0 = kVitaLang[item].row * 0x20;
+        uv.y1 = uv.y0 + 0x20;
+        sprintf(name, "mc_select_plate_%d", i + 1);
+        Flash_FindLabel(flash, name, "mc_select_text_off", &ref);
+        Flash_ClipSetUv(flash, &ref, &uv);
+        Flash_ClipSetTex(flash, &ref, kVitaLang[item].tex);
+        Flash_FindLabel(flash, name, "mc_select_text_on", &ref);
+        Flash_ClipSetUv(flash, &ref, &uv);
+        Flash_ClipSetTex(flash, &ref, kVitaLang[item].tex);
+        sVitaLangTex |= kVitaLang[item].tex;
     }
 }
 #endif
@@ -901,6 +1197,9 @@ s32 Option_Input(void) {
                 Bgm_Stop();
                 Snd_PlaySe(1, 1);
             } else if (gOption->cursor == OPT_ITEM_VOICE) {
+#ifdef PORT_VITA
+                Option_VitaLangOpen(); /* (Language: the text's and the voices', above) */
+#else
                 OPT_PLATE(OPT_CLIP_ROW_SOUND, "fl_ok");
                 gOption->value = 0;
                 OPT_PLATE(OPT_CLIP_PICK, "fl_off_start");
@@ -912,6 +1211,7 @@ s32 Option_Input(void) {
                 gOption->picker = 6;
                 Flash_GotoLabel(&gOption->flash[0], "fl_value_in", 1);
                 Snd_PlaySe(1, 1);
+#endif
             } else if (gOption->cursor == OPT_ITEM_SND_RESET) {
                 OPT_PLATE(OPT_CLIP_BOTTOM, "fl_ok");
                 gOption->state = gOption->cursor;
@@ -1494,6 +1794,12 @@ s32 Option_Input(void) {
     case OPT_ITEM_SCR2:
     case OPT_ITEM_STEREO:
     case OPT_ITEM_VOICE:
+#ifdef PORT_VITA
+        if (gOption->state == OPT_ITEM_VOICE) {
+            Option_VitaLangInput();
+            break;
+        }
+#endif
         if ((gPad[0].gamePressed & PADG_LEFT) || (gPad[0].gamePressed & PADG_RIGHT)) {
             OPT_PLATE(OPT_CLIP_PICK, "fl_off_start");
             gOption->value ^= 1;
@@ -1731,16 +2037,22 @@ static void Option_VitaKeysLayout(MFlash *flash) {
 static s32 sVitaPlatesHidden;
 
 static void Option_VitaTouchPlates(MFlash *flash) {
-    /* per level: the plates used, and each plate's strip (0 the first, 1 the second) and row */
-    static const s8 kCount[7] = {0, 4, 4, 3, 2, 2, 2};
-    static const s8 kTex[7][4] = {{0}, {1, 1, 1, 1}, {1, 1, 1, 1}, {1, 1, 0, 0}, {1, 1, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}};
-    static const s8 kRow[7][4] = {{0}, {0, 1, 4, 5}, {0, 1, 4, 7}, {5, 6, 1, 0}, {6, 7, 0, 0}, {0, 1, 0, 0}, {0, 1, 0, 0}};
+    /* per level: the plates used, and each plate's strip (0 the first, 1 the second) and row; 11 is level 1's second
+       page (Cheats, Quick Start / Quick Save, Tech Fixes) */
+    static const s8 kCount[12] = {0, 4, 4, 3, 2, 2, 2, 1, 2, 2, 2, 4};
+    static const s8 kTex[12][4] = {{0}, {1, 1, 1, 1}, {1, 1, 1, 1}, {1, 1, 0, 0}, {1, 1, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0},
+                                   {1, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {1, 1, 0, 0}, {1, 1, 1, 1}};
+    static const s8 kRow[12][4] = {{0}, {0, 1, 4, 5}, {0, 1, 4, 7}, {5, 6, 1, 0}, {6, 7, 0, 0}, {0, 1, 0, 0}, {0, 1, 0, 0},
+                                   {6, 0, 0, 0}, {0, 1, 0, 0}, {0, 1, 0, 0}, {0, 1, 0, 0}, {0, 1, 4, 5}};
     MFlashRef ref;
     MFlashUv uv;
     char name[0x40];
     s32 i, lv = sVitaSetLevel;
 
-    if (gOption->picker != 5 || lv < 1 || lv > 6) {
+    if (lv == 1 && sVitaItem1 >= 4) {
+        lv = 11;
+    }
+    if (gOption->picker != 5 || lv < 1 || lv > 11) {
         if (sVitaPlatesHidden) {
             for (i = 0; i < 4; i++) {
                 sprintf(name, "mc_select_plate_%d", i + 1);
@@ -2276,6 +2588,7 @@ void Option_Draw(void) {
     }
 #ifdef PORT_VITA
     Option_VitaTouchPlates(flash); /* (after the console's captions: in their place for "Vita Settings") */
+    Option_VitaLangPlates(flash);  /* (and for "Language") */
 #endif
 
     /* the volume window: ten numbered plates per volume */

@@ -16,6 +16,7 @@ void VitaEu_NotePartition(int ptid, const char *name);
 int VitaEu_Member(int ptid, int flid, SceUID *fd, uint32_t *base, uint32_t *size, int *own);
 SceUID VitaEu_Fd(void);
 void VitaEu_PatchToc(int ptid, uint32_t *table, uint32_t count);
+void VitaEu_SetLang(int lang);   /* the options' Language row: from the next screen on */
 int VitaEu_OpeningSong(char *out, int size);
 
 #endif

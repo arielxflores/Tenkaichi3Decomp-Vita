@@ -312,7 +312,16 @@ s32 Title_Run(s32 section) {
         logoHold = 0;
     }
     ColorFade_StartIn(0, 0, 0, 0x14);
+#ifdef PORT_VITA
+    /* Quick Start (Options > Controller > Vita Settings; the PC version's "Skip copyright page"): the copyright page, a
+       still held for 300 frames that no button shortens, is left out. Nothing else happens in its loop. */
+    {
+    extern int Port_Setting(const char *name, int def);
+    s32 copyright = !Port_Setting("quick_start", 0);
+    while (copyright) {
+#else
     while (1) {
+#endif
         Gfx_BeginFrame();
         Pad_Update();
         Snd_Update();
@@ -345,6 +354,9 @@ s32 Title_Run(s32 section) {
             }
         }
     }
+#ifdef PORT_VITA
+    }
+#endif
     ColorFade_StartIn(0, 0, 0, 0x14);
     for (;;) {
         Gfx_BeginFrame();

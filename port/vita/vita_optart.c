@@ -3,11 +3,16 @@
  *
  * The options screen (src/menu/menu_x_c.c Option_Init), its controller page:
  *   - section 16, textures 1 and 3 (the rows' lettering, plain and highlighted): "Vibration" becomes "Vita Settings";
+ *     on the sound page, "Change Voice" becomes "Language" (the text's language and the voices: Option_VitaLang);
  *   - section 14, textures 1 and 3 (the second strip of the two-way pickers' captions): the rows the Vita does not
  *     show (1P, 2P, Simple) and the free ones read L2, R2, L3, Rear, Front and R3 (Touch Buttons), or, as the page
- *     changes, Touch, Clashes, 2nd Pad, Mods, Square and Stick (Vita_OptionCaptions, Option_VitaSetPlates);
+ *     changes, Touch, Clashes, 2nd Pad, Mods, Square and Stick, or Espanol, Deutsch, Francais and Italiano for the
+ *     Language row, or Cheats, Quick Start, Quick Save, Tech Fixes, Unlock All, Z Counter and Bombardment for Vita
+ *     Settings' second page
+ *     (Vita_OptionCaptions, Option_VitaSetPlates; English and Japanese are the first strip's own);
  *   - section 21, texture 0: the controller picture of the key assignment page, a PS2 pad, becomes a Vita;
- *   - section 33 (the guide's lines under the screen): lines 24, 39 and 40 (of vibration) say what the new row does.
+ *   - section 33 (the guide's lines under the screen): lines 24, 39 and 40 (of vibration) say what the new row does,
+ *     line 18 (of the voices) what Language does.
  * The versus menu (src/menu/menu_g_c.c DuelMenu_Init):
  *   - section 8, textures 0 and 1 (the plates' lettering, plain and highlighted): "1P VS 2P" becomes "Multiplayer".
  * The button icons of the game's text (the boot file's member 8, src/battle/col_c_b.c FontIcon_Init), seen in the
@@ -132,13 +137,16 @@ void Vita_OptionArt(void *res) {
     {
         uint8_t *t = pack_at(res, 33);
         lines += put_line(t, 25, 28, "Touch buttons, clashes, a\nsecond controller and mods.");
+#ifndef BT3_BT4 /* (BT4's options keep the console's voice picker: its guide line stays) */
+        lines += put_line(t, 19, 20, "The language of the menus and\nthe text, and of the voices.");
+#endif
         lines += put_line(t, 40, 27, "");
         lines += put_line(t, 41, 23, "");
         sGuide[0] = slot_of(t, 27);
         sGuide[1] = slot_of(t, 23);
         sGuideNext = 0;
     }
-    Vita_Log("optart: %u of 3 pictures and %u of 3 lines changed for the Vita\n", done, lines);
+    Vita_Log("optart: %u of 3 pictures and %u of 4 lines changed for the Vita\n", done, lines);
 }
 
 void Vita_VersusArt(void *res) {
@@ -174,10 +182,15 @@ int Vita_OptionGuide(const char *text) {
 }
 
 /* Vita Settings (src/menu/menu_x_c.c): the second caption strip with the captions of Touch Buttons (set 0: L2, R2, L3,
-   Rear, Front, R3) or of the page above them (set 1: Touch, Clashes, 2nd Pad, Mods, Square, Stick). The menus upload
-   a picture each time they draw it, so the change shows at once. */
+   Rear, Front, R3) or of the page above them (set 1: Touch, Clashes, 2nd Pad, Mods, Square, Stick), or the European
+   languages of the Language row (set 2: Espanol, Deutsch, Francais, Italiano in rows 0, 1, 4, 5), or Vita Settings'
+   second page (set 3: Cheats, Quick Start, Quick Save, Tech Fixes in rows 0, 1, 4, 5, the cheat's Unlock All in 6),
+   or the Tech Fixes' two (set 4: Z Counter, Bombardment in rows 0, 1). Rows 2 and 3 (Normal, Custom: the control
+   type's picker) are the same in every set. The menus upload a picture each time they draw it, so the change shows
+   at once. */
 void Vita_OptionCaptions(int set) {
-    const uint8_t *b = set ? kOptCapV : kOptCapT;
+    static const uint8_t *const kSet[5] = {kOptCapT, kOptCapV, kOptCapL, kOptCapX, kOptCapY};
+    const uint8_t *b = kSet[set >= 0 && set < 5 ? set : 0];
     unsigned k;
     if (sCapSec == NULL || set == sCapSet) {
         return;
@@ -187,6 +200,11 @@ void Vita_OptionCaptions(int set) {
         b += kOptCapRuns[k][1];
     }
     sCapSet = set;
+}
+
+/* 1: the caption sets can be put in (the options screen is up and its art is the USA disc's) */
+int Vita_OptionCaptionsOk(void) {
+    return sCapSec != NULL;
 }
 
 /* the options screen is closed: its pack is let go */

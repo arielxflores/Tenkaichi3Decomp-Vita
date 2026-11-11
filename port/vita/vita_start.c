@@ -210,8 +210,10 @@ void Vita_StartMenu(void) {
         }
         if (items[sel] == IT_UNLOCK) {
             psvDebugScreenPrintf("\n  Every character, stage, song and item, and 4,850,000\n"
-                                 "  Zenni, given to the save the game loads now. It stays\n"
-                                 "  once the game saves (it cannot be taken back).\n");
+                                 "  Zenni, given to the save the game loads now (its\n"
+                                 "  records list is emptied). It stays once the game saves\n"
+                                 "  (it cannot be taken back). Also in the game: Options >\n"
+                                 "  Controller > Vita Settings > Cheats.\n");
         } else if (items[sel] == IT_GAME) {
 #ifndef BT3_BT4
             psvDebugScreenPrintf("\n  Team BT4's Budokai Tenkaichi 4 B14 Rev2 (NauTaro's\n"

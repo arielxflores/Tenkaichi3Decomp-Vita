@@ -6,11 +6,17 @@ New
 
 - **The disc image as it is**: copy your `.iso` to `ux0:data/bt3/` and the game reads its files from it; no need to
   unpack it with 7-Zip any more (the unpacked files still work). The same for BT4 and the European disc.
-- **Languages**: Spanish, German, French and Italian menus, HUD and battle subtitles, from your own European disc
-  (SLES-54945): copy its image or its `DATA/PZS3EU1.AFS` to `ux0:data/bt3/eu/`. The language is chosen at the first start that
-  finds it. Based on Matteo Santoro's work.
+- **Languages**: Options → Sound → Language (the console's Change Voice row) sets the text and the voices together:
+  English, Japanese (voices), and with your own European disc (SLES-54945: its image or its `DATA/PZS3EU1.AFS` in
+  `ux0:data/bt3/eu/`) Spanish, German, French and Italian menus, HUD and battle subtitles, with English or Japanese
+  voices. Based on Matteo Santoro's work.
 - **Budokai Tenkaichi 4** (experimental): Team BT4's B14 Rev2 through NauTaro's BT4decomp, from your own BT4 disc's
   image or files in `ux0:data/bt3/bt4/`; chosen in the start menu. See the README.
+- **Vita Settings, a second page** (from the PC version, z3xox's): **Cheats → Unlock All** in the game (every
+  character, stage, song and item, and the most Zenni: the game's own debug unlock), **Quick Start** (no logos,
+  opening film or copyright page), **Quick Save** (saving and loading without the memory card window, on by
+  default) and **Tech Fixes** (the community's Z Counter and Bombardment fixes, off by default).
+- **Dragon History: Fight Again** in the pause menu, to start a story fight over (from the PC version).
 - **Start menu**: hold SELECT while the game starts for the game (BT3 or BT4), the language and an **Unlock
   everything** cheat (the game's own unlock: all characters, stages, music and items, and 4,850,000 Zenni, given to
   the save it loads).

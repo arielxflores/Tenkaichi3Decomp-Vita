@@ -314,3 +314,20 @@ char *Vita_GsGetenv(const char *name) {
     return strcmp(name, "BT3_GS") == 0 ? "gpu" : NULL;
 }
 
+
+#ifndef BT3_BT4 /* (BT4's: its shim, port/vita/bt4) */
+/* Quick saving (src/sys/mcflow_a.c, the PC version's, Options > Controller > Vita Settings > Quick Save): never in an
+   online session, which the Vita has not; the PC's small save icon is the log's line here. */
+int Port_NetActive(void) {
+    return 0;
+}
+
+int Port_NetSession(void) { /* (src/battle/btl_char_mgr.c: the Tech fixes, never online) */
+    return 0;
+}
+
+void Port_UiSaving(int state) {
+    extern void Vita_Log(const char *fmt, ...);
+    Vita_Log("save: %s\n", state > 0 ? "saving (quick)" : state == 0 ? "saved (quick)" : "the memory card window took over");
+}
+#endif

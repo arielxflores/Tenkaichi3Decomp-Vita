@@ -159,9 +159,10 @@ def emit(lines, out, macro, name):
     lines.append(f'static const struct {{ int section, first, count; uint32_t hash; }} k{name}Sections[] = {{' + ', '.join('{' + f'{macro}{s}' + '}' for s, _ in out) + '};')
     print(name, 'runs', len(tab), 'bytes', len(blob), [(s, len(r)) for s, r in out])
 
-# the options screen. The controller page's second row: Vibration -> Vita Settings (normal and highlighted strips)
+# the options screen. The controller page's second row: Vibration -> Vita Settings; the sound page's third row:
+# Change Voice -> Language (the text's language and the voices: Option_VitaLang) (normal and highlighted strips)
 for e in (1, 3):
-    label_job(16, e, [(128, 'Vita Settings', 4, 'left')], 128)
+    label_job(16, e, [(128, 'Vita Settings', 4, 'left'), (64, 'Language', 4, 'left')], 128)
 # the pickers' second caption strip (1P / 2P / Normal / Custom / Simple, three rows free): the captions of "Touch
 # Buttons" in the rows the Vita does not show and the free ones; Normal and Custom stay
 for e in (1, 3):
@@ -174,7 +175,8 @@ opt_previews = previews
 
 # Vita Settings needs fourteen captions of that strip, which has eight rows: the rows of Touch Buttons (L2 R2 L3 Rear
 # Front R3) and those of the page above them (Touch, Clashes, 2nd Pad, Mods, Square, Stick) take turns, written into
-# the unpacked screen as the page changes (vita_optart.c Vita_OptionCaptions). Normal and Custom stay.
+# the unpacked screen as the page changes (vita_optart.c Vita_OptionCaptions). Normal and Custom stay. A third set
+# holds the European languages of the Language row (English and Japanese are the first strip's own).
 _, sec14 = sec_bytes(14)
 cap_t = bytearray(sec14)
 for section, runs in out:
@@ -186,13 +188,32 @@ for e in (1, 3):
     cap_v = label_job(14, e, [(0, 'Touch', 128.5, 'center'), (32, 'Clashes', 128.5, 'center'), (128, '2nd Pad', 128.5, 'center'),
                               (160, 'Mods', 128.5, 'center'), (192, 'Square', 128.5, 'center'), (224, 'Stick', 128.5, 'center')],
                       64, base_sec=cap_v, keep=False)
+cap_l = bytearray(cap_t)
+for e in (1, 3):
+    cap_l = label_job(14, e, [(0, 'Espa\u00f1ol', 128.5, 'center'), (32, 'Deutsch', 128.5, 'center'),
+                              (128, 'Fran\u00e7ais', 128.5, 'center'), (160, 'Italiano', 128.5, 'center')],
+                      64, base_sec=cap_l, keep=False)
+# a fourth: Vita Settings' second page (Cheats, Quick Start, Quick Save, Tech Fixes) and the cheat's plate (Unlock
+# All); a fifth: the Tech Fixes' two (Z Counter, Bombardment). Normal and Custom stay in every set (the control
+# type's picker, whichever set was put in last).
+cap_x = bytearray(cap_t)
+for e in (1, 3):
+    cap_x = label_job(14, e, [(0, 'Cheats', 128.5, 'center'), (32, 'Quick Start', 128.5, 'center'),
+                              (128, 'Quick Save', 128.5, 'center'), (160, 'Tech Fixes', 128.5, 'center'),
+                              (192, 'Unlock All', 128.5, 'center')],
+                      64, base_sec=cap_x, keep=False)
+cap_y = bytearray(cap_t)
+for e in (1, 3):
+    cap_y = label_job(14, e, [(0, 'Z Counter', 128.5, 'center'), (32, 'Bombardment', 128.5, 'center')],
+                      64, base_sec=cap_y, keep=False)
+def differs(k):
+    return k < len(cap_t) and any(cap_t[k] != c[k] for c in (cap_v, cap_l, cap_x, cap_y))
 cap_runs = []
 i = 0
 while i < len(cap_t):
-    if cap_t[i] != cap_v[i]:
+    if differs(i):
         j = i
-        while j < len(cap_t) and (cap_t[j] != cap_v[j] or (j + 1 < len(cap_t) and cap_t[j + 1] != cap_v[j + 1]) or
-                                  (j + 2 < len(cap_t) and cap_t[j + 2] != cap_v[j + 2])):
+        while j < len(cap_t) and (differs(j) or differs(j + 1) or differs(j + 2)):
             j += 1
         cap_runs.append((i, j - i))
         i = j
@@ -221,17 +242,18 @@ lines += ['', '/* Vita Settings: the runs of the second caption strip (section 1
 for off, ln in cap_runs:
     lines.append(f'    {{0x{off:X}, {ln}}},')
 lines.append('};')
-for name, src in (('kOptCapT', cap_t), ('kOptCapV', cap_v)):
+for name, src in (('kOptCapT', cap_t), ('kOptCapV', cap_v), ('kOptCapL', cap_l), ('kOptCapX', cap_x), ('kOptCapY', cap_y)):
     blob = b''.join(bytes(src[off:off + ln]) for off, ln in cap_runs)
     lines.append(f'static const uint8_t {name}[{len(blob)}] = {{')
     for i in range(0, len(blob), 32):
         lines.append('    ' + ','.join(str(b) for b in blob[i:i + 32]) + ',')
     lines.append('};')
 print('captions: runs', len(cap_runs), 'bytes', sum(l for _, l in cap_runs))
-# preview of the second set
+# previews of the second and third sets
 for e in (1, 3):
-    t = texture(bytes(cap_v), e)
-    Image.fromarray(t['rgba'].copy(), 'RGBA').save(f'{base}/patched_opt_s14_t{e}_v.png')
+    for tag, src in (('v', cap_v), ('l', cap_l), ('x', cap_x), ('y', cap_y)):
+        t = texture(bytes(src), e)
+        Image.fromarray(t['rgba'].copy(), 'RGBA').save(f'{base}/patched_opt_s14_t{e}_{tag}.png')
 lines += ['', '/* The versus menu (file 449, section 1): the plate "1P VS 2P" reads "Multiplayer". */']
 emit(lines, out_vs, 'VSART_S', 'VsArt')
 lines += ['', '/* The button icons of the game\'s text (file 5, the boot file, member 8): L3 and R3 drawn as plates like L1, not as',
