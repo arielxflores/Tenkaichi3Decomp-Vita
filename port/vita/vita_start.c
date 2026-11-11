@@ -148,9 +148,9 @@ void Vita_Bt4Started(void) {
 /* Multiplayer: host or join, ad hoc or Wi-Fi; the time limit the host gives the match. 1: a choice was made (the
    game then starts as a match: vita_net.c). */
 static int net_menu(void) {
-    extern int gVitaNetRole, gVitaNetLink, gVitaNetTime;
-    static const char *const kTime[6] = {"the game's own", "60 seconds", "90 seconds", "180 seconds", "240 seconds", "none"};
-    int sel = 0, time = gVitaNetTime + 1;
+    extern int gVitaNetRole, gVitaNetLink, gVitaNetRules[6];
+    static const char *const kTime[6] = {"the game's (240 s)", "60 seconds", "90 seconds", "180 seconds", "240 seconds", "none"};
+    int sel = 0, time = gVitaNetRules[0] + 1;
     unsigned p;
 
     for (;;) {
@@ -187,7 +187,7 @@ static int net_menu(void) {
         } else if ((p & SCE_CTRL_CROSS) && sel < 4) {
             gVitaNetRole = (sel & 1) ? 2 : 1;
             gVitaNetLink = sel < 2 ? 1 : 2;
-            gVitaNetTime = time - 1;
+            gVitaNetRules[0] = time - 1;
             Vita_Log("vita: start menu: multiplayer, %s, %s\n", gVitaNetRole == 1 ? "host" : "join", gVitaNetLink == 1 ? "ad hoc" : "Wi-Fi");
             return 1;
         }
@@ -201,8 +201,15 @@ void Vita_StartMenu(void) {
     unsigned p;
 #ifndef BT3_BT4
     const char *why = NULL;
-    int bt4 = bt4_ready(&why);
+    int bt4;
 
+    {   /* started again for a multiplayer match by the versus menu (vita_net.c): no menu, no BT4 */
+        extern int Vita_NetStartFile(void);
+        if (Vita_NetStartFile()) {
+            return;
+        }
+    }
+    bt4 = bt4_ready(&why);
     if (start_bt4_chosen()) {
         if (bt4_was_starting()) { /* (the last start of BT4 did not get going) */
             sceIoRemove(BT4_STARTING);

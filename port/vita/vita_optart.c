@@ -14,7 +14,10 @@
  *   - section 33 (the guide's lines under the screen): lines 24, 39 and 40 (of vibration) say what the new row does,
  *     line 18 (of the voices) what Language does.
  * The versus menu (src/menu/menu_g_c.c DuelMenu_Init):
- *   - section 8, textures 0 and 1 (the plates' lettering, plain and highlighted): "1P VS 2P" becomes "Multiplayer".
+ *   - section 8, textures 0 and 1 (the plates' lettering, plain and highlighted): "1P VS 2P" becomes "Multiplayer";
+ *   - section 8, textures 2 and 3 (the battle types' lettering): while Multiplayer's choice is open, "Two Controllers",
+ *     "Ad Hoc: Host" and "Ad Hoc: Join" (Vita_VersusNetPlates), and the message window's lines 5 to 7 (section 21)
+ *     say what each does.
  * The button icons of the game's text (the boot file's member 8, src/battle/col_c_b.c FontIcon_Init), seen in the
  * skill list, the hints and the tutorials:
  *   - textures 16 and 19, L3 and R3: the PS2's sticks become black plates like L1 and R2, reading L3 and R3;
@@ -149,14 +152,78 @@ void Vita_OptionArt(void *res) {
     Vita_Log("optart: %u of 3 pictures and %u of 4 lines changed for the Vita\n", done, lines);
 }
 
+/* the versus menu as unpacked: its section 8 when the battle types' lettering is the disc's (NULL: not, or not up), its
+   message window's text, and the lines 5 to 7 kept while Multiplayer's choice writes over them */
+static uint8_t *sVsSec8, *sVsText;
+static int sVsNetOn;
+static uint8_t sVsLines[3][128];
+
 void Vita_VersusArt(void *res) {
-    unsigned done;
+    unsigned done, k;
+    const uint8_t *b = kVsNetT;
+    uint8_t *sec;
+    sVsSec8 = sVsText = NULL;
+    sVsNetOn = 0;
     if (res == NULL || ((uint32_t *)res)[0] < 27) {
         Vita_Log("vsart: not the versus menu's pack, left alone\n");
         return;
     }
     done = apply(res, (const ArtSection *)kVsArtSections, sizeof(kVsArtSections) / sizeof(kVsArtSections[0]), kVsArtRuns, kVsArtBytes, "vsart");
-    Vita_Log("vsart: %u of 1 picture changed for the Vita\n", done);
+    sec = pack_at(res, 8);
+    for (k = 0; k < sizeof(kVsNetRuns) / sizeof(kVsNetRuns[0]); k++) {
+        if (memcmp(sec + kVsNetRuns[k][0], b, kVsNetRuns[k][1]) != 0) {
+            break;
+        }
+        b += kVsNetRuns[k][1];
+    }
+    if (k == sizeof(kVsNetRuns) / sizeof(kVsNetRuns[0])) {
+        sVsSec8 = sec;
+        sVsText = pack_at(res, 21);
+    }
+    Vita_Log("vsart: %u of 1 picture changed for the Vita; Multiplayer's choice %s\n", done, sVsSec8 != NULL ? "ready" : "not the disc's art: left out");
+}
+
+/* (src/menu/menu_g_c.c) Multiplayer's choice can be offered: the screen's art is the disc's */
+int Vita_VersusNetReady(void) {
+    return sVsSec8 != NULL;
+}
+
+/* (src/menu/menu_g_c.c) Multiplayer's choice opens (1: the battle types' plates read Two Controllers, Ad Hoc: Host and Ad
+   Hoc: Join, and the message window's lines 5 to 7 say what they do) or closes (0: as the disc has them again). 0 when
+   the screen's art is not the disc's: the choice is then not offered. The menus draw from the unpacked pack every
+   frame, so the change shows at once. */
+int Vita_VersusNetPlates(int on) {
+    static const char *const kLine[3] = {"Two players on this Vita,\nwith a second controller.",
+                                         "Host a match for a Vita nearby\n(the game starts again for it).",
+                                         "Join a Vita nearby that hosts\na match (the game starts again)."};
+    const uint8_t *b;
+    unsigned k;
+    if (sVsSec8 == NULL) {
+        return 0;
+    }
+    on = on != 0;
+    if (on == sVsNetOn) {
+        return 1;
+    }
+    b = on ? kVsNetN : kVsNetT;
+    for (k = 0; k < sizeof(kVsNetRuns) / sizeof(kVsNetRuns[0]); k++) {
+        memcpy(sVsSec8 + kVsNetRuns[k][0], b, kVsNetRuns[k][1]);
+        b += kVsNetRuns[k][1];
+    }
+    for (k = 0; k < 3; k++) { /* (lines 5, 6, 7: the table's entries 6, 7, 8) */
+        Slot sl = slot_of(sVsText, (int)k + 6);
+        if (sl.p == NULL || sl.size > sizeof(sVsLines[k])) {
+            continue;
+        }
+        if (on) {
+            memcpy(sVsLines[k], sl.p, sl.size);
+            write_slot(sl, kLine[k]);
+        } else {
+            memcpy(sl.p, sVsLines[k], sl.size);
+        }
+    }
+    sVsNetOn = on;
+    return 1;
 }
 
 void Vita_IconArt(void *boot) {

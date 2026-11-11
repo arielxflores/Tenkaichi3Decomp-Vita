@@ -32,9 +32,10 @@ the Vita version here, not upstream.
 Fights run at the PS2 version's 30 fps. A few stages with heavy effects drop below that at times, most noticeably
 Kame House (its reflective sea), where it can go down to about 26 fps.
 
-Two players: on a PS TV (or a Vita with a second controller paired), the second DualShock is player 2, and the
-Versus Menu's "Multiplayer" entry is the PS2's two-controller mode. Two Vitas can also play the versus mode against
-each other, ad hoc or over the same Wi-Fi network: see [Multiplayer](#multiplayer-two-vitas).
+Two players: on a PS TV (or a Vita with a second controller paired), the second DualShock is player 2: the Versus
+Menu's Multiplayer → Two Controllers is the PS2's two-controller mode. Two Vitas can also play the versus mode against
+each other, ad hoc (Multiplayer → Ad Hoc: Host / Join) or over the same Wi-Fi network: see
+[Multiplayer](#multiplayer-two-vitas).
 
 What changed in each version: [CHANGELOG.md](CHANGELOG.md).
 
@@ -255,10 +256,12 @@ Two Vitas can play the versus mode against each other: **ad hoc** (the two Vitas
 or over the **Wi-Fi** network both are connected to. Both need this same version of the game and the files of the
 same disc.
 
-1. On both Vitas, hold SELECT while the game starts and choose **Multiplayer** in the start menu.
-2. On one, choose **Host a match**; on the other, **Join a match** of the same kind (ad hoc or Wi-Fi). For ad hoc,
-   the system's own dialog connects the two Vitas first. The one who joins sees the host's name in a list and
-   picks it with CROSS.
+1. In the game: Versus → **Multiplayer**, then **Ad Hoc: Host** on one Vita and **Ad Hoc: Join** on the other
+   (**Two Controllers** is the console's own two-player mode, for a PS TV or a paired controller). The game starts
+   again for the match; the host's Battle Settings are the match's. Or, before the game: hold SELECT while it
+   starts and choose **Multiplayer** in the start menu, which also has the Wi-Fi way (Host a match / Join a match).
+2. For ad hoc, the system's own dialog connects the two Vitas first. The one who joins sees the host's name in a
+   list and picks it with CROSS.
 3. Both games then start the match, straight into the versus mode's character select, where each player chooses
    with their own Vita. The host is player 1 and chooses the stage.
 
@@ -266,8 +269,10 @@ same disc.
   The two games have to be exactly the same, so mods, the stages and songs added from outside the disc, the European
   languages and the Tech Fixes are left out of a match, and it starts without the logos and the opening film.
 - Each Vita shows its own player's view of the fight, full screen.
-- The host can set the battle's time limit in the start menu (Multiplayer → Time limit when hosting). Going back
-  from the character select leads to the versus menu, where player 1 can choose another kind of battle (team, DP).
+- Hosting from the versus menu takes your Battle Settings (time, COM level, referee, transformations, map) into
+  the match; from the start menu, the time limit can be set there (Multiplayer → Time limit when hosting). Going
+  back from the character select leads to the versus menu, where player 1 can choose another kind of battle (team,
+  DP).
 - The match ends at the main menu, when the other player leaves or when the connection is lost; the game then
   starts again as usual, with your own save. While the game waits for the other Vita, holding SELECT + START leaves
   the match.

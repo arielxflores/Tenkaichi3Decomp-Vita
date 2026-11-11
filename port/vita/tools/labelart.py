@@ -71,7 +71,9 @@ def render(text, cap, x, baseline, w, h, fill_rows, outline_rows, shadow_rgb, em
     ys = np.arange(h)
     def rowcolors(rows):
         keys = sorted(rows)
-        return np.array([rows[min(max(y, keys[0]), keys[-1])] if y not in rows else rows[y] for y in ys], dtype=float)[:, None, :] * np.ones((1, w, 1))
+        # (a row without colours of its own takes the nearest that has them: inside a label's rows too, where a
+        # thin stroke can leave one out)
+        return np.array([rows[y] if y in rows else rows[min(keys, key=lambda k: (abs(k - y), k))] for y in ys], dtype=float)[:, None, :] * np.ones((1, w, 1))
     over(out, np.array(shadow_rgb, float)[None, None, :] * np.ones((h, w, 1)), sh * (shadow_alpha / 128.0))
     over(out, rowcolors(outline_rows), O)
     over(out, rowcolors(fill_rows), F)

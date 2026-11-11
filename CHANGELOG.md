@@ -24,7 +24,8 @@ New
   everything** cheat (the game's own unlock: all characters, stages, music and items, and 4,850,000 Zenni, given to
   the save it loads).
 - **Multiplayer between two Vitas**: the versus mode against another Vita, ad hoc (no router) or over the same
-  Wi-Fi network, from the start menu: one hosts, the other joins. Both games are kept in step by the buttons
+  Wi-Fi network: Versus → Multiplayer → Ad Hoc: Host / Ad Hoc: Join (the host's Battle Settings go with it), or the
+  start menu (ad hoc and Wi-Fi). One hosts, the other joins. Both games are kept in step by the buttons
   pressed, as in the PC version's online play; each Vita shows its own player's view of the fight. A match has its
   own save with everything unlocked (yours is not touched). See the README.
 - **Disc Fusion**: the modes of the two earlier games' discs are open (the Vita has no disc to swap).

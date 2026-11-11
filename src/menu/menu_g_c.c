@@ -5,6 +5,20 @@
 
 DuelMenu *gDuelMenu = NULL; /* 0x3B38E8 */
 
+#ifdef PORT_VITA
+/* The Vita's Multiplayer (the second plate, the console's 1P VS 2P): a choice of how, in the battle type's three plates,
+   which read Two Controllers (the console's two-player mode, as before: needs a second controller), Ad Hoc: Host and
+   Ad Hoc: Join while it is open (port/vita/vita_optart.c Vita_VersusNetPlates). Hosting or joining starts the game
+   again as a match against another Vita nearby (port/vita/vita_net.c), with the host's battle settings. */
+extern int Vita_VersusNetReady(void);
+extern int Vita_VersusNetPlates(int on);
+extern void Vita_NetRestartInto(int role, int link, const int *rules);
+static s32 sVitaNet;      /* the choice is open */
+static s32 sVitaNetKeep;  /* the battle type's cursor, kept while the choice has its plates */
+static s32 sVitaNetGo;    /* 1 host, 2 join: chosen, the screen fades out */
+static s32 sVitaNetWait;  /* frames until the game starts again */
+#endif
+
 /*
  * DuelMenu, 0x352EC0..0x3562B8: the duel mode's menu (progress mode 38). Two guide characters (Vegeta and
  * Nappa), a top list (1P vs COM, 1P vs 2P, COM vs COM, battle settings), then the battle type (single, team,
@@ -197,6 +211,8 @@ void DuelMenu_Init(s32 section) {
     {
         extern void Vita_VersusArt(void *res); /* port/vita/vita_optart.c: the second plate reads "Multiplayer" */
         Vita_VersusArt(DM->res);
+        sVitaNet = 0; /* (Multiplayer's choice closed, its plates the disc's again: Vita_VersusArt) */
+        sVitaNetGo = 0;
     }
 #endif
     DM_RES(1);
@@ -367,7 +383,11 @@ void DuelMenu_Draw(void) {
         sprintf(name, "mc_menu_plate_%d", i + 1);
         if (i == 1) {
             Flash_FindLabel(flash, NULL, name, &ref);
+#ifdef PORT_VITA /* (Multiplayer leads to ad hoc too: open without a second controller) */
+            Flash_ClipSetColor(flash, &ref, (DM->flags & DUELMENU_NO_PAD2) && !Vita_VersusNetReady() ? 0.4f : 1.0f);
+#else
             Flash_ClipSetColor(flash, &ref, (DM->flags & DUELMENU_NO_PAD2) ? 0.4f : 1.0f);
+#endif
         }
         DM_SET_UV(name, "mc_menu_text_off");
         DM_SET_UV(name, "mc_menu_text_on");
@@ -375,6 +395,12 @@ void DuelMenu_Draw(void) {
     for (i = 0; i < 3; i++) {
         DM_ROW_UV(i, 0x200);
         sprintf(name, "mc_mode_%d", i + 1);
+#ifdef PORT_VITA
+        if (i == 0) { /* (Multiplayer's choice: Two Controllers greyed without a second controller) */
+            Flash_FindLabel(flash, NULL, name, &ref);
+            Flash_ClipSetColor(flash, &ref, sVitaNet && (DM->flags & DUELMENU_NO_PAD2) ? 0.4f : 1.0f);
+        }
+#endif
         DM_SET_UV(name, "mc_mode_text_off");
         DM_SET_UV(name, "mc_mode_text_on");
     }
@@ -559,10 +585,94 @@ void DuelMenu_Update(void) {
     for (i = 0; i < DUELMENU_FLASH_NUM; i++) {
         Flash_Advance(&DM->flash[i]);
     }
+#ifdef PORT_VITA
+    if (sVitaNetGo != 0 && --sVitaNetWait <= 0) { /* (Ad Hoc: Host / Join, faded out: the game starts again for the match) */
+        s32 role = sVitaNetGo;
+        sVitaNetGo = 0;
+        Vita_NetRestartInto(role, 1, (const int *)gSaveData->rule);
+    }
+#endif
 }
 
 #define DM_LEVEL_GOTO(label) DuelMenu_ClipGoto(DM->level, label)
 #define DM_CUR DM->sel[DM->level]
+
+#ifdef PORT_VITA
+/* The message window says what the plate under the cursor does (lines 5 to 7, written over while the choice is
+   open), without a voice. */
+static void DuelMenu_VitaNetSay(void) {
+    Voice_StopWithLip();
+    DM->voiceLine = DM->sel[DUEL_LEVEL_TYPE] + 5;
+}
+
+/* Multiplayer chosen on the top list: its choice opens in the battle type's plates. */
+static void DuelMenu_VitaNetOpen(void) {
+    DM_LEVEL_GOTO("fl_ok");
+    Flash_GotoLabel(&DM->flash[0], "fl_mode_2", 1);
+    DM->level = DUEL_LEVEL_TYPE;
+    sVitaNetKeep = DM->sel[DUEL_LEVEL_TYPE];
+    Vita_VersusNetPlates(1);
+    sVitaNet = 1;
+    DM->sel[DUEL_LEVEL_TYPE] = (DM->flags & DUELMENU_NO_PAD2) ? 1 : 0;
+    DuelMenu_VitaNetSay();
+    DM_LEVEL_GOTO("fl_on_start");
+    Snd_PlaySe(1, 1);
+}
+
+/* The choice's plates as the battle types again (the cursor where the battle type was). */
+static void DuelMenu_VitaNetClose(void) {
+    DM_LEVEL_GOTO("fl_off_start");
+    Vita_VersusNetPlates(0);
+    sVitaNet = 0;
+    DM->sel[DUEL_LEVEL_TYPE] = sVitaNetKeep;
+}
+
+static void DuelMenu_VitaNetInput(void) {
+    if (sVitaNetGo != 0) {
+        return; /* (fading out) */
+    }
+    if (gPad[0].gameRepeat & (PADG_UP | PADG_DOWN)) {
+        DM->idle = 0;
+        DM_LEVEL_GOTO("fl_off_start");
+        DM_CUR += (gPad[0].gameRepeat & PADG_UP) ? 2 : 1;
+        DM_CUR %= 3;
+        DM_LEVEL_GOTO("fl_on_start");
+        DuelMenu_VitaNetSay();
+        Snd_PlaySe(1, 0);
+    } else if (gPad[0].gamePressed & PADG_CROSS) {
+        DM->idle = 0;
+        if (DM_CUR == 0) {
+            if (DM->flags & DUELMENU_NO_PAD2) {
+                Snd_PlaySe(1, 7); /* (no second controller) */
+                return;
+            }
+            DuelMenu_VitaNetClose(); /* the console's two-player mode: on to the battle type, as before */
+            DM_LEVEL_GOTO("fl_on_start");
+            DM_SAY(0, DM->sel[DUEL_LEVEL_TYPE] + 5);
+            Snd_PlaySe(1, 1);
+        } else {
+            DM_LEVEL_GOTO("fl_ok");
+            Snd_PlaySe(1, 1);
+            ColorFade_StartOut(0, 0, 0, 0x14);
+            sVitaNetGo = DM_CUR; /* 1 host, 2 join */
+            sVitaNetWait = 0x12; /* (the fade's 20 frames end the screen: the game starts again just before) */
+        }
+    } else if (gPad[0].gamePressed & PADG_TRIANGLE) {
+        char name[64];
+
+        DM->idle = 0;
+        DuelMenu_VitaNetClose();
+        DM->level = DUEL_LEVEL_TOP;
+        DM_LEVEL_GOTO("fl_on_start");
+        sprintf(name, "fl_mode_%d_cansel", DM_CUR + 1);
+        Flash_GotoLabel(&DM->flash[0], name, 1);
+        DM_SAY(0, DM->sel[DUEL_LEVEL_TOP] + 1);
+        Snd_PlaySe(1, 2);
+    } else {
+        DuelMenu_Idle();
+    }
+}
+#endif
 
 /* Pad 0 on the five levels of the menu. *result is cleared when the screen is left with cancel. */
 void DuelMenu_Input(s32 *result) {
@@ -573,13 +683,23 @@ void DuelMenu_Input(s32 *result) {
         DuelMenu_ClipGoto(DUEL_LEVEL_TOP, "fl_on_start");
         DM->flags |= DUELMENU_STARTED;
     }
+#ifdef PORT_VITA
+    if (DM->level == DUEL_LEVEL_TYPE && sVitaNet) {
+        DuelMenu_VitaNetInput();
+        return;
+    }
+#endif
     switch (DM->level) {
     case DUEL_LEVEL_TOP:
         if (gPad[0].gameRepeat & PADG_UP) {
             DM->idle = 0;
             DM_LEVEL_GOTO("fl_off_start");
             DM_CUR--;
+#ifdef PORT_VITA
+            if ((DM->flags & DUELMENU_NO_PAD2) && !Vita_VersusNetReady()) {
+#else
             if (DM->flags & DUELMENU_NO_PAD2) {
+#endif
                 if (DM_CUR == 1) {
                     DM_CUR = 0;
                 }
@@ -594,7 +714,11 @@ void DuelMenu_Input(s32 *result) {
             DM->idle = 0;
             DM_LEVEL_GOTO("fl_off_start");
             DM_CUR++;
+#ifdef PORT_VITA
+            if ((DM->flags & DUELMENU_NO_PAD2) && !Vita_VersusNetReady()) {
+#else
             if (DM->flags & DUELMENU_NO_PAD2) {
+#endif
                 if (DM_CUR == 1) {
                     DM_CUR = 2;
                 }
@@ -624,6 +748,12 @@ void DuelMenu_Input(s32 *result) {
                 break;
             }
             case 1:
+#ifdef PORT_VITA
+                if (Vita_VersusNetReady()) { /* (two controllers, or ad hoc: the choice) */
+                    DuelMenu_VitaNetOpen();
+                    break;
+                }
+#endif
                 if (DM->flags & DUELMENU_NO_PAD2) {
                     Snd_PlaySe(1, 7);
                     break;

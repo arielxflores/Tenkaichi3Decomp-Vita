@@ -80,7 +80,10 @@ static const uint8_t kIdle[PAD] = {0xFF, 0xFF, 0x80, 0x80, 0x80, 0x80};
 /* ------------------------------------------------------------------------------------------------- what was chosen */
 int gVitaNetRole;     /* the start menu's choice: 0 none, 1 host (player 1), 2 join (player 2) */
 int gVitaNetLink;     /* LINK_ADHOC or LINK_WIFI */
-int gVitaNetTime = -1; /* (the host) the battle's time limit: -1 the game's default, 0..4 = 60, 90, 180, 240 s, none */
+/* (the host) the battle settings of the match, the save's rule[0..5] (Duel Time: 0..4 = 60, 90, 180, 240 s, none; COM
+   Level; Referee; Transformations, two; Map Setting); -1: the game's own default. From the start menu (the time) or
+   from the versus menu's Multiplayer (all six, the host's own settings: Vita_NetRestartInto). */
+int gVitaNetRules[6] = {-1, -1, -1, -1, -1, -1};
 int gVitaNetDelay = -1; /* bt3.txt netdelay=<blanks> (testing): the input delay the host asks for */
 int gVitaNetTest;     /* (development build) bt3.txt nettest=<seconds>: the one-Vita test of the match's sameness */
 
@@ -553,7 +556,7 @@ static void my_name(void) {
 }
 
 static const char *time_name(int t) {
-    return t == 0 ? "60 s" : t == 1 ? "90 s" : t == 2 ? "180 s" : t == 3 ? "240 s" : t == 4 ? "none" : "the game's own";
+    return t == 0 ? "60 s" : t == 1 ? "90 s" : t == 2 ? "180 s" : t == 3 ? "240 s" : t == 4 ? "none" : "240 s (the game's own)";
 }
 
 static const char *refusal(int why) {
@@ -575,7 +578,7 @@ static int host_wait(void) {
     uint8_t pkt[PKT_MAX], in[PKT_MAX];
     uint64_t lastOffer = 0, lastWelcome = 0, since = now_us();
     uint32_t nonce = 0;
-    int joined = 0, lines = 0;
+    int joined = 0, lines = 0, r;
     NetAddr from;
 
     sSession = (uint32_t)(now_us() ^ (now_us() >> 21)) | 1u;
@@ -584,7 +587,7 @@ static int host_wait(void) {
     psvDebugScreenPrintf("\e[H\e[2J\n  Multiplayer: hosting a match (%s)\n\n  Waiting for another Vita to join ...\n\n"
                          "  On the other Vita: hold SELECT while the game starts,\n  Multiplayer > Join a match (%s).\n\n"
                          "  You are player 1 (%s). Time limit: %s.\n\n  CIRCLE: cancel.\n",
-                         sLink == LINK_ADHOC ? "ad hoc" : "Wi-Fi", sLink == LINK_ADHOC ? "ad hoc" : "Wi-Fi", sMyName, time_name(gVitaNetTime));
+                         sLink == LINK_ADHOC ? "ad hoc" : "Wi-Fi", sLink == LINK_ADHOC ? "ad hoc" : "Wi-Fi", sMyName, time_name(gVitaNetRules[0]));
     if (sLink == LINK_WIFI) {
         psvDebugScreenPrintf("  (this Vita's address: %s)\n", sMyIp);
     }
@@ -603,13 +606,17 @@ static int host_wait(void) {
             lastOffer = t;
         }
         if (joined && t - lastWelcome > 100000) {
-            int k = head(pkt, T_WELCOME);
+            int k;
+            memset(pkt, 0, 64);
+            k = head(pkt, T_WELCOME);
             put32(pkt + k, nonce);
             put32(pkt + k + 4, sSeed);
             pkt[k + 8] = (uint8_t)sDelay;
-            pkt[k + 9] = (uint8_t)(int8_t)gVitaNetTime;
-            name_put(pkt + k + 12, sMyName);
-            link_send(&sPeer, pkt, k + 12 + NAME_LEN);
+            for (r = 0; r < 6; r++) {
+                pkt[k + 12 + r] = (uint8_t)(int8_t)gVitaNetRules[r];
+            }
+            name_put(pkt + k + 20, sMyName);
+            link_send(&sPeer, pkt, k + 20 + NAME_LEN);
             lastWelcome = t;
             if (t - since > 30000000) { /* (the other Vita went quiet half-way) */
                 joined = 0;
@@ -781,18 +788,21 @@ static int join_wait(void) {
                     snprintf(note, sizeof(note), "%s: %s.", list[asking].name, refusal((int)get32(in + 16)));
                     asking = -1;
                     redraw = 1;
-                } else if (type == T_WELCOME && n >= 12 + 12 + NAME_LEN) {
+                } else if (type == T_WELCOME && n >= 12 + 20 + NAME_LEN) {
                     sPeer = from;
                     sSeed = get32(in + 16);
                     sDelay = in[20] >= 1 && in[20] <= 8 ? in[20] : 2;
-                    gVitaNetTime = (int8_t)in[21];
-                    name_get(sTheirName, in + 24);
+                    for (k = 0; k < 6; k++) {
+                        gVitaNetRules[k] = (int8_t)in[24 + k];
+                    }
+                    name_get(sTheirName, in + 32);
                     k = head(pkt, T_READY);
                     put32(pkt + k, nonce);
                     link_send(&sPeer, pkt, k + 4);
                     link_send(&sPeer, pkt, k + 4);
                     sJoinNonce = nonce;
-                    Vita_Log("net: joined %s: match %08x, seed %08x, input delay %d, time limit %d\n", sTheirName, (unsigned)sSession, sSeed, sDelay, gVitaNetTime);
+                    Vita_Log("net: joined %s: match %08x, seed %08x, input delay %d, battle settings %d %d %d %d %d %d\n", sTheirName, (unsigned)sSession,
+                             sSeed, sDelay, gVitaNetRules[0], gVitaNetRules[1], gVitaNetRules[2], gVitaNetRules[3], gVitaNetRules[4], gVitaNetRules[5]);
                     return 1;
                 }
             }
@@ -834,6 +844,59 @@ static void session_saves(void) {
         sceIoRemove(path);
     }
     setenv("BT3_SAVES", NET_SAVES, 1);
+}
+
+/* ------------------------------------------------------------------------------------------------- from the game's menus */
+#define NET_START HOME "/net_start.txt"
+
+/* (src/menu/menu_g_c.c, the versus menu's Multiplayer > Ad Hoc: Host / Join) a match is a fresh start of the game: the
+   choice and the host's battle settings are written down, and the game starts again (vita_start.c Vita_NetStartFile
+   takes them, before anything else). */
+void Vita_NetRestartInto(int role, int link, const int *rules) {
+    char text[96];
+    SceUID fd;
+    int k, n;
+
+    n = snprintf(text, sizeof(text), "net %d %d", role, link);
+    for (k = 0; k < 6; k++) {
+        n += snprintf(text + n, sizeof(text) - (size_t)n, " %d", rules != NULL ? rules[k] : -1);
+    }
+    n += snprintf(text + n, sizeof(text) - (size_t)n, "\n");
+    fd = sceIoOpen(NET_START, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
+    if (fd >= 0) {
+        sceIoWrite(fd, text, (SceSize)n);
+        sceIoClose(fd);
+    }
+    Vita_Log("net: the versus menu chose %s (%s): the game starts again for the match\n", role == 1 ? "host" : "join", link == LINK_ADHOC ? "ad hoc" : "Wi-Fi");
+    restart();
+}
+
+/* (vita_start.c, first thing) the game was started again for a match by its menus: 1, and the choice taken (the file is
+   gone again: the next start is an ordinary one, whatever happens) */
+int Vita_NetStartFile(void) {
+    char text[96];
+    int r[6], role = 0, link = 0, n, k;
+    SceUID fd = sceIoOpen(NET_START, SCE_O_RDONLY, 0);
+
+    if (fd < 0) {
+        return 0;
+    }
+    memset(text, 0, sizeof(text));
+    sceIoRead(fd, text, sizeof(text) - 1);
+    sceIoClose(fd);
+    sceIoRemove(NET_START);
+    n = sscanf(text, "net %d %d %d %d %d %d %d %d", &role, &link, &r[0], &r[1], &r[2], &r[3], &r[4], &r[5]);
+    if (n < 2 || (role != 1 && role != 2) || (link != LINK_ADHOC && link != LINK_WIFI)) {
+        Vita_Log("net: %s is not a match's start (%s), left alone\n", NET_START, text);
+        return 0;
+    }
+    gVitaNetRole = role;
+    gVitaNetLink = link;
+    for (k = 0; k < 6; k++) {
+        gVitaNetRules[k] = k + 2 < n ? r[k] : -1;
+    }
+    Vita_Log("net: started again for a match from the versus menu: %s, %s\n", role == 1 ? "host" : "join", link == LINK_ADHOC ? "ad hoc" : "Wi-Fi");
+    return 1;
 }
 
 /* What would make the two games differ, put as the game has it: the test switches of bt3.txt (a replay, the demo
@@ -1396,15 +1459,18 @@ void Vita_NetEnter(void *progress, void *save) {
     *(int *)((char *)progress + 0x624) = 0;  /* a single battle */
     *(int *)((char *)progress + 0x630) = 0;
     Save_UnlockAll(save);
-    if (gVitaNetTime >= 0 && gVitaNetTime <= 4) {
-        *(int *)((char *)save + 0xC34) = gVitaNetTime;
+    for (k = 0; k < 6; k++) { /* (the host's battle settings: rule[k] of the save) */
+        if (gVitaNetRules[k] >= 0 && gVitaNetRules[k] <= 8) {
+            *(int *)((char *)save + 0xC34 + 4 * k) = gVitaNetRules[k];
+        }
     }
     Port_Srand(sSeed);
     for (k = 0; k < 4; k++) {
         key[k] = (unsigned)Port_Rand();
     }
     Rand_SeedByArray(key, 4);
-    Vita_Log("net: the match begins: player %d, seed %08x, input delay %d, time limit %d\n", sMe + 1, sSeed, sDelay, gVitaNetTime);
+    Vita_Log("net: the match begins: player %d, seed %08x, input delay %d, battle settings %d %d %d %d %d %d\n", sMe + 1, sSeed, sDelay,
+             gVitaNetRules[0], gVitaNetRules[1], gVitaNetRules[2], gVitaNetRules[3], gVitaNetRules[4], gVitaNetRules[5]);
 }
 
 /* (menu_a.c) back at the main menu: the match is over */

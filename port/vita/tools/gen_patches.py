@@ -226,6 +226,32 @@ for e in (0, 1):
     label_job(8, e, [(32, 'Multiplayer', 4, 'left')], 32, pack='vs')
 out_vs = runs_of(patches)
 
+# The versus menu's Multiplayer, its choice of how (vita_optart.c Vita_VersusNetPlates): the battle type's three plates
+# (Single Battle, Team Battle, DP Battle: textures 2 and 3, plain and highlighted) read Two Controllers, Ad Hoc: Host and
+# Ad Hoc: Join while it is open, written into the unpacked screen and back again.
+_, sec8 = sec_bytes(8, 'vs')
+vs_t = bytearray(sec8)
+for section, runs in out_vs:
+    if section == 8:
+        for off, _o, n in runs:
+            vs_t[off:off + len(n)] = n
+vs_n = bytearray(vs_t)
+for e in (2, 3):
+    vs_n = label_job(8, e, [(0, 'Two Controllers', 4, 'left'), (32, 'Ad Hoc: Host', 4, 'left'), (64, 'Ad Hoc: Join', 4, 'left')],
+                     0, pack='vs', base_sec=vs_n, keep=False)
+vsnet_runs = []
+i = 0
+while i < len(vs_t):
+    if vs_t[i] != vs_n[i]:
+        j = i
+        while j < len(vs_t) and (vs_t[j] != vs_n[j] or (j + 1 < len(vs_t) and vs_t[j + 1] != vs_n[j + 1]) or
+                                 (j + 2 < len(vs_t) and vs_t[j + 2] != vs_n[j + 2])):
+            j += 1
+        vsnet_runs.append((i, j - i))
+        i = j
+    else:
+        i += 1
+
 # the button icons of the game's text (file 5, member 8): L3 / R3 as plates like L1, not the PS2's sticks
 patches, previews = [], []
 for e, (idx, pal) in sorted(vita_icons.make(sec_bytes(8, 'boot')[1]).items()):
@@ -256,6 +282,21 @@ for e in (1, 3):
         Image.fromarray(t['rgba'].copy(), 'RGBA').save(f'{base}/patched_opt_s14_t{e}_{tag}.png')
 lines += ['', '/* The versus menu (file 449, section 1): the plate "1P VS 2P" reads "Multiplayer". */']
 emit(lines, out_vs, 'VSART_S', 'VsArt')
+lines += ['', '/* The versus menu\'s Multiplayer choice: the runs of section 8 that differ between the battle types\' lettering (as the',
+          '   disc has it) and Two Controllers / Ad Hoc: Host / Ad Hoc: Join, and both versions of their bytes. */',
+          'static const uint32_t kVsNetRuns[][2] = { /* offset in section 8, length */']
+for off, ln in vsnet_runs:
+    lines.append(f'    {{0x{off:X}, {ln}}},')
+lines.append('};')
+for name, src in (('kVsNetT', vs_t), ('kVsNetN', vs_n)):
+    blob = b''.join(bytes(src[off:off + ln]) for off, ln in vsnet_runs)
+    lines.append(f'static const uint8_t {name}[{len(blob)}] = {{')
+    for i in range(0, len(blob), 32):
+        lines.append('    ' + ','.join(str(b) for b in blob[i:i + 32]) + ',')
+    lines.append('};')
+print('versus net plates: runs', len(vsnet_runs), 'bytes', sum(l for _, l in vsnet_runs))
+for e in (2, 3):
+    Image.fromarray(texture(bytes(vs_n), e)['rgba'].copy(), 'RGBA').save(f'{base}/patched_vs_s8_t{e}_net.png')
 lines += ['', '/* The button icons of the game\'s text (file 5, the boot file, member 8): L3 and R3 drawn as plates like L1, not as',
           '   the PS2\'s sticks, and held down the same. */']
 emit(lines, out_icons, 'ICONART_S', 'IconArt')
