@@ -12,6 +12,9 @@ Environment:
     BT3_VITA_DEV=1     the development build: its own title (BTTD00008); it reads every setting of bt3.txt (test
                        fights, statistics in the log), see docs/vita/development.md
     BT3_INCREMENTAL=1  reuse objects newer than their source (headers are not tracked)
+    BT3_VITA_TITLE_ID, BT3_VITA_TITLE, BT3_VITA_VPK
+                       another title ID, name and package file, so that the build is installed beside another one
+                       (it reads the same ux0:data/bt3: the disc, the saves, bt3.txt)
 
 The game's code is compiled as in the PC build's 32-bit variant: the same sources, the PS2 compiler's float
 constants (eeconst.py) and call arguments evaluated right to left (ptr32.r2l). The game's built-in data tables come
@@ -33,9 +36,9 @@ OUT = ROOT / ("port/build/vita" + TAG)
 GEN = ROOT / ("port/build/gen/vita" + TAG)
 SCE_SYS = ROOT / "port/vita/sce_sys"
 SAMPLES = pathlib.Path(os.environ.get("VITA_SAMPLES", SDK.parent / "samples"))  # debugScreen.c (CC0): the start-up text screen
-TITLE_ID = "BTTD00008" if DEV else "BTTD00010"
-TITLE = "BT3 (development)" if DEV else "Dragon Ball Z: BT3"
-VPK = "Tenkaichi3Decomp-Vita-dev.vpk" if DEV else "Tenkaichi3Decomp-Vita.vpk"
+TITLE_ID = os.environ.get("BT3_VITA_TITLE_ID") or ("BTTD00008" if DEV else "BTTD00010")
+TITLE = os.environ.get("BT3_VITA_TITLE") or ("BT3 (development)" if DEV else "Dragon Ball Z: BT3")
+VPK = os.environ.get("BT3_VITA_VPK") or ("Tenkaichi3Decomp-Vita-dev.vpk" if DEV else "Tenkaichi3Decomp-Vita.vpk")
 APP_VER = "01.10"  # the version the LiveArea and VitaShell show (README "Changes")
 
 # A few names exist both in the game's side and in the SDK's libraries with other meanings: the internals of the
