@@ -919,6 +919,8 @@ extern unsigned long long sceKernelGetProcessTimeWide(void);
    0 the game, 1 the display list (the rest of it), 2 unpacking vectors, 3 GS packets, 4 uploads, 5 vertex-program
    calls, 6 their strips (vu_draw), 7 batches to the chip, 8 the swap, 9 GS primitives, 10 waiting for the blank. */
 volatile unsigned char gProf;
+volatile unsigned char gProfFe, gProfRt; /* the list reader's place (gGsSplit) and the render thread's, counted apart */
+unsigned gProfHistFe[12], gProfHistRt[12];
 volatile unsigned char gProfGame; /* the game's thread: 0 running, 1 waiting for the blank, 2 waiting for the picture thread */
 unsigned gProfHist[2][12], gProfGameHist[3], gProfWorkHist;
 extern volatile unsigned char gProfWork;
@@ -934,6 +936,8 @@ static int prof_thread(SceSize args, void *argp) {
     for (;;) {
         sceKernelDelayThread(1000);
         gProfHist[gVitaGsSkip ? 0 : 1][gProf < 12 ? gProf : 11]++;
+        gProfHistFe[gProfFe < 12 ? gProfFe : 11]++;
+        gProfHistRt[gProfRt < 12 ? gProfRt : 11]++;
         gProfGameHist[gProfGame < 3 ? gProfGame : 0]++;
         gProfWorkHist += gProfWork;
     }
@@ -2309,9 +2313,15 @@ static void flush_run(const FlushIn *in) {
             }
             sSplitAt = ++sSplitN < SPLIT_MAX ? w0 + SPLIT_MS * 1000ull : 0;
         }
-        P_IN(7);
-        flush_impl(in);
-        P_OUT;
+        if (sRtOn) { /* (the render thread's draws: its own place) */
+            gProfRt = 7;
+            flush_impl(in);
+            gProfRt = 0;
+        } else {
+            P_IN(7);
+            flush_impl(in);
+            P_OUT;
+        }
         {
             unsigned long long dw = sceKernelGetProcessTimeWide() - w0;
             int kk = in->kind == 1 ? 0 : in->kind == 2 ? 1 : in->idx != NULL ? 2 : 3;
@@ -10038,6 +10048,15 @@ unsigned long long gGpuTexNs, gGpuPipeNs, gGpuEndNs;
 
 extern void __real_GsVu1_Call(int addr);
 __attribute__((hot)) void __wrap_GsVu1_Call(int addr) {
+    extern int gGsSplit;
+    if (gGsSplit) { /* (the list reader's: its own place) */
+        unsigned char keep = gProfFe;
+        gProfFe = 5;
+        __real_GsVu1_Call(addr);
+        gVglCalls[5]++;
+        gProfFe = keep;
+        return;
+    }
     P_IN(5);
     ZM(1);
     __real_GsVu1_Call(addr);

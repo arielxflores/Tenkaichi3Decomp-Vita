@@ -403,6 +403,86 @@ static uint32_t sBeListSeq;       /* the drawing thread: the list it draws */
 static uint32_t sFeGifLeft;       /* the list reader: quadwords of the GIF packet's data still to come */
 unsigned gVitaFeMiss[4];
 unsigned gVitaFeHash[3];          /* for the log: numbers worked out ahead, taken, worked out by the drawing thread */
+static void fe_publish(const uint8_t *d, uint32_t len, uint64_t h, uint32_t seq) {
+    FeHash *e = fe_slot_seq(d, seq);
+    e->seq = 0;
+    __sync_synchronize();
+    e->p = d;
+    e->len = len;
+    e->hash = h;
+    __sync_synchronize();
+    e->seq = seq;
+}
+#ifdef PORT_VITA
+/* The numbers worked out on the fourth core (with the CapUnlocker plugin), which the render thread leaves mostly
+   idle, instead of by the list reader, whose core is as busy as the drawing thread's in a fight: the reader hands
+   each one over (place, length, list) and goes on. A number not ready when the drawing thread wants it is worked out
+   there as before (up_hash_quick); one whose data the reader copied into the queue is published only if the drawing
+   thread had not reached that record yet when it was done (the bytes were still those). At most 64 wait: past
+   that (the system stops the fourth core now and then) the drawing thread works them out itself (the reader does
+   not: two threads writing one slot could leave an upload's place with another's number).
+   bt3.txt fehelper=0: off; fehelper=2: on in every other soak battle (soakab=1). Not without the fourth core. */
+int gVitaFeHelper = 1;
+extern int gVitaAbSide;
+static volatile unsigned sGrHead, sGrTail; /* (below, with the queue) */
+int Port_InGr(const void *p);
+typedef struct FeJob { const uint8_t *d; uint32_t len, seq, at; uint32_t inGr; } FeJob;
+#define FEJ_N 256
+#define FEJ_MAX 64
+static FeJob sFeJob[FEJ_N];
+static volatile unsigned sFeJobPut, sFeJobGot;
+static volatile int sFeHelperUp; /* 1 the thread runs, -1 it could not be (or not on the fourth core) */
+static UpQ sUpQHelp;             /* (the helper's own: sUpQFe stays the reader's) */
+unsigned gVitaFeHelp[4];         /* for the log: numbers worked out by the helper, its microseconds, not handed over (too many waiting), dropped (late) */
+static int fe_helper_thread(SceSize args, void *argp) {
+    extern unsigned long long sceKernelGetProcessTimeWide(void);
+    unsigned idle = 0;
+    (void)args; (void)argp;
+    for (;;) {
+        unsigned got = sFeJobGot;
+        if (got != sFeJobPut) {
+            const FeJob *j = &sFeJob[got % FEJ_N];
+            const uint8_t *d = j->d;
+            uint32_t len = j->len, seq = j->seq, at = j->at, inGr = j->inGr;
+            __sync_synchronize();
+            idle = 0;
+            if (seq + 3 < sFeListSeq || (sBeListSeq != 0 && sBeListSeq > seq) || (inGr && (int)(sGrHead - at) > 0)) {
+                gVitaFeHelp[3]++; /* (late: the drawing thread is there or past it) */
+            } else {
+                unsigned long long t0 = sceKernelGetProcessTimeWide();
+                uint64_t h = up_hash_quick_q(&sUpQHelp, d, len);
+                __sync_synchronize();
+                if (inGr && (int)(sGrHead - at) > 0) {
+                    gVitaFeHelp[3]++; /* (the bytes may have been read by the drawing thread meanwhile, or be others now) */
+                } else {
+                    fe_publish(d, len, h, seq);
+                    gVitaFeHelp[0]++;
+                }
+                gVitaFeHelp[1] += (unsigned)(sceKernelGetProcessTimeWide() - t0);
+            }
+            __sync_synchronize();
+            sFeJobGot = got + 1;
+        } else if (++idle > 2000) { /* (a lower priority than the render thread's: its draws come first) */
+            sceKernelDelayThread(idle > 20000 ? 500 : 50);
+        }
+    }
+    return 0;
+}
+static int fe_helper_use(void) {
+    if (gVitaFeHelper == 0 || (gVitaFeHelper == 2 && gVitaAbSide != 1) || sFeHelperUp < 0) {
+        return 0;
+    }
+    if (sFeHelperUp == 0) {
+        extern int gVitaCore3;
+        extern SceUID Vita_ThreadOnCore3(const char *name, SceKernelThreadEntry entry, int prio, int stack, int fallbackMask);
+        extern void Vita_Log(const char *fmt, ...);
+        SceUID th = gVitaCore3 == 1 ? Vita_ThreadOnCore3("bt3_fehash", fe_helper_thread, 80, 0x4000, 0) : -1;
+        sFeHelperUp = th >= 0 && gVitaCore3 == 1 && sceKernelStartThread(th, 0, NULL) >= 0 ? 1 : -1;
+        Vita_Log("gs: the uploads' numbers %s\n", sFeHelperUp > 0 ? "worked out on the fourth core" : "worked out by the list reader (no fourth core)");
+    }
+    return sFeHelperUp > 0;
+}
+#endif
 static void fe_hash_gif(const uint8_t *p, uint32_t qwc, int keep) {
     uint32_t q = 0;
     if (sFeGifLeft >= qwc) {
@@ -423,17 +503,36 @@ static void fe_hash_gif(const uint8_t *p, uint32_t qwc, int keep) {
         q++;
         if (keep && flg >= 2 && nloop >= 128 && q + dq <= qwc) {
             const uint8_t *d = p + (size_t)q * 16;
-            FeHash *e = fe_slot_seq(d, sFeListSeq);
-            uint64_t h = up_hash_quick_q(&sUpQFe, d, nloop * 16);
-            e->seq = 0;
-            __sync_synchronize();
-            e->p = d;
-            e->len = nloop * 16;
-            e->hash = h;
-            __sync_synchronize();
-            e->seq = sFeListSeq;
+#ifdef PORT_VITA
+            if (fe_helper_use()) {
+                unsigned put = sFeJobPut;
+                if (put - sFeJobGot < FEJ_MAX) {
+                    FeJob *j = &sFeJob[put % FEJ_N];
+                    j->d = d;
+                    j->len = nloop * 16;
+                    j->seq = sFeListSeq;
+                    j->inGr = Port_InGr(d);
+                    j->at = sGrTail; /* (the record being made begins here: GsFE_GifHashed) */
+                    __sync_synchronize();
+                    sFeJobPut = put + 1;
+                    gVitaFeHash[0]++;
+                    goto next;
+                }
+                gVitaFeHelp[2]++;
+                goto next; /* (not here either: two writers of one slot could leave one upload's place with another's
+                              number. The drawing thread works it out) */
+            }
+            if (sFeHelperUp > 0 && sFeJobGot != sFeJobPut) {
+                gVitaFeHelp[2]++; /* (the helper still at the last ones: as above) */
+                goto next;
+            }
+#endif
+            fe_publish(d, nloop * 16, up_hash_quick_q(&sUpQFe, d, nloop * 16), sFeListSeq);
             gVitaFeHash[0]++;
         }
+#ifdef PORT_VITA
+    next:
+#endif
         if (q + dq > qwc) {
             sFeGifLeft = q + dq - qwc;
             return;
@@ -1367,8 +1466,14 @@ extern volatile unsigned char gProf; /* vita_vgl.c: where the time goes */
 extern volatile int gVitaProfMeasure;
 extern void Vita_ProfSwitch(int n);
 #define VPROF(n) ((gProf = (n)), (gVitaProfMeasure ? Vita_ProfSwitch(n) : (void)0))
+/* the list reader's place, when it is a thread of its own (gGsSplit): its own, the drawing thread's was written over
+   by both (the picture thread's parts in the log mixed the two threads' time) */
+extern volatile unsigned char gProfFe;
+extern int gGsSplit;
+#define VPROF_FE(n) (gGsSplit ? (void)(gProfFe = (n)) : (void)VPROF(n))
 #else
 #define VPROF(n) ((void)0)
+#define VPROF_FE(n) ((void)0)
 #endif
 static void transfer_begin(void) {
     if (sDumpFrame == (int)sFrame && (gs.trxdir & 3) != 0) {
@@ -3064,7 +3169,7 @@ __attribute__((hot)) static void vif(const uint32_t *w, uint32_t count) {
                 break; /* misaligned run: drop it */
             }
             sStat[2] += qwc;
-            VPROF(3);
+            VPROF_FE(3);
 #ifdef PORT_VITA
             if (gGsSplit) { /* in the game's list buffer or a copy of a piece of it: copied (the game writes that again
                                 once the reader is through the list); elsewhere (textures, models): referred to, as before */
@@ -3083,7 +3188,7 @@ __attribute__((hot)) static void vif(const uint32_t *w, uint32_t count) {
             } else
 #endif
             Gs_Gif((const uint8_t *)&w[i], qwc);
-            VPROF(1);
+            VPROF_FE(1);
             i += qwc * 4;
             direct -= qwc;
             continue;
@@ -3107,11 +3212,11 @@ __attribute__((hot)) static void vif(const uint32_t *w, uint32_t count) {
                         extern int gVitaUnpackVolatile; /* gs_vu1.c: this data is gone after the call */
                         gVitaUnpackVolatile = 1;
 #endif
-                        VPROF(2);
+                        VPROF_FE(2);
                         GZM2(21);
                         GsVu1_Unpack(c, pn, pend & 0xFFFF, buf);
                         GZM2(22);
-                        VPROF(1);
+                        VPROF_FE(1);
 #ifdef PORT_VITA
                         gVitaUnpackVolatile = 0;
 #endif
@@ -3154,11 +3259,11 @@ __attribute__((hot)) static void vif(const uint32_t *w, uint32_t count) {
                     if (gVitaGsSkipF && (imm & 0x8000)) {
                         gVitaUnpackSkipped += num ? num : 256;
                     } else {
-                        VPROF(2);
+                        VPROF_FE(2);
                         GZM2(21);
                         GsVu1_Unpack(cmd, num, imm, &w[i]);
                         GZM2(22);
-                        VPROF(1);
+                        VPROF_FE(1);
                     }
                     i += need;
                     need = 0;
@@ -4462,7 +4567,7 @@ static void run_chain(uint32_t tadr, int tte) {
     unsigned long long t = sceKernelGetProcessTimeWide();
 
     sSnapNext = 0;
-    gProf = 1;
+    VPROF_FE(1);
     {
         extern void Vita_PerfListBegin(void), Vita_PerfListEnd(void);
         if (!gGsSplit) {
@@ -4473,7 +4578,7 @@ static void run_chain(uint32_t tadr, int tte) {
             Vita_PerfListEnd();
         }
     }
-    gProf = 0;
+    VPROF_FE(0);
     if (!gGsSplit) {
         Vita_ListDone((unsigned)(sceKernelGetProcessTimeWide() - t));
     }

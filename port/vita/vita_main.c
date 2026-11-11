@@ -695,6 +695,12 @@ void Vita_VBlank(unsigned vblanks) {
                             gVitaCcMax = 0;
                             gVitaCcNoRoom = 0;
                             gVitaDpBusy = 0;
+                            {
+                                extern unsigned gVitaFeHelp[4];
+                                logf_("vita:   uploads' numbers on the fourth core: %u worked out (%u ms), %u left to the drawing thread (too many waiting), %u dropped (late)\n",
+                                      gVitaFeHelp[0], gVitaFeHelp[1] / 1000, gVitaFeHelp[2], gVitaFeHelp[3]);
+                                memset(gVitaFeHelp, 0, sizeof(gVitaFeHelp));
+                            }
                             logf_("vita:   kept parts walked: %u not to be recorded (off, or their indices' room full), %u refused before; %u refused now as changing\n",
                                   gVitaDpWalk[0], gVitaDpWalk[1], gVitaDpWalk[2]);
                             memset(gVitaDpWalk, 0, sizeof(gVitaDpWalk));
@@ -717,6 +723,14 @@ void Vita_VBlank(unsigned vblanks) {
                             n += snprintf(line + n, sizeof(line) - (size_t)n, "%s %u/%u%s", kName[k], gProfHist[0][k], gProfHist[1][k], k < 9 ? ", " : "");
                         }
                         logf_("vita:   picture thread, ms in frames not drawn / drawn: %s | %u vectors per blank not unpacked\n", line, gVitaUnpackSkipped / vb);
+                        {   /* (the list reader's and the render thread's own, counted apart since: the line above had them mixed in) */
+                            extern unsigned gProfHistFe[12], gProfHistRt[12];
+                            logf_("vita:   list reader, ms: idle %u, list %u, unpack %u, GS packets %u, program calls %u, other %u | render thread, ms: idle %u, to the chip %u\n",
+                                  gProfHistFe[0], gProfHistFe[1], gProfHistFe[2], gProfHistFe[3], gProfHistFe[5],
+                                  gProfHistFe[4] + gProfHistFe[6] + gProfHistFe[7] + gProfHistFe[8] + gProfHistFe[9] + gProfHistFe[10] + gProfHistFe[11], gProfHistRt[0], gProfHistRt[7]);
+                            memset(gProfHistFe, 0, sizeof(gProfHistFe));
+                            memset(gProfHistRt, 0, sizeof(gProfHistRt));
+                        }
                         extern unsigned gVitaSnapSame2[2];
                         logf_("vita:   game thread, ms: running %u, waiting for the blank %u, waiting for the picture thread %u | %u lists not drawn for that wait | %u pieces (%u bytes) copied for the lists"
                               " | images read in place as unchanged %u, copied %u\n",
@@ -1451,6 +1465,11 @@ static void read_settings(void) {
                 n *= 2;
             }
             gVitaDpSlots = n;
+        } else if (strcmp(line, "fehelper") == 0) { /* the uploads' numbers on the fourth core: 0 off, 1 on, 2 on in the soak's B battles (gs_core.c) */
+            extern int gVitaFeHelper;
+            gVitaFeHelper = atoi(eq);
+        } else if (strcmp(line, "soakab") == 0) { /* each soak battle twice, the settings of value 2 off then on (headless.c) */
+            setenv("BT3_SOAK_AB", eq, 1);
         } else if (strcmp(line, "dpbank") == 0) { /* 0: the stage's kept groups only from the stage buffer's first 2 MB (as before; vita_vgl.c gVitaDpBank) */
             extern int gVitaDpBank;
             gVitaDpBank = atoi(eq) != 0;
