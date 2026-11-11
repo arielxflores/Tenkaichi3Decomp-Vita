@@ -23,6 +23,10 @@ New
 - **Start menu**: hold SELECT while the game starts for the game (BT3 or BT4), the language and an **Unlock
   everything** cheat (the game's own unlock: all characters, stages, music and items, and 4,850,000 Zenni, given to
   the save it loads).
+- **Multiplayer between two Vitas**: the versus mode against another Vita, ad hoc (no router) or over the same
+  Wi-Fi network, from the start menu: one hosts, the other joins. Both games are kept in step by the buttons
+  pressed, as in the PC version's online play; each Vita shows its own player's view of the fight. A match has its
+  own save with everything unlocked (yours is not touched). See the README.
 - **Disc Fusion**: the modes of the two earlier games' discs are open (the Vita has no disc to swap).
 - A crash writes `ux0:data/bt3/crash.txt` and closes the game, instead of leaving it frozen (with the kubridge
   plugin, which most setups have).
@@ -35,6 +39,8 @@ New
 Fixed
 
 - A second controller paired with the VitaControl plugin moved player 1 as well as player 2.
+- Budokai Tenkaichi 4: in a split-screen fight (two controllers), a moment the game shows as one full-screen view
+  without a camera of its own could leave player 2's fighter (and their blinding effect) out.
 - L3 / R3 on the touch panels (a corner of the screen, or the rear pad): a touch is a quick press, so
   transformations happen (the game ignores an R3 held longer than about a fifth of a second).
 - The large lettering (the title screen's, the menus' headings) no longer looks cut through.

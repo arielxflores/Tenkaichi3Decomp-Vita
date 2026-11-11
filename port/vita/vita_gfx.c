@@ -182,6 +182,12 @@ static void clash_square(int socket, unsigned *btn, unsigned char *lx, unsigned 
     if (!Port_ClashSquare()) {
         return;
     }
+#ifndef BT3_BT4
+    {   /* (a multiplayer match: this Vita's buttons are its own player's, the second for the one who joined) */
+        extern int Vita_NetPadSide(int socket);
+        socket = Vita_NetPadSide(socket);
+    }
+#endif
     if (!gVitaInMenus && (chr = BtlChar_FindByObjId(socket)) != NULL) {
         int action = BtlAct_GetCurrent(chr);
         in = (action >= 0x130 && action <= 0x132) || action == 0xFA || action == 0xFB || action == 0xFC;
@@ -316,16 +322,8 @@ char *Vita_GsGetenv(const char *name) {
 
 
 #ifndef BT3_BT4 /* (BT4's: its shim, port/vita/bt4) */
-/* Quick saving (src/sys/mcflow_a.c, the PC version's, Options > Controller > Vita Settings > Quick Save): never in an
-   online session, which the Vita has not; the PC's small save icon is the log's line here. */
-int Port_NetActive(void) {
-    return 0;
-}
-
-int Port_NetSession(void) { /* (src/battle/btl_char_mgr.c: the Tech fixes, never online) */
-    return 0;
-}
-
+/* Quick saving (src/sys/mcflow_a.c, the PC version's, Options > Controller > Vita Settings > Quick Save; never in a
+   multiplayer match, Port_NetActive: vita_net.c): the PC's small save icon is the log's line here. */
 void Port_UiSaving(int state) {
     extern void Vita_Log(const char *fmt, ...);
     Vita_Log("save: %s\n", state > 0 ? "saving (quick)" : state == 0 ? "saved (quick)" : "the memory card window took over");

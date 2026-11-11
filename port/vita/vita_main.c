@@ -45,6 +45,7 @@
 #define GAME_STACK 0x00800000
 
 unsigned int _newlib_heap_size_user = 80 * 1024 * 1024;
+volatile int gVitaNetWaiting; /* (vita_net.c) a multiplayer match waits for the other Vita: no picture, and no hang either */
 int gVitaGameFxOff; /* the effects switched off (bt3.txt weather=, moveblur=): Port_FxOff's bits, as the PC version's fx_off */
 /* (the game's code asks: src/battle/eft_c.c, src/sys/gfxm_a.c; BT4's the same) */
 int Port_FxOff(int bit) {
@@ -1096,6 +1097,12 @@ void Vita_VBlank(unsigned vblanks) {
 
 /* exit(), from anywhere in the port or the game: keep the screen until it has been read. */
 void __wrap_exit(int code) {
+#ifndef BT3_BT4
+    {   /* (a multiplayer match: the other Vita is told at once, vita_net.c) */
+        extern void Vita_NetExit(void);
+        Vita_NetExit();
+    }
+#endif
     if (!sEnded) {
         extern void Vita_PgoDump(const char *why);
         Vita_PgoDump("exit");
@@ -1489,6 +1496,14 @@ static void read_settings(void) {
             gVitaStartMode = atoi(eq);
         } else if (strcmp(line, "replay") == 0) {
             setenv("BT3_REPLAY", eq, 1);
+#ifndef BT3_BT4
+        } else if (strcmp(line, "nettest") == 0) { /* the one-Vita test of a multiplayer match, n seconds (vita_net.c) */
+            extern int gVitaNetTest;
+            gVitaNetTest = atoi(eq);
+        } else if (strcmp(line, "netdelay") == 0) { /* (the host) the match's input delay in blanks, 1..8 (vita_net.c) */
+            extern int gVitaNetDelay;
+            gVitaNetDelay = atoi(eq);
+#endif
         } else if (strncmp(line, "BT3_", 4) == 0) {
             setenv(line, eq, 1);
         }
@@ -1665,7 +1680,7 @@ static int watchdog_thread(SceSize args, void *argp) {
             }
         }
 #endif
-        if (gGsFrame != last) {
+        if (gGsFrame != last || gVitaNetWaiting) { /* (a multiplayer match waiting for the other Vita draws nothing: not a hang) */
             last = gGsFrame;
             still = 0;
             continue;
@@ -1808,6 +1823,13 @@ int __wrap_main(int argc, char **argv) {
 #endif
     find_disc();
     Vita_LoadGameData(gVitaDisc);
+#ifndef BT3_BT4
+    {   /* multiplayer (the start menu's choice, vita_net.c): the other Vita found and the match set up, before anything
+           of the game is read that the match has as the game's own (no mods, the USA disc's text) */
+        extern void Vita_NetConnect(void);
+        Vita_NetConnect();
+    }
+#endif
     {   /* mods (vita_file.c): the packs left out are told of before the game starts */
         extern const char *Vita_ModsStart(void);
         const char *note = Vita_ModsStart();

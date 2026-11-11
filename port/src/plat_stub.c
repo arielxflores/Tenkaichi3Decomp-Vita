@@ -77,6 +77,15 @@ void Port_VBlank(void) {
         extern void Vita_VBlank(unsigned vblanks); /* port/vita/vita_main.c: status screen, timing */
         Vita_VBlank(gPortVBlanks);
     }
+#ifndef BT3_BT4
+    {   /* multiplayer (port/vita/vita_net.c): this player's buttons out, the other's for this blank in; the sound
+           streams' lengths counted in blanks (snd_adx.c), the same on both Vitas */
+        extern void Port_NetBeginTick(unsigned tick);
+        extern void Port_AdxTick(void);
+        Port_NetBeginTick(gPortVBlanks);
+        Port_AdxTick();
+    }
+#endif
 #endif
     Port_Trace(gPortVBlanks);
     if (sVsyncHandler != NULL) {
@@ -90,9 +99,11 @@ int sceDbcInit() { return 1; }
 int scePad2Init() { return 1; }
 static int sPadSockets;
 int scePad2CreateSocket() { return sPadSockets++; }
-#ifdef PORT_VITA /* the second controller is there while a pad is paired for player 2 (PS TV; limeking614-dev's fork) */
+#ifdef PORT_VITA /* the second controller is there while a pad is paired for player 2 (PS TV; limeking614-dev's fork), and
+                    in a multiplayer match (the other Vita's player) */
 extern int Vita_Pad2Present(void);
-int scePad2GetState(int socket) { return socket == 1 && !Vita_Pad2Present() ? 0 : 1; }
+extern int Port_NetActive(void);
+int scePad2GetState(int socket) { return socket == 1 && !Vita_Pad2Present() && !Port_NetActive() ? 0 : 1; }
 #else
 int scePad2GetState() { return 1; }            /* connected and ready */
 #endif
@@ -118,6 +129,16 @@ static int sPadFilesTried;
 int scePad2Read(int socket, unsigned char *data) {
     int i;
 
+#if defined(PORT_VITA) && !defined(BT3_BT4)
+    {   /* a multiplayer match (port/vita/vita_net.c): both pads come from the exchange with the other Vita */
+        extern int Port_NetActive(void);
+        extern void Port_NetInput(int player, unsigned char *data);
+        if (Port_NetActive()) {
+            Port_NetInput(socket, data);
+            return 18;
+        }
+    }
+#endif
     if (!sPadFilesTried) {
         sPadFilesTried = 1;
         if (getenv("BT3_PAD_PLAY") != NULL) {

@@ -10,6 +10,8 @@
  *   Unlock all      a cheat: the game's own unlock (Save_UnlockAll, a routine the game has but never calls): every
  *                   character, stage, song and item, and 4,850,000 Zenni, given to the save the game loads now. The
  *                   game keeps it when it saves next.
+ *   Multiplayer     (BT3) a match against another Vita, ad hoc or over the same Wi-Fi network: host or join
+ *                   (vita_net.c, after the disc's files are found)
  *   Start           (CIRCLE or START too)
  *
  * BT4 that does not get going (it crashed or froze before its first pictures: ux0:data/bt3/bt4/starting.txt is
@@ -142,9 +144,60 @@ void Vita_Bt4Started(void) {
 }
 #endif
 
+#ifndef BT3_BT4
+/* Multiplayer: host or join, ad hoc or Wi-Fi; the time limit the host gives the match. 1: a choice was made (the
+   game then starts as a match: vita_net.c). */
+static int net_menu(void) {
+    extern int gVitaNetRole, gVitaNetLink, gVitaNetTime;
+    static const char *const kTime[6] = {"the game's own", "60 seconds", "90 seconds", "180 seconds", "240 seconds", "none"};
+    int sel = 0, time = gVitaNetTime + 1;
+    unsigned p;
+
+    for (;;) {
+        static const char *const kItem[6] = {"Host a match (ad hoc)", "Join a match (ad hoc)", "Host a match (Wi-Fi, the same network)",
+                                             "Join a match (Wi-Fi, the same network)", "Time limit when hosting: ", "Back"};
+        int i;
+        psvDebugScreenPrintf("\e[H\e[2J\n  Multiplayer: a match against another Vita\n\n");
+        for (i = 0; i < 6; i++) {
+            psvDebugScreenPrintf("  %s %s%s\e[39m\n", i == sel ? "\e[33m>" : " ", kItem[i], i == 4 ? kTime[time] : "");
+        }
+        psvDebugScreenPrintf("\n  Both Vitas need this same version of the game and the\n"
+                             "  same disc files. Ad hoc: the two Vitas near each other,\n"
+                             "  no router (the system asks to connect). Wi-Fi: both\n"
+                             "  connected to the same network (Settings > Network).\n\n"
+                             "  The match is the versus mode, player 1 (the host)\n"
+                             "  against player 2, everything unlocked, with a save of\n"
+                             "  its own; your save is not touched. It ends at the\n"
+                             "  main menu; then the game starts again as usual.\n\n"
+                             "  Up / down, CROSS to choose; CIRCLE: back.\n");
+        p = press(SCE_CTRL_UP | SCE_CTRL_DOWN | SCE_CTRL_CROSS | SCE_CTRL_CIRCLE | SCE_CTRL_LEFT | SCE_CTRL_RIGHT);
+        if (p & SCE_CTRL_CIRCLE) {
+            return 0;
+        }
+        if (p & SCE_CTRL_UP) {
+            sel = (sel + 5) % 6;
+        } else if (p & SCE_CTRL_DOWN) {
+            sel = (sel + 1) % 6;
+        } else if (sel == 4 && (p & (SCE_CTRL_CROSS | SCE_CTRL_RIGHT))) {
+            time = (time + 1) % 6;
+        } else if (sel == 4 && (p & SCE_CTRL_LEFT)) {
+            time = (time + 5) % 6;
+        } else if ((p & SCE_CTRL_CROSS) && sel == 5) {
+            return 0;
+        } else if ((p & SCE_CTRL_CROSS) && sel < 4) {
+            gVitaNetRole = (sel & 1) ? 2 : 1;
+            gVitaNetLink = sel < 2 ? 1 : 2;
+            gVitaNetTime = time - 1;
+            Vita_Log("vita: start menu: multiplayer, %s, %s\n", gVitaNetRole == 1 ? "host" : "join", gVitaNetLink == 1 ? "ad hoc" : "Wi-Fi");
+            return 1;
+        }
+    }
+}
+#endif
+
 void Vita_StartMenu(void) {
-    enum { IT_GAME, IT_LANG, IT_UNLOCK, IT_START };
-    int items[4], n = 0, sel = 0, i;
+    enum { IT_GAME, IT_LANG, IT_UNLOCK, IT_NET, IT_START };
+    int items[5], n = 0, sel = 0, i;
     unsigned p;
 #ifndef BT3_BT4
     const char *why = NULL;
@@ -188,6 +241,9 @@ void Vita_StartMenu(void) {
         items[n++] = IT_LANG;
     }
     items[n++] = IT_UNLOCK;
+#ifndef BT3_BT4
+    items[n++] = IT_NET;
+#endif
     items[n++] = IT_START;
     for (;;) {
         psvDebugScreenPrintf("\e[H\e[2J\n  %s: start menu\n\n", VITA_GAME_NAME);
@@ -203,6 +259,8 @@ void Vita_StartMenu(void) {
                 psvDebugScreenPrintf("Language: %s", VitaEu_LangName(VitaEu_Lang()));
             } else if (items[i] == IT_UNLOCK) {
                 psvDebugScreenPrintf("Unlock everything (cheat): %s", gVitaCheatUnlock ? "ON" : "OFF");
+            } else if (items[i] == IT_NET) {
+                psvDebugScreenPrintf("Multiplayer: play against another Vita");
             } else {
                 psvDebugScreenPrintf("Start the game");
             }
@@ -214,6 +272,10 @@ void Vita_StartMenu(void) {
                                  "  records list is emptied). It stays once the game saves\n"
                                  "  (it cannot be taken back). Also in the game: Options >\n"
                                  "  Controller > Vita Settings > Cheats.\n");
+        } else if (items[sel] == IT_NET) {
+            psvDebugScreenPrintf("\n  A match of the versus mode against a friend's Vita:\n"
+                                 "  ad hoc (the two Vitas near each other) or over the\n"
+                                 "  same Wi-Fi network. One hosts, the other joins.\n");
         } else if (items[sel] == IT_GAME) {
 #ifndef BT3_BT4
             psvDebugScreenPrintf("\n  Team BT4's Budokai Tenkaichi 4 B14 Rev2 (NauTaro's\n"
@@ -256,6 +318,12 @@ void Vita_StartMenu(void) {
             VitaEu_ChooseLanguage();
         } else if (items[sel] == IT_UNLOCK) {
             gVitaCheatUnlock ^= 1;
+#ifndef BT3_BT4
+        } else if (items[sel] == IT_NET) {
+            if (net_menu()) {
+                break;
+            }
+#endif
         } else {
             break;
         }

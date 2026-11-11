@@ -38,6 +38,8 @@ all of them. The full list, each with a comment, is `read_settings` in `port/vit
 | `drawlog=<a>-<b>`, `drawlogverts=<n>` | Each draw of frames (lists) a..b in the log: its path, state and size; with `drawlogverts`, the vertices of its GS draws of n vertices or more |
 | `bislist=<n>`, `bisfrom=<i>`, `bisto=<j>`, `biskind=<mask>`, `bisinv=1` | In frame n, the draws i..j-1 of the kinds in mask (1 GS primitives, 2 the stage's batches, 4 the fighters' batches, 8 / 16 the stage's / fighters' kept parts) left out, or (`bisinv`) only those drawn: with `film`, which draw makes a wrong picture |
 | `zlayer=<n>` | Depth steps a stage layer laid on the stage leads by (default 2; 0: none) |
+| `nettest=<s>` | The one-Vita test of a multiplayer match (`port/vita/vita_net.c`): a match with no line, both players' buttons from a fixed script, the game's thread held up at random moments; every second the game's state into `ux0:data/bt3/net_test.txt`, for s seconds of blanks. Two runs must write the same file |
+| `netdelay=<n>` | (the host) a multiplayer match's input delay, 1..8 blanks (default 2 ad hoc, 3 Wi-Fi) |
 
 Most of the remaining settings switch one optimisation of the renderer off (`fastlane=0`, `stx=0`, `wtc=0`, ...)
 so that its effect can be measured or a picture compared with and without it.

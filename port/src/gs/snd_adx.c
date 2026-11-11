@@ -54,6 +54,9 @@ typedef struct Player {
     VitaReadJob job;
     volatile uint32_t loaded;
     int own, waiting;
+    /* (a multiplayer match, port/vita/vita_net.c) what the game is told of the stream: playing for as many blanks as
+       its file says, counted at every blank (Port_AdxTick), the same on both Vitas whenever each one hears it */
+    int vstat, vleft, vpaused;
 #endif
 } Player;
 
@@ -394,6 +397,59 @@ static void start(Player *p, const char *path) {
     }
 }
 
+#if defined(PORT_VITA) && !defined(BT3_BT4)
+/* A multiplayer match (port/vita/vita_net.c): the game waits for voice lines and music to end (the fighters' intros
+   and win lines, the menus' guides), and the moment a stream ends must be the same blank on both Vitas, not the moment
+   each one's sound has played it (its reading and its sound thread's pace are its own). As the PC version does in its
+   online matches: the length in blanks from the file's header, counted down at every blank. */
+extern int Port_NetActive(void);
+
+static void view_start(Player *p, const char *path, int found) {
+    uint8_t h[0x40];
+    SceUID fd;
+    uint32_t base = 0, size = 0, header, rate, total;
+    int own = 0, got = 0;
+
+    p->vstat = ADXT_STAT_STOP;
+    p->vleft = 0;
+    if (!found || !Vita_FileSpan(path, &fd, &base, &size, &own)) {
+        return;
+    }
+    if (size >= sizeof(h)) {
+        got = sceIoPread(fd, h, sizeof(h), base) == (int)sizeof(h);
+    }
+    if (own) {
+        sceIoClose(fd);
+    }
+    if (!got || be16(h) != 0x8000) {
+        return;
+    }
+    header = be16(h + 2) + 4;
+    rate = be32(h + 8);
+    total = be32(h + 12);
+    if (h[0x12] == 4 && header >= 0x38 && be32(h + 0x24) != 0 && be32(h + 0x30) > be32(h + 0x28)) {
+        p->vleft = -1; /* (it loops: never ends) */
+    } else if (rate != 0) {
+        p->vleft = (int)(((uint64_t)total * 60000u + (uint64_t)rate * 1001u - 1u) / ((uint64_t)rate * 1001u)) + 1;
+    }
+    p->vstat = p->vleft != 0 ? ADXT_STAT_PLAYING : ADXT_STAT_STOP;
+}
+
+/* (plat_stub.c Port_VBlank) a blank of the streams that play */
+void Port_AdxTick(void) {
+    int i;
+    for (i = 0; i < sCount; i++) {
+        Player *p = &sPlayers[i];
+        if (p->vstat == ADXT_STAT_PLAYING && !p->vpaused && p->vleft > 0 && --p->vleft == 0) {
+            p->vstat = ADXT_STAT_PLAYEND;
+        }
+    }
+}
+#define VIEW_START(p, path, found) do { if (Port_NetActive()) { view_start((p), (path), (found)); } } while (0)
+#else
+#define VIEW_START(p, path, found) ((void)0)
+#endif
+
 /* ------------------------------------------------------------------------------- the library's functions */
 
 void ADXT_Init(void) {}
@@ -415,8 +471,12 @@ void ADXT_StartAfs(void *adxt, int patid, int fid) {
 
     if (adxt != NULL && Port_FilePath(patid, fid, NULL, path, sizeof(path))) {
         start(adxt, path);
+        VIEW_START((Player *)adxt, path, 1);
     } else {
         ADX_LOG("adx: player %d: archive %d file %d not found\n", adxt != NULL ? (int)((Player *)adxt - sPlayers) : -1, patid, fid);
+        if (adxt != NULL) {
+            VIEW_START((Player *)adxt, path, 0);
+        }
     }
 }
 
@@ -425,12 +485,18 @@ void ADXT_StartFname(void *adxt, char *fname) {
 
     if (adxt != NULL && Port_FilePath(0, 0, fname, path, sizeof(path))) {
         start(adxt, path);
+        VIEW_START((Player *)adxt, path, 1);
+    } else if (adxt != NULL) {
+        VIEW_START((Player *)adxt, path, 0);
     }
 }
 
 void ADXT_Stop(void *adxt) {
     if (adxt != NULL) {
         stop(adxt);
+#if defined(PORT_VITA) && !defined(BT3_BT4)
+        ((Player *)adxt)->vstat = ADXT_STAT_STOP;
+#endif
     }
 }
 
@@ -440,6 +506,9 @@ void ADXT_Pause(void *adxt, int sw) {
     if (p == NULL) {
         return;
     }
+#if defined(PORT_VITA) && !defined(BT3_BT4)
+    p->vpaused = sw != 0;
+#endif
     if (getenv("BT3_SND_VERBOSE") != NULL && p->paused != (sw != 0)) {
         fprintf(stderr, "adx: player %d pause %d\n", (int)(p - sPlayers), sw);
     }
@@ -492,6 +561,11 @@ void ADXT_SetOutputMono(int flag) {
 }
 
 int ADXT_GetStat(void *adxt) {
+#if defined(PORT_VITA) && !defined(BT3_BT4)
+    if (adxt != NULL && Port_NetActive()) {
+        return ((Player *)adxt)->vstat; /* (counted in blanks: the same on both Vitas) */
+    }
+#endif
     return adxt != NULL ? ((Player *)adxt)->stat : ADXT_STAT_STOP;
 }
 

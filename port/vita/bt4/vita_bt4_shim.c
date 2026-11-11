@@ -128,7 +128,7 @@ int Port_NetSpecView(void) { return 0; }
 int Port_NetSpectating(void) { return 0; }
 void Port_NetSpeedSet(int percent) { (void)percent; }
 int Port_NetSpeedStandard(void) { return 0; }
-int Port_NetView(void) { return 0; }
+int Port_NetView(void) { return -1; } /* (no match: -1, "no view of its own"; 0 made a split-screen fight's one-view moments draw only player 1) */
 const char *Port_OnlineBlocked(void) { return "Online play is not available on the PS Vita."; }
 void Port_OnlineNicknameBegin(void) {  }
 int Port_OnlineNicknameSubmit(const char *name) { (void)name; return 0; }

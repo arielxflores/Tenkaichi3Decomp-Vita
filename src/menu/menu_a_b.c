@@ -73,10 +73,28 @@ s32 Progress_Main(s32 arg) {
             gProgress->mode = gVitaStartMode;
         }
     }
+    { /* a multiplayer match (port/vita/vita_net.c): straight to the versus mode's character select, everything
+         unlocked, the host's seed; once, before the first run (the memory card's check, with the match's own empty
+         save folder) */
+        extern int Port_NetSession(void);
+        extern void Vita_NetEnter(void *progress, void *save);
+        extern void *gSaveData; /* (include/sys/save.h) */
+        static s32 netEntered;
+        if (Port_NetSession() && !netEntered) {
+            netEntered = 1;
+            Vita_NetEnter(gProgress, gSaveData);
+        }
+    }
 #endif
     if (gProgress->flags & MPROG_FIRST_RUN) {
         FirstRun_Main();
         gProgress->flags &= ~MPROG_FIRST_RUN;
+#ifdef PORT_VITA
+        { /* (a multiplayer match: the start-up is over, the two Vitas meet at the character select) */
+            extern void Port_NetArrived(void);
+            Port_NetArrived();
+        }
+#endif
     }
 #ifdef PORT_VITA
     { extern int gVitaStartMode; gVitaStartMode = 0; } /* (once: FirstRun_Main skipped the opening film for it) */

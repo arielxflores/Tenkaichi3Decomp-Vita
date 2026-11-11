@@ -33,8 +33,8 @@ Fights run at the PS2 version's 30 fps. A few stages with heavy effects drop bel
 Kame House (its reflective sea), where it can go down to about 26 fps.
 
 Two players: on a PS TV (or a Vita with a second controller paired), the second DualShock is player 2, and the
-Versus Menu's "Multiplayer" entry is the PS2's two-controller mode. Ad-hoc and online play between two Vitas are not
-implemented yet.
+Versus Menu's "Multiplayer" entry is the PS2's two-controller mode. Two Vitas can also play the versus mode against
+each other, ad hoc or over the same Wi-Fi network: see [Multiplayer](#multiplayer-two-vitas).
 
 What changed in each version: [CHANGELOG.md](CHANGELOG.md).
 
@@ -171,6 +171,7 @@ Hold SELECT while the game starts (from the LiveArea until the text screen shows
   item, and 4,850,000 Zenni, given to the save the game loads (its records list is emptied). It stays once the game
   saves, and cannot be taken back: copy `ux0:data/bt3/saves/` first if you want to keep the save as it is. The same
   is in the game: Vita Settings → Cheats.
+- **Multiplayer**: a match against another Vita, see [Multiplayer](#multiplayer-two-vitas).
 
 ## Budokai Tenkaichi 4 (experimental)
 
@@ -248,6 +249,33 @@ songs folder, a line `file|Name In The Menu` each; the files they do not name fo
 - Nothing about them goes into the save, so a save stays good without them; the folders are read when the game
   starts.
 
+## Multiplayer (two Vitas)
+
+Two Vitas can play the versus mode against each other: **ad hoc** (the two Vitas near each other, no router needed)
+or over the **Wi-Fi** network both are connected to. Both need this same version of the game and the files of the
+same disc.
+
+1. On both Vitas, hold SELECT while the game starts and choose **Multiplayer** in the start menu.
+2. On one, choose **Host a match**; on the other, **Join a match** of the same kind (ad hoc or Wi-Fi). For ad hoc,
+   the system's own dialog connects the two Vitas first. The one who joins sees the host's name in a list and
+   picks it with CROSS.
+3. Both games then start the match, straight into the versus mode's character select, where each player chooses
+   with their own Vita. The host is player 1 and chooses the stage.
+
+- A match has a save of its own (`ux0:data/bt3/net_saves/`) with everything unlocked; your own save is not touched.
+  The two games have to be exactly the same, so mods, the stages and songs added from outside the disc, the European
+  languages and the Tech Fixes are left out of a match, and it starts without the logos and the opening film.
+- Each Vita shows its own player's view of the fight, full screen.
+- The host can set the battle's time limit in the start menu (Multiplayer → Time limit when hosting). Going back
+  from the character select leads to the versus menu, where player 1 can choose another kind of battle (team, DP).
+- The match ends at the main menu, when the other player leaves or when the connection is lost; the game then
+  starts again as usual, with your own save. While the game waits for the other Vita, holding SELECT + START leaves
+  the match.
+- The two games stay in step by sending each other the buttons pressed, as the PC version's online play does: when
+  the connection is slow, both wait for it. If the two games ever stop agreeing (a desync), `log.txt` says so.
+
+Multiplayer is new: when something goes wrong, `ux0:data/bt3/log.txt` from both Vitas helps.
+
 ## Troubleshooting
 
 - **"The game's files were not found"**: the disc image (`.iso`) must be in `ux0:data/bt3/` or
@@ -265,7 +293,7 @@ songs folder, a line `file|Name In The Menu` each; the files they do not name fo
 ## Notes
 
 - Saves (a virtual memory card) and settings are kept in `ux0:data/bt3/`: `saves/`, `bt3_settings.txt` (Clashes,
-  2nd Pad, Mods) and `touch.txt` (Touch). `log.txt` there describes the last runs, which helps with bug reports.
+  2nd Pad, Mods) and `touch.txt` (Touch); a multiplayer match's own save is `net_saves/`. `log.txt` there describes the last runs, which helps with bug reports.
 - The first start takes a little longer: the shaders are compiled and kept in `ux0:data/bt3/shcache/`.
 - The port runs the Vita at its standard maximum clocks (CPU 444 MHz, GPU 222 MHz); no overclocking plugin is
   used or needed.
@@ -298,16 +326,17 @@ changes the Vita needed in the shared code, most of them inside `#ifdef PORT_VIT
   authors of the BT3-Decompiled decompilation it uses; z3xox's later fixes are ported here (the seam models,
   the story mode's saga list, the palette tables) along with the PC version's Square option for clashes, its
   developer cheat (Unlock All), Quick Start, Quick Save, Fight Again, and the stages and songs added from outside
-  the disc with their names in the game's lettering (with valenvivaldi's MP3 conversion); the community's Z Counter
-  and Bombardment fixes come from there too
+  the disc with their names in the game's lettering (with valenvivaldi's MP3 conversion), and its online play,
+  whose design (the two games kept in step by their buttons) the Vitas' multiplayer follows; the community's Z
+  Counter and Bombardment fixes come from there too
 - [NauTaro](https://github.com/NauTaro) for [BT4decomp](https://github.com/NauTaro/DBZ-BT4-Tag-Team-Decomp), whose
   game code the Budokai Tenkaichi 4 program is built from, and Team BT4 for Budokai Tenkaichi 4
 - [Matteo Santoro](https://github.com/Matt-code-d) for the European languages and the Dragon World Tour fix
   (Yamcha's invitation), and [limeking614-dev](https://github.com/limeking614-dev) for the PS TV controller
   support, from their forks
 - Spike, the developer of Dragon Ball Z: Budokai Tenkaichi 3
-- [Rinnegatamante](https://github.com/Rinnegatamante) for vitaGL and vitaShaRK, and [bythos14](https://github.com/bythos14)
-  for SceShaccCgExt
+- [Rinnegatamante](https://github.com/Rinnegatamante) for vitaGL and vitaShaRK, and for vitaQuake, whose ad hoc
+  multiplayer showed how the Vita connects ad hoc; [bythos14](https://github.com/bythos14) for SceShaccCgExt
 - [GrapheneCt](https://github.com/GrapheneCt) for CapUnlocker
 - The [VitaSDK](https://vitasdk.org/) team
 - The third-party code and data used by the port are listed in [THIRD_PARTY.md](THIRD_PARTY.md).

@@ -322,12 +322,25 @@ s32 BtlScene_IsSecondView(void) {
 }
 
 /* Tells a task whether to draw for this fighter in the view being drawn (split-screen aware). */
+#ifdef PORT_VITA
+extern int Port_NetView(void);          /* port/vita/vita_net.c: the local player's view (0 or 1) in a match, or -1 */
+extern s32 BtlCam_GetPriorityView(void);
+#endif
 s32 BtlScene_IsCharInView(s32 objId) {
     if (Battle_IsSplitScreen()) {
         if (BtlScene_IsSingleView()) {
             if (EftCam_IsActive()) {
                 return 1;
             }
+#ifdef PORT_VITA
+            /* (as the PC version online) a match shows the local player's view of the two-player fight full screen
+               (BtlCam_UpdateOverride): to the game "one view", where with no camera priority both fighters count as
+               shown, and what a fighter's effects draw only in his own view was drawn for the opponent too. Here as in
+               the two halves: only the view's own fighter. Asked by drawing code only. */
+            if (Port_NetView() >= 0 && BtlCam_GetPriorityView() < 0) {
+                return objId == Port_NetView();
+            }
+#endif
             return BtlCharApi_IsCamShown(objId);
         }
         return BtlScene_IsSecondView() == objId;

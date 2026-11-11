@@ -193,6 +193,54 @@ extern int *BtlSeq_GetClock(void);
 extern int BtlCharApi_GetHp(int objId);
 extern void BtlCharApi_GetPos(int objId, float *out);
 
+#ifdef PORT_VITA
+/* (port/vita/vita_net.c) For the check that two Vitas in a multiplayer match still compute the same game: a number
+   made of what has to be the same on both at a vertical blank whatever each player's view and settings, as the PC
+   version's (port/src/headless.c there): where the game is (the menu mode, whether the first run still runs) and,
+   in a fight, both fighters' health and position, the sequence's state and the battle clock. `strong` (the one-Vita
+   test, which compares a run with another of the same Vita) adds both random generators' states. */
+extern struct { int unk0, baseFile; void *unk8[3]; int flags, mode; } GAME_PTR gProgress; /* include/menu/menu_a.h */
+extern unsigned gRandState[624];
+extern int gRandIndex;
+extern unsigned long long gPortRandNext;
+unsigned long long Port_NetDigest(int strong) {
+    struct { int mode, first, battle, seq, clock, hp[2]; unsigned pos[2][3]; } d;
+    float q[4] __attribute__((aligned(16)));
+    unsigned long long h = 0xCBF29CE484222325ull;
+    const unsigned char *b = (const unsigned char *)&d;
+    unsigned i;
+    int k;
+
+    memset(&d, 0, sizeof(d));
+    if (gProgress != NULL) {
+        d.mode = gProgress->mode;
+        d.first = (gProgress->flags & 0x40) != 0;
+    }
+    if (gBtlSeq != NULL && gBtlSeq->state >= 2) {
+        d.battle = 1;
+        d.seq = gBtlSeq->state;
+        d.clock = BtlSeq_GetClock()[0];
+        for (k = 0; k < 2; k++) {
+            d.hp[k] = BtlCharApi_GetHp(k);
+            BtlCharApi_GetPos(k, q);
+            memcpy(d.pos[k], q, 12);
+        }
+    }
+    for (i = 0; i < sizeof(d); i++) { /* FNV-1a */
+        h = (h ^ b[i]) * 0x100000001B3ull;
+    }
+    if (strong) {
+        const unsigned char *r = (const unsigned char *)gRandState;
+        for (i = 0; i < sizeof(gRandState); i++) {
+            h = (h ^ r[i]) * 0x100000001B3ull;
+        }
+        h = (h ^ (unsigned long long)gRandIndex) * 0x100000001B3ull;
+        h = (h ^ gPortRandNext) * 0x100000001B3ull;
+    }
+    return h;
+}
+#endif
+
 void Port_Trace(unsigned vblanks) {
     static int every = -1;
     float p[2][4] __attribute__((aligned(16)));

@@ -1308,12 +1308,23 @@ void EftBlind_Update(void) {
 }
 
 /* Draw callback: object 0's overlay over the whole screen, or each object's over its half in split screen. */
+#ifdef PORT_VITA
+extern int Port_NetView(void);          /* port/vita/vita_net.c: the local player's view (0 or 1) in a match, or -1 */
+extern s32 BtlCam_GetPriorityView(void);
+#endif
 void EftBlind_Draw(void) {
     if (BattleReplay_IsActive()) {
         return;
     }
     if (Battle_IsSplitScreen()) {
         if (BtlScene_IsSingleView()) {
+#ifdef PORT_VITA
+            /* (as the PC version online) a match's full-screen view of one player (BtlScene_IsCharInView) is the
+               game's "one view", where it draws no blinding overlay: that player's own, over the whole screen. */
+            if (Port_NetView() >= 0 && BtlCam_GetPriorityView() < 0 && (gEftBlind->flags & (Port_NetView() == 0 ? EFT_BLIND_SHOW0 : EFT_BLIND_SHOW1))) {
+                EftBlind_DrawOverlay(0, 1, gEftBlind->alpha[Port_NetView()]);
+            }
+#endif
             return;
         }
         if (gEftBlind->flags & EFT_BLIND_SHOW0) {

@@ -239,6 +239,8 @@ def port_sources():
         out += [(S / (n + ".c"), "ee") for n in ("bt3_gameplay_rules", "bt3_bombardment", "bt3_zcounter2")]
         # stages and songs added from outside the disc, their names in the game's lettering, MP3 files made into songs
         out += [(V / (n + ".c"), "hard") for n in ("vita_extras", "vita_names", "vita_namefont", "vita_mp3")]
+        # multiplayer: a match against another Vita, ad hoc or over Wi-Fi (z3xox's lockstep design)
+        out += [(V / "vita_net.c", "hard")]
     return out
 
 
@@ -319,7 +321,8 @@ LIBS = ["-lvitaGL", "-lstdc++", "-lSceCommonDialog_stub", "-lSceGxm_stub", "-lma
         "-lSceShaccCg_stub", "-lSceKernelDmacMgr_stub", "-lSceAudio_stub", "-lScePerf_stub_weak",
         "-lSceDisplay_stub", "-lSceCtrl_stub", "-lSceTouch_stub", "-lScePower_stub", "-lSceAppMgr_stub", "-lSceAppUtil_stub",
         "-lSceSysmodule_stub", "-lSceRtc_stub", "-lSceKernelThreadMgr_stub", "-lSceProcessmgr_stub", "-lSceLibKernel_stub",
-        "-lSceIofilemgr_stub", "-lSceSysmem_stub", "-lkubridge_stub_weak", "-lpthread", "-lz", "-lm"]
+        "-lSceIofilemgr_stub", "-lSceSysmem_stub", "-lkubridge_stub_weak", "-lSceNet_stub", "-lSceNetCtl_stub", "-lScePspnetAdhoc_stub",
+        "-lpthread", "-lz", "-lm"]
 
 # Game functions replaced by faster equivalents (port/src/port_fast.c: the stage's culling, the effects' task lists).
 FAST_WRAPS = "StgFrustum_TestBox StgFrustum_TestPart BtlTaskList_Update BtlTaskList_Draw EftGfx_DrawPolyAvgZFront Bpe_Decode".split()

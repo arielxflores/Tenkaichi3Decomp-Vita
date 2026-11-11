@@ -157,6 +157,12 @@ int VitaEu_Available(void) {
     return sFd >= 0 || sDir;
 }
 
+/* (a multiplayer match, vita_net.c) the USA disc's text and voices on both Vitas, whatever each player chose: the
+   languages' files differ in size, and the game sizes things from them. Not kept: the next start has the choice. */
+void VitaEu_MatchEnglish(void) {
+    sLang = 0;
+}
+
 int VitaEu_Lang(void) {
     return VitaEu_Available() ? sLang : 0;
 }

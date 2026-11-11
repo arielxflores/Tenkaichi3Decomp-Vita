@@ -732,7 +732,14 @@ int ADXF_ReadNw(void *h, int nsct, void *buf) {
     f->rdSct = nsct;
     f->rdHave = have;
     f->rdWant = want;
+#ifndef BT3_BT4
+    /* (a multiplayer match: the read is made now, so that the game finds it done at the same blank on both Vitas,
+       however fast each one's memory card is: vita_net.c) */
+    extern int Port_NetActive(void);
+    if (have != 0 && Vita_ReadOn() && !Port_NetActive()) {
+#else
     if (have != 0 && Vita_ReadOn()) {
+#endif
         f->job.fd = f->fd;
         f->job.off = (SceOff)f->base + pos;
         f->job.buf = buf;
