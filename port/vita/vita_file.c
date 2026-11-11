@@ -508,7 +508,15 @@ void *ADXF_OpenAfs(int ptid, int flid) {
 #ifndef BT3_BT4
     {   /* an added stage or song (vita_extras.c): its own file, past the archive's end */
         char path[300];
-        if (Vita_ExtraPath(ptid, flid, path, sizeof(path))) {
+        int extra = Vita_ExtraPath(ptid, flid, path, sizeof(path));
+        if (!extra && (ptid & 7) == 2 && flid >= 70000 && flid < 70000 + 26 && sPart[1].fd > 0 && sPart[1].count > 0x170) {
+            /* an added stage that is not there (a replay saved with one, its file taken away since): the game asks
+               again and again until a file opens, so the disc's first stage is given in its place */
+            extern void Vita_Log(const char *fmt, ...);
+            Vita_Log("stages: added stage %d is not in the folder: the first stage of the disc instead\n", flid - 70000);
+            return ADXF_OpenAfs(1, 0x170);
+        }
+        if (extra) {
             SceUID fd = sceIoOpen(path, SCE_O_RDONLY, 0);
             SceOff size;
             if (fd < 0) {
