@@ -27,6 +27,8 @@ Fixed
   transformations happen (the game ignores an R3 held longer than about a fifth of a second).
 - The large lettering (the title screen's, the menus' headings) no longer looks cut through.
 - No freeze of about a second when the opening film ends or is skipped.
+- A two-player battle without a second controller says so in the Vita's words, not the PS2's ("No DUALSHOCK 2
+  analog controller ... controller port 2").
 
 Faster
 

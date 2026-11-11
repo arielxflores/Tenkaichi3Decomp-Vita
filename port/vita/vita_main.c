@@ -1435,13 +1435,19 @@ static void read_settings(void) {
             extern int gVitaDump;
             gVitaDump = atoi(eq);
         } else if (strcmp(line, "demostage") == 0 || strcmp(line, "demochara1") == 0 || strcmp(line, "demochara2") == 0 ||
-                   strcmp(line, "demoduel") == 0 || strcmp(line, "demoxform") == 0) { /* the test fight: stage, fighters, a duel with intros */
+                   strcmp(line, "demoduel") == 0 || strcmp(line, "demoxform") == 0 || strcmp(line, "demosplit") == 0) {
+            /* the test fight: stage, fighters, a duel with intros, the screen split for two players (a second
+               controller that nobody holds: the game wants one there) */
             char env[32];
             snprintf(env, sizeof(env), "BT3_DEMO_%s", line + 4);
             for (char *c = env; *c; c++) {
                 *c = (char)toupper((unsigned char)*c);
             }
             setenv(env, eq, 1);
+            if (strcmp(line, "demosplit") == 0) {
+                extern int gVitaPad2Fake;
+                gVitaPad2Fake = atoi(eq) != 0;
+            }
         } else if (strcmp(line, "soak") == 0) { /* battle after battle, never the end (port/src/headless.c Port_SoakNext) */
             if (atoi(eq) != 0) {
                 setenv("BT3_SOAK", "1", 1);
@@ -1626,8 +1632,11 @@ static int watchdog_thread(SceSize args, void *argp) {
                 unsigned d = gVitaGsDrawn - drawn0;
                 drawn0 = gVitaGsDrawn;
                 minutes++;
-                logf_("vita: minute %u: %u.%u pictures/s, in the %s; heap %u KB\n", minutes, d / 60, (d % 60) * 10 / 60,
-                      gVitaInMenus ? "menus" : "fights", (unsigned)mi.uordblks >> 10);
+                char tables[200];
+                extern int Vita_VglTables(char *out, int size);
+                Vita_VglTables(tables, sizeof(tables));
+                logf_("vita: minute %u: %u.%u pictures/s, in the %s; heap %u KB; %s\n", minutes, d / 60, (d % 60) * 10 / 60,
+                      gVitaInMenus ? "menus" : "fights", (unsigned)mi.uordblks >> 10, tables);
             }
         }
         {   /* (a BT3_PGO=gen build: its counts so far now and then, vita_pgo.c) */
