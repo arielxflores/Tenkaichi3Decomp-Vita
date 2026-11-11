@@ -696,13 +696,36 @@ void Vita_VBlank(unsigned vblanks) {
                             gVitaCcNoRoom = 0;
                             gVitaDpBusy = 0;
                             {
-                                extern unsigned gVitaFeHelp[4];
+                                extern unsigned gVitaFeHelp[4], vgl_bt3_gxm_skipped[2];
+                                logf_("vita:   GXM state calls: %u left out (they changed nothing), %u made\n", vgl_bt3_gxm_skipped[0], vgl_bt3_gxm_skipped[1]);
+                                vgl_bt3_gxm_skipped[0] = vgl_bt3_gxm_skipped[1] = 0;
                                 logf_("vita:   uploads' numbers on the fourth core: %u worked out (%u ms), %u left to the drawing thread (too many waiting), %u dropped (late)\n",
                                       gVitaFeHelp[0], gVitaFeHelp[1] / 1000, gVitaFeHelp[2], gVitaFeHelp[3]);
                                 memset(gVitaFeHelp, 0, sizeof(gVitaFeHelp));
                             }
-                            logf_("vita:   kept parts walked: %u not to be recorded (off, or their indices' room full), %u refused before; %u refused now as changing\n",
-                                  gVitaDpWalk[0], gVitaDpWalk[1], gVitaDpWalk[2]);
+                            {   /* (and which GS field the kept parts found in another state differed in first, the three most) */
+                                extern unsigned gVitaDpMiss[34];
+                                unsigned best[3] = {0, 0, 0}, bi[3] = {0, 0, 0}, i2, j2, k2;
+                                for (i2 = 0; i2 < 34; i2++) {
+                                    for (j2 = 0; j2 < 3; j2++) {
+                                        if (gVitaDpMiss[i2] > best[j2]) {
+                                            for (k2 = 2; k2 > j2; k2--) {
+                                                best[k2] = best[k2 - 1];
+                                                bi[k2] = bi[k2 - 1];
+                                            }
+                                            best[j2] = gVitaDpMiss[i2];
+                                            bi[j2] = i2;
+                                            break;
+                                        }
+                                    }
+                                }
+                                logf_("vita:   kept parts walked: %u not to be recorded (off, or their indices' room full), %u refused before; %u refused now as changing"
+                                      " | found in another state, by field: %u x %u, %u x %u, %u x %u\n",
+                                      gVitaDpWalk[0], gVitaDpWalk[1], gVitaDpWalk[2], bi[0], best[0], bi[1], best[1], bi[2], best[2]);
+                                if (!gVitaPerfOn) {
+                                    memset(gVitaDpMiss, 0, sizeof(gVitaDpMiss));
+                                }
+                            }
                             memset(gVitaDpWalk, 0, sizeof(gVitaDpWalk));
                         }
                     }
@@ -1468,6 +1491,9 @@ static void read_settings(void) {
         } else if (strcmp(line, "fehelper") == 0) { /* the uploads' numbers on the fourth core: 0 off, 1 on, 2 on in the soak's B battles (gs_core.c) */
             extern int gVitaFeHelper;
             gVitaFeHelper = atoi(eq);
+        } else if (strcmp(line, "gxmcache") == 0) { /* vitaGL's GXM state calls left out when they change nothing: 0 off, 1 on, 2 in the soak's B battles */
+            extern int gVitaGxmCache;
+            gVitaGxmCache = atoi(eq);
         } else if (strcmp(line, "soakab") == 0) { /* each soak battle twice, the settings of value 2 off then on (headless.c) */
             setenv("BT3_SOAK_AB", eq, 1);
         } else if (strcmp(line, "dpbank") == 0) { /* 0: the stage's kept groups only from the stage buffer's first 2 MB (as before; vita_vgl.c gVitaDpBank) */

@@ -430,7 +430,7 @@ index e9e6c8c..c15b2ff 100644
  			setup_elements_indices(uint32_t);
  			sceGxmDraw(gxm_context, gxm_p, SCE_GXM_INDEX_FORMAT_U32, ptr, count);
 diff --git a/source/gxm.c b/source/gxm.c
-index ffa0279..76d6495 100644
+index ffa0279..5fb1d77 100644
 --- a/source/gxm.c
 +++ b/source/gxm.c
 @@ -241,6 +241,14 @@ static void shader_patcher_host_free_cb(void *user_data, void *mem) {
@@ -481,7 +481,93 @@ index ffa0279..76d6495 100644
  	// Setting sceDisplay framebuffer
  	sceDisplaySetFrameBuf(&display_fb, SCE_DISPLAY_SETBUF_NEXTFRAME);
  
-@@ -464,6 +491,7 @@ void init_display_color_surfaces(GLboolean is_swap) {
+@@ -271,6 +298,85 @@ static void display_queue_callback(const void *callbackData) {
+ }
+ 
+ // Garbage collector
++
++/* bt3 port: the GXM state calls left out when they change nothing (shared.h) */
++int vgl_bt3_gxm_cache = 1;
++unsigned vgl_bt3_gxm_skipped[2];
++static SceGxmContext *bt3_ctx;
++static const void *bt3_vp, *bt3_fp, *bt3_stream[16];
++static SceGxmTexture bt3_tex[16];
++static uint32_t bt3_tex_ok;
++void vglbt3_GxmDirty(void) {
++	bt3_ctx = NULL;
++}
++static void vglbt3_SceneBegun(void) {
++	bt3_ctx = NULL;
++}
++static inline int bt3_on(SceGxmContext *c) {
++	if (!vgl_bt3_gxm_cache || c != gxm_context)
++		return 0;
++	if (bt3_ctx != c) {
++		bt3_ctx = c;
++		bt3_vp = bt3_fp = NULL;
++		for (int i = 0; i < 16; i++)
++			bt3_stream[i] = NULL;
++		bt3_tex_ok = 0;
++	}
++	return 1;
++}
++void vglbt3_SetVertexProgram(SceGxmContext *c, const SceGxmVertexProgram *p) {
++	if (bt3_on(c)) {
++		if (bt3_vp == p) {
++			vgl_bt3_gxm_skipped[0]++;
++			return;
++		}
++		bt3_vp = p;
++	}
++	vgl_bt3_gxm_skipped[1]++;
++	(sceGxmSetVertexProgram)(c, p);
++}
++void vglbt3_SetFragmentProgram(SceGxmContext *c, const SceGxmFragmentProgram *p) {
++	if (bt3_on(c)) {
++		if (bt3_fp == p) {
++			vgl_bt3_gxm_skipped[0]++;
++			return;
++		}
++		bt3_fp = p;
++	}
++	vgl_bt3_gxm_skipped[1]++;
++	(sceGxmSetFragmentProgram)(c, p);
++}
++int vglbt3_SetFragmentTexture(SceGxmContext *c, unsigned int i, const SceGxmTexture *t) {
++	if (i < 16 && bt3_on(c)) {
++		if ((bt3_tex_ok & (1u << i)) && memcmp(&bt3_tex[i], t, sizeof(*t)) == 0) {
++			vgl_bt3_gxm_skipped[0]++;
++			return 0;
++		}
++		int r = (sceGxmSetFragmentTexture)(c, i, t);
++		if (r == 0) {
++			bt3_tex[i] = *t;
++			bt3_tex_ok |= 1u << i;
++		} else {
++			bt3_tex_ok &= ~(1u << i);
++		}
++		vgl_bt3_gxm_skipped[1]++;
++		return r;
++	}
++	vgl_bt3_gxm_skipped[1]++;
++	return (sceGxmSetFragmentTexture)(c, i, t);
++}
++int vglbt3_SetVertexStream(SceGxmContext *c, unsigned int i, const void *p) {
++	if (i < 16 && bt3_on(c)) {
++		if (bt3_stream[i] == p && p != NULL) {
++			vgl_bt3_gxm_skipped[0]++;
++			return 0;
++		}
++		bt3_stream[i] = p;
++	}
++	vgl_bt3_gxm_skipped[1]++;
++	return (sceGxmSetVertexStream)(c, i, p);
++}
++
+ #if defined(HAVE_PTHREAD) && !defined(HAVE_SINGLE_THREADED_GC)
+ void garbage_collector(void *arg) {
+ #else
+@@ -464,6 +570,7 @@ void init_display_color_surfaces(GLboolean is_swap) {
  		if (!system_app_mode) {
  			gxm_color_surfaces_addr[i] = gpu_alloc_mapped_aligned_for_gpu(4096, VGL_ALIGN(4 * DISPLAY_STRIDE * DISPLAY_HEIGHT, 1 * 1024 * 1024));
  			vgl_memset(gxm_color_surfaces_addr[i], 0, 4 * DISPLAY_STRIDE * DISPLAY_HEIGHT);
@@ -489,7 +575,7 @@ index ffa0279..76d6495 100644
  		}
  
  		// Initializing allocated color surface
-@@ -528,6 +556,7 @@ void init_depth_stencil_buffer(uint32_t w, uint32_t h, SceGxmDepthStencilSurface
+@@ -528,6 +635,7 @@ void init_depth_stencil_buffer(uint32_t w, uint32_t h, SceGxmDepthStencilSurface
  
  void init_display_depth_stencil_surfaces(void) {
  	init_depth_stencil_buffer(DISPLAY_WIDTH, DISPLAY_HEIGHT, &gxm_depth_stencil_surface, GL_TRUE);
@@ -497,7 +583,7 @@ index ffa0279..76d6495 100644
  }
  
  void start_shader_patcher(void) {
-@@ -571,6 +600,15 @@ void start_shader_patcher(void) {
+@@ -571,6 +679,15 @@ void start_shader_patcher(void) {
  #endif
  }
  
@@ -513,7 +599,7 @@ index ffa0279..76d6495 100644
  static inline __attribute__((always_inline)) void scene_end(void) {
  	// Ends current gxm scene
  	query_fence.value++;
-@@ -622,11 +660,22 @@ void scene_reset(void) {
+@@ -622,11 +739,22 @@ void scene_reset(void) {
  				shared_fb_info.vsync = vsync_interval;
  				gxm_back_buffer_index = (shared_fb_info.index + 1) % 2;
  			}
@@ -533,11 +619,20 @@ index ffa0279..76d6495 100644
  				gxm_sync_objects[gxm_back_buffer_index],
  				&gxm_color_surfaces[gxm_back_buffer_index],
 -				&gxm_depth_stencil_surface);
-+				bt3_dsp);
++				bt3_dsp); vglbt3_SceneBegun();
  #ifdef LOG_ERRORS
  			if (r) {
  				vgl_log("%s:%d Scene reset failed due to sceGxmBeginScene erroring (%s) on display.\n", __FILE__, __LINE__, get_gxm_error_literal(r));
-@@ -717,6 +766,37 @@ void scene_reset(void) {
+@@ -678,7 +806,7 @@ void scene_reset(void) {
+ #endif
+ 					NULL, NULL, NULL,
+ 					&active_write_fb->colorbuffer,
+-					active_write_fb->depthbuffer_ptr);
++					active_write_fb->depthbuffer_ptr); vglbt3_SceneBegun();
+ #ifdef LOG_ERRORS
+ 			if (r)
+ 				vgl_log("%s:%d Scene reset failed due to sceGxmBeginScene erroring (%s) on framebuffer 0x%08X.\n", __FILE__, __LINE__, get_gxm_error_literal(r), active_write_fb);
+@@ -717,6 +845,37 @@ void scene_reset(void) {
  	}
  }
  
@@ -575,7 +670,7 @@ index ffa0279..76d6495 100644
  /*
   * ------------------------------
   * - IMPLEMENTATION STARTS HERE -
-@@ -941,6 +1021,11 @@ void vglSwapBuffers(GLboolean has_commondialog) {
+@@ -941,6 +1100,11 @@ void vglSwapBuffers(GLboolean has_commondialog) {
  #endif
  		struct display_queue_callback_data queue_cb_data;
  		queue_cb_data.addr = gxm_color_surfaces_addr[gxm_back_buffer_index];
@@ -587,7 +682,7 @@ index ffa0279..76d6495 100644
  #ifdef HAVE_PROFILING
  		tick = sceKernelGetProcessTimeLow();
  #endif
-@@ -957,6 +1042,50 @@ void vglSwapBuffers(GLboolean has_commondialog) {
+@@ -957,6 +1121,50 @@ void vglSwapBuffers(GLboolean has_commondialog) {
  	needs_scene_reset = GL_TRUE;
  	
  	// Perform resolution change if there's one pending
@@ -638,7 +733,7 @@ index ffa0279..76d6495 100644
  	if (NEW_DISPLAY_WIDTH) {
  		sceGxmFinish(gxm_context);
  		sceGxmDestroyRenderTarget(gxm_render_target);
-@@ -970,6 +1099,12 @@ void vglSwapBuffers(GLboolean has_commondialog) {
+@@ -970,6 +1178,12 @@ void vglSwapBuffers(GLboolean has_commondialog) {
  		DISPLAY_WIDTH_FLOAT = DISPLAY_WIDTH * 1.0f;
  		DISPLAY_HEIGHT_FLOAT = DISPLAY_HEIGHT * 1.0f;
  		DISPLAY_STRIDE = VGL_ALIGN(DISPLAY_WIDTH, 64);
@@ -651,6 +746,31 @@ index ffa0279..76d6495 100644
  		vector4f_convert_to_local_space(clear_vertices, 0, 0, DISPLAY_WIDTH, DISPLAY_HEIGHT);
  		update_scissor_test_uniforms();
  		create_display_render_target();
+diff --git a/source/shared.h b/source/shared.h
+index 07d8f47..6cb347d 100644
+--- a/source/shared.h
++++ b/source/shared.h
+@@ -297,6 +297,20 @@ extern int NEW_DISPLAY_HEIGHT; // Requested new display height in pixels
+ 
+ #include "texture_callbacks.h"
+ 
++/* bt3 port: the GXM state calls a draw makes, left out when they set what is set already (the same program, the
++   same texture words, the same stream); everything is set again after a scene begins. vgl_bt3_gxm_cache 0: off. */
++extern int vgl_bt3_gxm_cache;
++extern unsigned vgl_bt3_gxm_skipped[2]; /* calls left out, calls made */
++void vglbt3_SetVertexProgram(SceGxmContext *c, const SceGxmVertexProgram *p);
++void vglbt3_SetFragmentProgram(SceGxmContext *c, const SceGxmFragmentProgram *p);
++int vglbt3_SetFragmentTexture(SceGxmContext *c, unsigned int i, const SceGxmTexture *t);
++int vglbt3_SetVertexStream(SceGxmContext *c, unsigned int i, const void *p);
++void vglbt3_GxmDirty(void);
++#define sceGxmSetVertexProgram(c, p) vglbt3_SetVertexProgram(c, p)
++#define sceGxmSetFragmentProgram(c, p) vglbt3_SetFragmentProgram(c, p)
++#define sceGxmSetFragmentTexture(c, i, t) vglbt3_SetFragmentTexture(c, i, t)
++#define sceGxmSetVertexStream(c, i, p) vglbt3_SetVertexStream(c, i, p)
++
+ // Fixed-function pipeline shader cache settings
+ #define FFP_SHADER_CACHE_MAGIC 31 // This must be increased whenever ffp shader sources or shader mask/combiner mask changes
+ 
 diff --git a/source/vgl.c b/source/vgl.c
 index bf5e4d4..a09b42f 100644
 --- a/source/vgl.c

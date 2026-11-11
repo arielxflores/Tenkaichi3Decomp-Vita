@@ -6297,11 +6297,22 @@ static void t114_list_end_old(int drawn) {
         tex_reset_all();
     }
 }
+int gVitaGxmCache = 1;
 void GsGpu_FrameEnd(void) {
     al_frame_end(!gVitaGsSkip);
     flush();
     flush_bins_c(1);
     rt_sync(); /* the render thread's draws done: what follows is this thread's (the parts kept are let go, the swap) */
+    {   /* vitaGL's GXM state calls left out when they change nothing (bt3.txt gxmcache=: 0 off, 1 on, 2 on in the soak's
+           B battles); set here, the render thread idle */
+        extern int vgl_bt3_gxm_cache, gVitaAbSide;
+        extern void vglbt3_GxmDirty(void);
+        int want = gVitaGxmCache == 2 ? gVitaAbSide == 1 : gVitaGxmCache != 0;
+        if (want != vgl_bt3_gxm_cache) {
+            vgl_bt3_gxm_cache = want;
+            vglbt3_GxmDirty();
+        }
+    }
     target_set(0); /* (the picture bound again before the swap) */
     if (sWpClrN > 0) { /* a clear of the page held back and never needed: the page was not cleared */
         sWpValid = 0;
