@@ -1801,6 +1801,7 @@ static struct { uint64_t key; uint32_t gen; int refs; uint8_t *data; } sIdxT[IDX
 static struct { uint64_t key, texa; uint32_t gen; int refs; uint32_t *data; } sPalT[PAL_MAX];
 static int sPalOn = -1;
 unsigned gVitaPal[3]; /* for the log: index textures made, palettes made, textures made of the two */
+unsigned gVitaPalDrop; /* index sets let go at once, as no palette could be made for them */
 unsigned gVitaPaints; /* for the log (gs_core.c): sprites the game drew into its palettes' pages */
 static int idx_get(uint64_t key, uint32_t gen, uint32_t tbp, uint32_t tbw, uint32_t psm, uint32_t tw, uint32_t th, uint32_t n, uint32_t *px) {
     int k, freeK = -1;
@@ -2221,6 +2222,14 @@ static GLuint texture_get_k_(uint64_t t0raw, uint64_t texa) {
         gT125Us[0] += tb - ta;
         gT125Us[1] += (tc - tb) - (gVitaTexReadUs - tr0);
         gT125Us[2] += td - tc;
+        if (pi >= 0 && pp < 0 && sIdxT[pi].refs <= 0) {
+            /* (no palette for it: the texture is made of colours below, and indices that no texture holds would stay
+               for good, in the chip's memory: over a long session the table and the memory filled up, and the
+               textures made of colours instead, larger and slower to make, then failed: effects missing) */
+            vglLazyFree(sIdxT[pi].data);
+            sIdxT[pi].data = NULL;
+            gVitaPalDrop++;
+        }
         if (pi >= 0 && pp >= 0) {
             uint32_t *cw;
             t = &sTex[sTexCount++];
@@ -2373,6 +2382,18 @@ static volatile int gVitaDrawWhere;
 /* (the watchdog: vitaGL's free memory as last looked at, once a second, by the drawing thread: the watchdog itself
    calls nothing of vitaGL, which may be what is stuck) */
 static volatile unsigned sMemVramK, sMemRamK, sMemSeen;
+/* (the minute line of the log, vita_main.c: what the texture tables hold, read as they are, and the memory) */
+int Vita_VglTables(char *out, int size) {
+    int k, idx = 0, pal = 0;
+    for (k = 0; k < IDX_MAX; k++) {
+        idx += sIdxT[k].data != NULL;
+    }
+    for (k = 0; k < PAL_MAX; k++) {
+        pal += sPalT[k].data != NULL;
+    }
+    return snprintf(out, (size_t)size, "textures %d of %d (index sets %d of %d, palettes %d of %d, %u let go), video memory free %u KB, main %u KB",
+                    sTexCount, MAX_TEX, idx, IDX_MAX, pal, PAL_MAX, gVitaPalDrop, sMemVramK, sMemRamK);
+}
 static inline void wt_swap(void) {
     unsigned long long t0 = sceKernelGetProcessTimeWide();
     rt_sync();

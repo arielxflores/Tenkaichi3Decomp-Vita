@@ -78,6 +78,8 @@ extern void Port_SettingsWrite(void);
 static int sPort[2] = {0, -1};
 static unsigned char sPortType[2] = {SCE_CTRL_TYPE_PHY, 0};
 static int sPad2 = -1; /* the setting */
+int gVitaPad2Fake; /* (development build, the test runs' split-screen fights: bt3.txt demosplit=1) a second controller
+                      that nobody holds, when there is none */
 
 int Vita_Pad2Setting(void) {
     if (sPad2 < 0) {
@@ -131,7 +133,7 @@ static void ports_update(void) {
 /* The second controller is there (the game's socket 1: scePad2GetState, port/src/plat_stub.c). */
 int Vita_Pad2Present(void) {
     ports_update();
-    return sPort[1] >= 0 && Vita_Pad2Setting();
+    return (sPort[1] >= 0 && Vita_Pad2Setting()) || gVitaPad2Fake;
 }
 
 /* ---- Clashes with Square (setting clash_square: on unless set to 0; Options > Controller > Vita Settings).
@@ -230,7 +232,9 @@ int Port_PadRead(int socket, unsigned char *data) {
     memset(&pad, 0, sizeof(pad));
     pad.lx = pad.ly = pad.rx = pad.ry = 0x80;
     ds = sPortType[socket] == SCE_CTRL_TYPE_DS3 || sPortType[socket] == SCE_CTRL_TYPE_DS4;
-    if (ds) { /* a DualShock: L1 / R1 and L2 / R2 / L3 / R3 of its own */
+    if (socket == 1 && sPort[1] < 0) { /* (gVitaPad2Fake: nothing pressed) */
+        ds = 0;
+    } else if (ds) { /* a DualShock: L1 / R1 and L2 / R2 / L3 / R3 of its own */
         sceCtrlPeekBufferPositiveExt2(sPort[socket], &pad, 1);
     } else { /* the handheld's buttons (L / R are its triggers' bits), or the PS TV's merged pad as before */
         sceCtrlPeekBufferPositive(0, &pad, 1);

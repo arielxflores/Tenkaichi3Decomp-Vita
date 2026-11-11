@@ -36,6 +36,20 @@ static const Rule kRules[] = {
     {"the console", "the system"},
     {"PlayStation\xae" "2", "PS Vita"},
     {"PlayStation 2", "PS Vita"},
+    /* a two-player battle without a second controller (a PS TV's second DualShock, or VitaControl's): PZS3US1.AFS
+       member 4's "No DUALSHOCK(R)2 analog controller connected. \nVerify that a DUALSHOCK(R)2 analog controller
+       \nis properly inserted into controller port 2." (and port 1, and both: "No DUALSHOCK(R)2 analog controllers\nare
+       connected to either controller port 1 or 2. \nVerify that DUALSHOCK(R)2 analog controllers\nare properly
+       inserted into controller ports 1 and 2.") */
+    {"is properly inserted into controller port 2", "is connected as the second controller"},
+    {"is properly inserted into controller port 1", "is connected as the first controller"},
+    {"are connected to either controller port 1 or 2", "are connected"},
+    {"are properly inserted into controller ports 1 and 2", "are connected as the first and second ones"},
+    {"DUALSHOCK\xae" "2 analog controller", "controller"},
+    {"DUALSHOCK\xae" "2 analog Controller", "controller"},
+    {"DUALSHOCK 2 analog controller", "controller"},
+    {"DUALSHOCK\xae" "2", "controller"},
+    {"DUALSHOCK 2", "controller"},
 };
 
 static uint16_t ch_at(const void *s, int wide, int i) {
@@ -66,7 +80,8 @@ static int needs_fix(const void *s, int wide, int len) {
     for (i = 0; i + 2 < len; i++) {
         uint16_t c = ch_at(s, wide, i);
         if ((c == 'P' && (match_at(s, wide, i, len, "PS2") || match_at(s, wide, i, len, "PlayStation"))) ||
-            (c == 'M' && match_at(s, wide, i, len, "MEMORY CARD")) || (c == 'c' && match_at(s, wide, i, len, "console"))) {
+            (c == 'M' && match_at(s, wide, i, len, "MEMORY CARD")) || (c == 'c' && match_at(s, wide, i, len, "console")) ||
+            (c == 'D' && match_at(s, wide, i, len, "DUALSHOCK"))) {
             return 1;
         }
     }

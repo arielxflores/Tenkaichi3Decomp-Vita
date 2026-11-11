@@ -95,12 +95,14 @@ int __wrap_Progress_Main(int arg) {
         int chara[2] = {getenv("BT3_DEMO_CHARA1") != NULL ? atoi(getenv("BT3_DEMO_CHARA1")) : kPair[pick][0],
                         getenv("BT3_DEMO_CHARA2") != NULL ? atoi(getenv("BT3_DEMO_CHARA2")) : kPair[pick][1]};
         int duel = getenv("BT3_DEMO_DUEL") != NULL && atoi(getenv("BT3_DEMO_DUEL")) != 0;
+        /* BT3_DEMO_SPLIT=1: the screen split for two players, as a two-player Duel (the fighters still the COM's) */
+        int split = getenv("BT3_DEMO_SPLIT") != NULL && atoi(getenv("BT3_DEMO_SPLIT")) != 0;
 
         Battle_ClearWork();
         if (duel) {
-            BattleSetup_SetRule(0, 0, bgm, 0, 1, stage, 1);
+            BattleSetup_SetRule(split, 0, bgm, 0, 1, stage, 1);
         } else {
-            BattleSetup_SetRule(0, 7, bgm, 5, 4, stage, 0);
+            BattleSetup_SetRule(split, 7, bgm, 5, 4, stage, 0);
         }
         BattleSetup_SetSide(0, 2, 0, 1, 1, 1, 0, NULL);
         BattleSetup_SetSide(1, 2, 1, 1, 1, 1, 0, NULL);
@@ -108,7 +110,8 @@ int __wrap_Progress_Main(int arg) {
             BattleSetup_SetMember(i, 0, chara[i], 0, 0, CpuLevel_FromSetting(2), 100.0f, NULL);
         }
         BattleSetup_Finish();
-        printf("bt3: %s battle, pairing %d (characters %d and %d, stage %d)\n", duel ? "COM against COM duel" : "attract-demo", pick, chara[0], chara[1], stage);
+        printf("bt3: %s battle%s, pairing %d (characters %d and %d, stage %d)\n", duel ? "COM against COM duel" : "attract-demo",
+               split ? " on a split screen" : "", pick, chara[0], chara[1], stage);
     } else {
         Demo_SetupBattle();
         printf("bt3: attract-demo battle\n");

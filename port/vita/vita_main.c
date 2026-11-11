@@ -1501,13 +1501,19 @@ static void read_settings(void) {
             extern int gVitaDump;
             gVitaDump = atoi(eq);
         } else if (strcmp(line, "demostage") == 0 || strcmp(line, "demochara1") == 0 || strcmp(line, "demochara2") == 0 ||
-                   strcmp(line, "demoduel") == 0 || strcmp(line, "demoxform") == 0) { /* the test fight: stage, fighters, a duel with intros */
+                   strcmp(line, "demoduel") == 0 || strcmp(line, "demoxform") == 0 || strcmp(line, "demosplit") == 0) {
+            /* the test fight: stage, fighters, a duel with intros, the screen split for two players (a second
+               controller that nobody holds: the game wants one there) */
             char env[32];
             snprintf(env, sizeof(env), "BT3_DEMO_%s", line + 4);
             for (char *c = env; *c; c++) {
                 *c = (char)toupper((unsigned char)*c);
             }
             setenv(env, eq, 1);
+            if (strcmp(line, "demosplit") == 0) {
+                extern int gVitaPad2Fake;
+                gVitaPad2Fake = atoi(eq) != 0;
+            }
         } else if (strcmp(line, "soak") == 0) { /* battle after battle, never the end (port/src/headless.c Port_SoakNext) */
             if (atoi(eq) != 0) {
                 setenv("BT3_SOAK", "1", 1);
@@ -1767,6 +1773,22 @@ static int watchdog_thread(SceSize args, void *argp) {
             if (++pgoTicks % 600 == 0) {
                 extern void Vita_PgoDump(const char *why);
                 Vita_PgoDump("every five minutes");
+            }
+        }
+        {   /* a line a minute for bug reports, in the released program too: the picture rate and the memory in use */
+            static unsigned ticks, drawn0, minutes;
+            extern unsigned gVitaGsDrawn;
+            extern int gVitaInMenus;
+            if (++ticks % 120 == 0 && sLogThreaded) {
+                struct mallinfo mi = mallinfo();
+                unsigned d = gVitaGsDrawn - drawn0;
+                drawn0 = gVitaGsDrawn;
+                minutes++;
+                char tables[200];
+                extern int Vita_VglTables(char *out, int size);
+                Vita_VglTables(tables, sizeof(tables));
+                logf_("vita: minute %u: %u.%u pictures/s, in the %s; heap %u KB; %s\n", minutes, d / 60, (d % 60) * 10 / 60,
+                      gVitaInMenus ? "menus" : "fights", (unsigned)mi.uordblks >> 10, tables);
             }
         }
         if (gGsFrame != last) {
