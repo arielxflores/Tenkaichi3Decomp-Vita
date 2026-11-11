@@ -220,6 +220,34 @@ Budokai Tenkaichi 4 is the exception, as a program of its own (see above). A pac
 out, with a message when the game starts. A modded disc's image (`.iso`) is not read as a pack: copy its files
 into a pack instead.
 
+## Stages and songs from outside the disc
+
+New stages and songs can be added to the versus menus (one-on-one, team and DP battles, and training), as in the
+PC version:
+
+```
+ux0:data/bt3/stages/My_Stage.unk       a stage: the .unk stage model BT3 modders release (the file such a mod
+                                       puts in a disc stage's place under PCSX2)
+ux0:data/bt3/songs/My_Song.mp3         a song: an MP3, or an ADX (the game's own kind)
+```
+
+Each stage gets a place of its own in the stage grid after the disc's 36, and each song a place in the music list
+before "Random"; "Random" draws from them too. Their names are the files' names, an underscore read as a blank
+(`My_Stage.unk` is "My Stage"), drawn in the game's own lettering, cut from the disc's names: the letters J, Q, X,
+Y, Z, j, q, x, digits and most punctuation are not in it, and a name with one of them is written in the game's
+plain font instead. To give other names or an order, write `maps.txt` in the stages folder and `songs.txt` in the
+songs folder, a line `file|Name In The Menu` each; the files they do not name follow, by name. Up to 26 stages and
+40 songs are used.
+
+- An added stage shows the picture and the icon of the disc stage it was made from, and uses that stage's sounds.
+  A stage larger than the game's stage memory (7.1 MB) is given more memory, up to 24 MB.
+- An MP3 is made into an ADX beside it (`My_Song.adx`) the first time the game starts with it, in the background
+  (some seconds a song); it is in the list from the next time a select screen opens. Songs above 32 kHz are made
+  at 32 kHz, and they play round and round like the disc's music. An MP3 that cannot be read is listed in
+  `mp3-failed.txt` in the songs folder. Deleting the MP3 later keeps the song (its ADX).
+- Nothing about them goes into the save, so a save stays good without them; the folders are read when the game
+  starts.
+
 ## Troubleshooting
 
 - **"The game's files were not found"**: the disc image (`.iso`) must be in `ux0:data/bt3/` or
@@ -264,7 +292,10 @@ changes the Vita needed in the shared code, most of them inside `#ifdef PORT_VIT
 - [z3xox](https://github.com/z3xox) and the contributors of
   [Tenkaichi3Decomp](https://github.com/z3xox/Tenkaichi3Decomp), the PC port this one is built on, and the
   authors of the BT3-Decompiled decompilation it uses; z3xox's later fixes are ported here (the seam models,
-  the story mode's saga list, the palette tables) along with the PC version's Square option for clashes
+  the story mode's saga list, the palette tables) along with the PC version's Square option for clashes, its
+  developer cheat (Unlock All), Quick Start, Quick Save, Fight Again, and the stages and songs added from outside
+  the disc with their names in the game's lettering (with valenvivaldi's MP3 conversion); the community's Z Counter
+  and Bombardment fixes come from there too
 - [NauTaro](https://github.com/NauTaro) for [BT4decomp](https://github.com/NauTaro/DBZ-BT4-Tag-Team-Decomp), whose
   game code the Budokai Tenkaichi 4 program is built from, and Team BT4 for Budokai Tenkaichi 4
 - [Matteo Santoro](https://github.com/Matt-code-d) for the European languages and the Dragon World Tour fix

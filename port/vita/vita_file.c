@@ -377,6 +377,9 @@ static void data_path(const char *fname, char *out, size_t size) {
     snprintf(out, size, "%s/DATA/%s", gVitaDisc, name);
 }
 
+#ifndef BT3_BT4
+extern int Vita_ExtraPath(int ptid, int flid, char *out, int size); /* vita_extras.c */
+#endif
 int Port_FilePath(int ptid, int flid, const char *fname, char *out, int size) {
     SceUID fd;
 
@@ -384,6 +387,11 @@ int Port_FilePath(int ptid, int flid, const char *fname, char *out, int size) {
     (void)flid;
     if (fname == NULL) { /* a member of an archive: a name for Vita_LoadWhole below, not a path */
         Partition *pt = &sPart[ptid & 7];
+#ifndef BT3_BT4
+        if (Vita_ExtraPath(ptid, flid, out, size)) { /* an added song (vita_extras.c): its own file */
+            return 1;
+        }
+#endif
         if (pt->fd <= 0 || flid < 0 || (uint32_t)flid >= pt->count) {
             return 0;
         }
@@ -497,6 +505,29 @@ void *ADXF_OpenAfs(int ptid, int flid) {
     Partition *pt = &sPart[ptid & 7];
     PortFile *f;
 
+#ifndef BT3_BT4
+    {   /* an added stage or song (vita_extras.c): its own file, past the archive's end */
+        char path[300];
+        if (Vita_ExtraPath(ptid, flid, path, sizeof(path))) {
+            SceUID fd = sceIoOpen(path, SCE_O_RDONLY, 0);
+            SceOff size;
+            if (fd < 0) {
+                fprintf(stderr, "bt3: file not found: %s\n", path);
+                return NULL;
+            }
+            size = sceIoLseek(fd, 0, SCE_SEEK_END);
+            f = Port_LowAlloc(sizeof(PortFile));
+            memset(f, 0, sizeof(*f));
+            f->fd = fd;
+            f->owned = 1;
+            f->size = (uint32_t)size;
+            f->sizeSct = (int32_t)((size + SECTOR - 1) / SECTOR);
+            f->stat = STAT_STOP;
+            gVitaFileOpens++;
+            return f;
+        }
+    }
+#endif
     if (pt->fd <= 0 || flid < 0 || (uint32_t)flid >= pt->count) {
         fprintf(stderr, "bt3: file not found: partition %d, index %d\n", ptid, flid);
         return NULL;

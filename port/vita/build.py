@@ -237,6 +237,8 @@ def port_sources():
         out += [(GROOT / "port/src" / (n + ".c"), "bt4ee") for n in ("bt3_gameplay_rules", "bt3_bombardment", "bt3_zcounter2")]
     else:  # the community's fixes of the fighting mechanics (the PC version's Tech tab: Vita Settings > Tech Fixes)
         out += [(S / (n + ".c"), "ee") for n in ("bt3_gameplay_rules", "bt3_bombardment", "bt3_zcounter2")]
+        # stages and songs added from outside the disc, their names in the game's lettering, MP3 files made into songs
+        out += [(V / (n + ".c"), "hard") for n in ("vita_extras", "vita_names", "vita_namefont", "vita_mp3")]
     return out
 
 

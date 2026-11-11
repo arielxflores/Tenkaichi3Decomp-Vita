@@ -1435,7 +1435,7 @@ static void read_settings(void) {
             extern int gVitaDump;
             gVitaDump = atoi(eq);
         } else if (strcmp(line, "demostage") == 0 || strcmp(line, "demochara1") == 0 || strcmp(line, "demochara2") == 0 ||
-                   strcmp(line, "demoduel") == 0 || strcmp(line, "demoxform") == 0 || strcmp(line, "demosplit") == 0) {
+                   strcmp(line, "demoduel") == 0 || strcmp(line, "demoxform") == 0 || strcmp(line, "demosplit") == 0 || strcmp(line, "demobgm") == 0) {
             /* the test fight: stage, fighters, a duel with intros, the screen split for two players (a second
                controller that nobody holds: the game wants one there) */
             char env[32];
@@ -1806,6 +1806,12 @@ int __wrap_main(int argc, char **argv) {
             psvDebugScreenPrintf("\e[H\e[2J");
         }
     }
+#ifndef BT3_BT4
+    {   /* stages and songs added from outside the disc (vita_extras.c: ux0:data/bt3/stages, ux0:data/bt3/songs) */
+        extern void Vita_ExtrasInit(void);
+        Vita_ExtrasInit();
+    }
+#endif
     Vita_MapMemory(sHeapCdram);
     logf_("vita: %s floats, game heap at 0x%08X, disc folder %s, %s\n", gPortFastFloat ? "hardware" : "exact", (unsigned)gVitaHeapBase, gVitaDisc,
           getenv("BT3_REPLAY") != NULL ? getenv("BT3_REPLAY") : "attract-demo fight");

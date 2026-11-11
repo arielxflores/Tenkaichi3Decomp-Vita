@@ -17,6 +17,9 @@ New
   opening film or copyright page), **Quick Save** (saving and loading without the memory card window, on by
   default) and **Tech Fixes** (the community's Z Counter and Bombardment fixes, off by default).
 - **Dragon History: Fight Again** in the pause menu, to start a story fight over (from the PC version).
+- **Stages and songs from outside the disc** (from the PC version): `.unk` stage models in `ux0:data/bt3/stages/`
+  and MP3 or ADX songs in `ux0:data/bt3/songs/` join the versus menus' stage grid and music list, their names in
+  the game's own lettering. See the README.
 - **Start menu**: hold SELECT while the game starts for the game (BT3 or BT4), the language and an **Unlock
   everything** cheat (the game's own unlock: all characters, stages, music and items, and 4,850,000 Zenni, given to
   the save it loads).

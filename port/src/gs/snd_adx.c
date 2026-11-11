@@ -355,6 +355,19 @@ static void start(Player *p, const char *path) {
         p->loopEnd = be32(p->file + 0x30);
         p->loop = p->loopEnd > p->loopStart && p->loopEnd <= p->total;
     }
+#if defined(PORT_VITA) && !defined(BT3_BT4)
+    if (!p->loop && p->total >= 64) {
+        /* A song added from outside the disc (port/vita/vita_extras.c; z3xox's PC version does the same): the disc's
+           music has its loop in the file and goes on for as long as the fight does; a file made from an MP3 has none
+           and would stop after one play, leaving the rest of the fight silent. It is played again from its start. */
+        extern int PortSongs_IsFile(const char *path);
+        if (PortSongs_IsFile(path)) {
+            p->loopStart = 0;
+            p->loopEnd = p->total & ~31u; /* (whole frames) */
+            p->loop = 1;
+        }
+    }
+#endif
     adx_coefs(highpass, p->rate, &p->c1, &p->c2);
     memset(p->hist, 0, sizeof(p->hist));
     p->pos = 0;

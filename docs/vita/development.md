@@ -22,6 +22,7 @@ all of them. The full list, each with a comment, is `read_settings` in `port/vit
 |---|---|
 | `mode=play` / `mode=demo` | The game from its start, or the demo fight, without the start screen |
 | `demoduel=1`, `demostage=<n>`, `demochara1=<id>`, `demochara2=<id>` | The test fight: a duel with intros on that stage, with those fighters |
+| `demobgm=<n>` | The test fight's music: that music-list value (26 on: the songs added from outside the disc; `demostage=36` on: the stages) |
 | `sweep=<s>` | In the demo fight, start again after that many seconds with the next pairing (0: off) |
 | `startmode=<n>` | The menus start on that screen (62: the options) |
 | `report=1` | The figures every two seconds in the log (also in the release) |

@@ -89,9 +89,13 @@ int __wrap_Progress_Main(int arg) {
         extern int CpuLevel_FromSetting(unsigned setting);
         int pick = atoi(getenv("BT3_DEMO_PICK")), i;
         int bgm = (int)Rand_Range(9) + 8;
-        /* BT3_DEMO_STAGE=<id>: on that stage instead; BT3_DEMO_CHARA1 / 2=<id>: those fighters;
+        /* BT3_DEMO_STAGE=<id>: on that stage instead; BT3_DEMO_CHARA1 / 2=<id>: those fighters; BT3_DEMO_BGM=<n>: that
+           music-list value (26 on: the songs added from outside the disc, the Vita's ux0:data/bt3/songs);
            BT3_DEMO_DUEL=1: as the Duel menu's COM against COM (mode 0: the fighters' intros, the announcer) */
         int stage = getenv("BT3_DEMO_STAGE") != NULL ? atoi(getenv("BT3_DEMO_STAGE")) : kPair[pick][2];
+        if (getenv("BT3_DEMO_BGM") != NULL) {
+            bgm = atoi(getenv("BT3_DEMO_BGM"));
+        }
         int chara[2] = {getenv("BT3_DEMO_CHARA1") != NULL ? atoi(getenv("BT3_DEMO_CHARA1")) : kPair[pick][0],
                         getenv("BT3_DEMO_CHARA2") != NULL ? atoi(getenv("BT3_DEMO_CHARA2")) : kPair[pick][1]};
         int duel = getenv("BT3_DEMO_DUEL") != NULL && atoi(getenv("BT3_DEMO_DUEL")) != 0;

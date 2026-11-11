@@ -134,6 +134,11 @@ typedef struct CharSelProgress {
 #define CHARSEL_STAGE_RANDOM 0x23        /* the "random" stage id; ids from here on are not real stages */
 #define CHARSEL_STAGE_COLS 6             /* columns of the stage grid (gProgress keeps col + row * 6) */
 #define CHARSEL_BGM_FIRST 0x10B16        /* Bgm_Play id of music list entry 0 */
+#ifdef PORT /* (a song added from outside the disc has a file id of its own: port/include/plat_songs.h) */
+#define CHARSEL_BGM_FILE(n) PORT_BGM_FILE(n)
+#else
+#define CHARSEL_BGM_FILE(n) (CHARSEL_BGM_FIRST + (n))
+#endif
 #define CHARSEL_BGM_RANDOM_FIRST 0x10B1E /* + Rand_Range(9) */
 
 typedef struct CharSel {
@@ -204,6 +209,14 @@ typedef struct CharSel {
 
 #define CHARSEL_FACE_FILE 0x2F9   /* + character id */
 #define CHARSEL_STAGE_FILE 0x39D  /* + stage id */
+#ifdef PORT
+/* The stage thumbnails are 0x39D..0x3C0 (one per stage of the disc); the loading screen files start right after,
+   at 0x3C1. A stage added from outside the disc has an id past 0x23, so its thumbnail would fall on a loading
+   screen: it shows the picture of the disc stage it was made from (Port_AddedStageLook, port/vita/vita_extras.c). */
+#define CHARSEL_STAGE_FILE_ID(id) (CHARSEL_STAGE_FILE + ((id) < 0x24 ? (id) : Port_AddedStageLook(id)))
+#else
+#define CHARSEL_STAGE_FILE_ID(id) (CHARSEL_STAGE_FILE + (id))
+#endif
 
 /* kinds of CharSel_ClipGoto */
 #define CHARSEL_CLIP_CHIP 0

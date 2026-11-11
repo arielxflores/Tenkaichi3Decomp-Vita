@@ -1402,6 +1402,15 @@ s32 BtlSuper_GetDamage(BtlTechBChr *chr, s32 slot, s32 guard, s32 total) {
 void BtlSuper_GetStagePlacement(BtlTechBChr *chr, s32 slot, s32 n, Vec4 *pos, Vec4 *rot) {
     s32 stage = Battle_GetStage();
     BtlTechPlaceTbl *tbl;
+#ifdef PORT
+    if (stage >= 0x24) {
+        /* A stage added from outside the disc (port/include/plat_stages.h): the fighter's table has the disc's 36
+           stages only. The places of the stage the added one was made from (its model says which), else the first's. */
+        extern s32 BtlStage_GetId(void);
+        s32 id = BtlStage_GetId();
+        stage = id >= 0 && id < 0x24 ? id : 0;
+    }
+#endif
 
     if ((u32)(slot - 2) < 3 && (tbl = chr->place[slot - 2]) != NULL) {
         pos->x = tbl->rec[stage * 5 + n].x;
