@@ -922,20 +922,23 @@ volatile unsigned char gProf;
 volatile unsigned char gProfFe, gProfRt; /* the list reader's place (gGsSplit) and the render thread's, counted apart */
 unsigned gProfHistFe[12], gProfHistRt[12];
 volatile unsigned char gProfGame; /* the game's thread: 0 running, 1 waiting for the blank, 2 waiting for the picture thread */
-unsigned gProfHist[2][12], gProfGameHist[3], gProfWorkHist;
+unsigned gProfHist[2][16], gProfGameHist[3], gProfWorkHist;
+/* 11 a kept part drawn directly, 12 one walked the long way (gs_core.c gr_exec): while a part is walked, every
+   place inside it counts as 12 (gProfPart) */
+volatile unsigned char gProfPart;
 extern volatile unsigned char gProfWork;
 unsigned gVitaWaitSkips; /* lists not drawn because the game had to wait for the one before */
 /* With libperf: one drawn list in sixteen is measured part by part (cycles, instructions, mispredicted branches,
    data cache misses per region of gProf); reading the counters is slow, so only then. */
 volatile int gVitaProfMeasure;
 void Vita_ProfSwitch(int n);
-#define P_IN(n) unsigned char p_keep = gProf; gProf = (n); if (gVitaProfMeasure) { Vita_ProfSwitch(n); }
+#define P_IN(n) unsigned char p_keep = gProf; gProf = gProfPart ? gProfPart : (n); if (gVitaProfMeasure) { Vita_ProfSwitch(n); }
 #define P_OUT gProf = p_keep; if (gVitaProfMeasure) { Vita_ProfSwitch(p_keep); }
 static int prof_thread(SceSize args, void *argp) {
     (void)args; (void)argp;
     for (;;) {
         sceKernelDelayThread(1000);
-        gProfHist[gVitaGsSkip ? 0 : 1][gProf < 12 ? gProf : 11]++;
+        gProfHist[gVitaGsSkip ? 0 : 1][gProf < 16 ? gProf : 15]++;
         gProfHistFe[gProfFe < 12 ? gProfFe : 11]++;
         gProfHistRt[gProfRt < 12 ? gProfRt : 11]++;
         gProfGameHist[gProfGame < 3 ? gProfGame : 0]++;

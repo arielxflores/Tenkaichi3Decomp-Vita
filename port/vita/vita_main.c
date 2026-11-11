@@ -738,12 +738,13 @@ void Vita_VBlank(unsigned vblanks) {
                         memset(gVglCalls, 0, sizeof(gVglCalls));
                     }
                     {
-                        extern unsigned gProfHist[2][12], gProfGameHist[3], gVitaUnpackSkipped, gVitaWaitSkips, gVitaSnap[2];
-                        static const char *const kName[10] = {"idle", "list", "unpack", "GS packets", "uploads", "program calls", "strips", "to the chip", "swap", "GS primitives"};
-                        char line[400];
+                        extern unsigned gProfHist[2][16], gProfGameHist[3], gVitaUnpackSkipped, gVitaWaitSkips, gVitaSnap[2];
+                        static const char *const kName[13] = {"idle", "list", "unpack", "GS packets", "uploads", "program calls", "strips", "to the chip", "swap", "GS primitives",
+                                                              "chip strips", "kept drawn", "kept walked"};
+                        char line[700];
                         int n = 0, k;
-                        for (k = 0; k < 10; k++) {
-                            n += snprintf(line + n, sizeof(line) - (size_t)n, "%s %u/%u%s", kName[k], gProfHist[0][k], gProfHist[1][k], k < 9 ? ", " : "");
+                        for (k = 0; k < 13; k++) {
+                            n += snprintf(line + n, sizeof(line) - (size_t)n, "%s %u/%u%s", kName[k], gProfHist[0][k], gProfHist[1][k], k < 12 ? ", " : "");
                         }
                         logf_("vita:   picture thread, ms in frames not drawn / drawn: %s | %u vectors per blank not unpacked\n", line, gVitaUnpackSkipped / vb);
                         {   /* (the list reader's and the render thread's own, counted apart since: the line above had them mixed in) */
@@ -1494,6 +1495,9 @@ static void read_settings(void) {
         } else if (strcmp(line, "gxmcache") == 0) { /* vitaGL's GXM state calls left out when they change nothing: 0 off, 1 on, 2 in the soak's B battles */
             extern int gVitaGxmCache;
             gVitaGxmCache = atoi(eq);
+        } else if (strcmp(line, "dpframe") == 0) { /* kept parts matched with FRAME's buffer as "the picture": 0 off, 1 on, 2 in the soak's B battles (gs_core.c dp_norm) */
+            extern int gVitaDpFrame;
+            gVitaDpFrame = atoi(eq);
         } else if (strcmp(line, "soakab") == 0) { /* each soak battle twice, the settings of value 2 off then on (headless.c) */
             setenv("BT3_SOAK_AB", eq, 1);
         } else if (strcmp(line, "dpbank") == 0) { /* 0: the stage's kept groups only from the stage buffer's first 2 MB (as before; vita_vgl.c gVitaDpBank) */

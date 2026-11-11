@@ -387,7 +387,8 @@ static uint64_t up_hash_quick_q(UpQ *qs, const uint8_t *src, uint32_t len) {
    drawing thread takes a number when the place, the length and the list agree (a seqlock: the reader may be at the
    next list already), and works it out itself otherwise. */
 typedef struct FeHash { volatile uint32_t seq; const uint8_t *p; uint32_t len; uint64_t hash; } FeHash;
-static FeHash sFeHash[4096];
+static FeHash sFeHash[16384]; /* (4,096 places for four lists each; were 1,024: ~60,000 numbers in a test's 15 minutes found their
+                                 place another upload's and were worked out by the drawing thread) */
 /* the slot of an upload's data: by all of its address. With the low bits alone (address / 16 mod 2048)
    every texture 32 KB apart from another took the same slot, and the textures of the effects lie at such addresses:
    in the busiest stretches the drawing thread worked out 1,400 to 2,500 numbers itself.
@@ -395,7 +396,7 @@ static FeHash sFeHash[4096];
    the drawing thread when that one is slow, and the same texture sent from the same place in the next list took the
    slot before the drawing thread had read it (nearly all of what it still worked out was "another list's") */
 static inline FeHash *fe_slot_seq(const uint8_t *d, uint32_t seq) {
-    return &sFeHash[(((uint32_t)(uintptr_t)d * 0x9E3779B1u) >> 22 << 2) | (seq & 3)];
+    return &sFeHash[(((uint32_t)(uintptr_t)d * 0x9E3779B1u) >> 20 << 2) | (seq & 3)];
 }
 static UpQ sUpQFe;
 static uint32_t sFeListSeq = 1;   /* the list reader: the list it reads (numbered from 1) */
@@ -427,8 +428,13 @@ extern int gVitaAbSide;
 static volatile unsigned sGrHead, sGrTail; /* (below, with the queue) */
 int Port_InGr(const void *p);
 typedef struct FeJob { const uint8_t *d; uint32_t len, seq, at; uint32_t inGr; } FeJob;
-#define FEJ_N 256
-#define FEJ_MAX 64
+/* (above the render thread's priority, asleep on a semaphore when there is nothing: below it, with 64 waiting at
+   most, the drawing thread found a number not ready 4.7 times as often as the reader alone had left it, and worked
+   out the rest itself: its uploads' part 60-90 ms a 2 s longer in an A/B test) */
+#define FEJ_N 512
+#define FEJ_MAX 384
+static SceUID sFeSema = -1;
+static volatile int sFeSleep;
 static FeJob sFeJob[FEJ_N];
 static volatile unsigned sFeJobPut, sFeJobGot;
 static volatile int sFeHelperUp; /* 1 the thread runs, -1 it could not be (or not on the fourth core) */
@@ -462,8 +468,14 @@ static int fe_helper_thread(SceSize args, void *argp) {
             }
             __sync_synchronize();
             sFeJobGot = got + 1;
-        } else if (++idle > 2000) { /* (a lower priority than the render thread's: its draws come first) */
-            sceKernelDelayThread(idle > 20000 ? 500 : 50);
+        } else if (++idle > 200) { /* (nothing: asleep until the reader hands one over) */
+            sFeSleep = 1;
+            __sync_synchronize();
+            if (sFeJobGot == sFeJobPut) {
+                sceKernelWaitSema(sFeSema, 1, NULL);
+            }
+            sFeSleep = 0;
+            idle = 0;
         }
     }
     return 0;
@@ -476,7 +488,11 @@ static int fe_helper_use(void) {
         extern int gVitaCore3;
         extern SceUID Vita_ThreadOnCore3(const char *name, SceKernelThreadEntry entry, int prio, int stack, int fallbackMask);
         extern void Vita_Log(const char *fmt, ...);
-        SceUID th = gVitaCore3 == 1 ? Vita_ThreadOnCore3("bt3_fehash", fe_helper_thread, 80, 0x4000, 0) : -1;
+        SceUID th = -1;
+        sFeSema = sceKernelCreateSema("bt3_fehash", 0, 0, 1, NULL);
+        if (gVitaCore3 == 1 && sFeSema >= 0) {
+            th = Vita_ThreadOnCore3("bt3_fehash", fe_helper_thread, 60, 0x4000, 0);
+        }
         sFeHelperUp = th >= 0 && gVitaCore3 == 1 && sceKernelStartThread(th, 0, NULL) >= 0 ? 1 : -1;
         Vita_Log("gs: the uploads' numbers %s\n", sFeHelperUp > 0 ? "worked out on the fourth core" : "worked out by the list reader (no fourth core)");
     }
@@ -515,6 +531,11 @@ static void fe_hash_gif(const uint8_t *p, uint32_t qwc, int keep) {
                     j->at = sGrTail; /* (the record being made begins here: GsFE_GifHashed) */
                     __sync_synchronize();
                     sFeJobPut = put + 1;
+                    __sync_synchronize();
+                    if (sFeSleep) { /* (asleep: woken; a system call, only then) */
+                        sFeSleep = 0;
+                        sceKernelSignalSema(sFeSema, 1);
+                    }
                     gVitaFeHash[0]++;
                     goto next;
                 }
@@ -2928,16 +2949,34 @@ static uint32_t dp_pick_serial(uint32_t want) {
 static uint64_t sDpEntry[DP_NF];
 _Static_assert(offsetof(GsState, trxdir) == 31 * 8 && offsetof(GsState, prim) == 0, "the GS fields followed lie one after another");
 
+/* FRAME_1 and FRAME_2 (fields 22, 23) with the buffer the frame is drawn into as "the picture" (bit 15, which the
+   GS does not use, instead of the buffer's number): the game draws into its two display buffers in turn, so every
+   kept part drawn into the picture was found in another state every other frame ("field 22 is ...080000, was
+   ...080070") and kept again and again in a second form, ~370 walks the long way a 2 s, 1,500 in the busy
+   stretches. The port's states draw into "the picture" either way (state_of_cached keeps them so too); a part that
+   writes FRAME is given back the buffer of now (dp_apply). bt3.txt dpframe=0: as before; 2: in the soak's B battles. */
+int gVitaDpFrame = 1;
+extern int gGsMainFbp;
+extern int gVitaAbSide;
+static int sDpFrameNow; /* (gVitaDpFrame as it applies to this record: looked at once a kept part) */
+static inline uint64_t dp_norm(int i, uint64_t v) {
+    if ((i == 22 || i == 23) && sDpFrameNow && gGsMainFbp >= 0 && (v & 0x1FF) == (uint64_t)gGsMainFbp) {
+        return (v & ~0x1FFull) | 0x8000u;
+    }
+    return v;
+}
 static void dp_snap(uint64_t *v) {
     uint32_t qq;
     memcpy(v, &gs.prim, 32 * 8);
+    v[22] = dp_norm(22, v[22]);
+    v[23] = dp_norm(23, v[23]);
     memcpy(&qq, &gs.q, 4);
     v[32] = qq;
     v[33] = (uint64_t)(uint32_t)gs.vcount | (uint64_t)(uint32_t)gs.strip << 32;
 }
 static uint64_t dp_field(int i) {
     if (i < 32) {
-        return (&gs.prim)[i];
+        return dp_norm(i, (&gs.prim)[i]);
     }
     if (i == 32) {
         uint32_t qq;
@@ -2960,7 +2999,11 @@ static void dp_apply(const DpForm *f) {
     while (m != 0) {
         int i = __builtin_ctzll(m);
         if (i < 32) {
-            (&gs.prim)[i] = f->exit[i];
+            uint64_t x = f->exit[i];
+            if ((i == 22 || i == 23) && (x & 0x8000u) && gGsMainFbp >= 0) {
+                x = (x & ~0x81FFull) | (uint64_t)gGsMainFbp; /* ("the picture": the buffer of now) */
+            }
+            (&gs.prim)[i] = x;
         } else if (i == 32) {
             uint32_t qq = (uint32_t)f->exit[32];
             memcpy(&gs.q, &qq, 4);
@@ -2998,6 +3041,7 @@ static int dp_part(uint32_t serial, const float *consts) {
     if (!sDpOn || serial == 0 || sDp == NULL || gVitaGsSkip || sGifLoops != 0 || (gT116Be & 8)) { /* (kept parts walked) */
         return 0;
     }
+    sDpFrameNow = gVitaDpFrame == 2 ? gVitaAbSide == 1 : gVitaDpFrame != 0;
     s = &sDp[serial & sDpMask];
     if (s->serial != serial) {
         return 0;
@@ -3527,8 +3571,17 @@ static float sGrConsts[96] __attribute__((aligned(16))); /* the strips' constant
 int gVitaShadeLog; /* bt3.txt shadelog=1: the fighters' shading layers in the log (an earlier version's) */
 unsigned long long gVitaGrCyc[16]; /* the drawing thread's cycles by record, lists measured part by part */
 unsigned gVitaGrN[16];
+#ifdef PORT_VITA
+extern volatile unsigned char gProfPart;
+/* the drawing thread's place by record (vita_vgl.c gProf): GIF data and registers 3, model strips 6, kept parts 11
+   (12 while one is walked), the rest 1 */
+#define GR_PLACE(n) (gProf = gProfPart ? gProfPart : (n))
+#else
+#define GR_PLACE(n) ((void)0)
+#endif
 static void gr_exec(const GRec *r) {
     GZM(19); /* (between records: the ring, the loop) */
+    GR_PLACE(r->type == GR_GIFP || r->type == GR_GIFC || r->type == GR_REG ? 3 : r->type == GR_VU || r->type == GR_VU2 ? 6 : r->type == GR_PART ? 11 : 1);
     switch (r->type) {
     case GR_GIFP: Gs_Gif((const uint8_t *)(uintptr_t)r->a, r->b); GZM(20); break;
     case GR_GIFC: Gs_Gif((const uint8_t *)(r + 1), r->b); GZM(20); break;
@@ -3667,11 +3720,18 @@ static void gr_exec(const GRec *r) {
             break; /* drawn from its kept form */
         }
         cap = dp_cap_begin(r->c);
+#ifdef PORT_VITA
+        gProfPart = 12;
+        gProf = 12;
+#endif
         while (p < q) {
             const GRec *s = (const GRec *)(const void *)p;
             gr_exec(s);
             p += s->size;
         }
+#ifdef PORT_VITA
+        gProfPart = 0;
+#endif
         if (cap) {
             dp_cap_end(r->c);
         }

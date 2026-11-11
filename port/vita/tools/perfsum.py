@@ -26,7 +26,8 @@ import re
 import statistics
 import sys
 
-PARTS = ["idle", "list", "unpack", "GS packets", "uploads", "program calls", "strips", "to the chip", "swap", "GS primitives"]
+PARTS = ["idle", "list", "unpack", "GS packets", "uploads", "program calls", "strips", "to the chip", "swap", "GS primitives",
+         "chip strips", "kept drawn", "kept walked"]  # (the last three: logs from November 2026 on)
 PATTERNS = [
     (re.compile(r"vita: \d+ s: speed (\d+)%, ([\d.]+) pictures/s"), lambda m: {"speed": int(m[1]), "fps": float(m[2])}),
     (re.compile(r"game thread, ms: running (\d+), waiting for the blank (\d+), waiting for the picture thread (\d+)"),
