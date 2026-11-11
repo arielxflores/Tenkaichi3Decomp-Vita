@@ -1224,7 +1224,8 @@ static void draw_line(Target *sf, int ctx, const Vertex *a, const Vertex *b) {
    The registers as fields of gs: 0 prim (the effective one), 1 PRIM, 2 RGBAQ, 3 ST, 4 UV, 5 TEXA, 6 PRMODECONT,
    7 PRMODE, 8/9 TEX0, 10/11 TEX1, 12/13 CLAMP, 14/15 XYOFFSET, 16/17 SCISSOR, 18/19 ALPHA, 20/21 TEST, 22/23 FRAME,
    24/25 ZBUF, 26/27 FBA, 28..31 BITBLTBUF, TRXPOS, TRXREG, TRXDIR; 32 Q, 33 the vertex queue (emptied by PRIM). */
-static int sDpCap, sDpBad;
+static int sDpCap, sDpBad; /* sDpBad: why the part walked now cannot be kept: 1 a GS primitive in it, 2 an image upload, 4 a register */
+unsigned gVitaDpBadWhy[4]; /* for the log: walks recorded and spoiled by a GS primitive, an image upload, a register; not kept for another reason (vita_vgl.c) */
 static uint64_t sDpCmp, sDpWr;
 #define DPF(i) (1ull << (i))
 #define DP_STRIP_READS (DPF(0) | DPF(5) | 0x0FFFFF00ull) /* what a strip's state is made of: prim, TEXA, fields 8..27 */
@@ -1265,7 +1266,7 @@ static void dp_note(uint32_t addr) {
     case 0x4C: case 0x4D: dp_wr(DPF(22 + addr - 0x4C)); break;
     case 0x4E: case 0x4F: dp_wr(DPF(24 + addr - 0x4E)); break;
     case 0x50: case 0x51: case 0x52: dp_wr(DPF(28 + addr - 0x50)); break;
-    case 0x04: case 0x05: case 0x0C: case 0x0D: case 0x53: case 0x7F: sDpBad = 1; break; /* vertices, a transfer, a marker */
+    case 0x04: case 0x05: case 0x0C: case 0x0D: case 0x53: case 0x7F: sDpBad |= 4; break; /* vertices, a transfer, a marker */
     default: break;
     }
 }
@@ -1392,7 +1393,7 @@ static void vertex(uint32_t x, uint32_t y, uint32_t z, int kick) {
     Target *sf;
 #ifdef PORT_VITA
     if (sDpCap) {
-        sDpBad = 1;
+        sDpBad |= 1;
     }
 #endif
     Vertex v;
@@ -2285,7 +2286,7 @@ __attribute__((hot)) void Gs_Gif(const uint8_t *p, uint32_t qwc) {
             uint32_t n = loops < qwc ? loops : qwc;
 #ifdef PORT_VITA
             if (sDpCap) {
-                sDpBad = 1;
+                sDpBad |= 2;
             }
 #endif
             sStat[6] += n;
@@ -3140,6 +3141,20 @@ static void dp_cap_end(uint32_t serial) {
         return;
     }
     if (gpu == NULL) {
+        /* (for the log: why. A refused part is walked the long way for the rest of the fight: the first fight on a
+           stage refuses more than the next one there, 7,000-19,000 walks against ~500 in the A/B runs) */
+        if (sDpBad & 1) {
+            gVitaDpBadWhy[0]++;
+        }
+        if (sDpBad & 2) {
+            gVitaDpBadWhy[1]++;
+        }
+        if (sDpBad & 4) {
+            gVitaDpBadWhy[2]++;
+        }
+        if (sDpBad == 0) {
+            gVitaDpBadWhy[3]++;
+        }
         s->refused = 1;
         gVitaDp[4]++;
         return;

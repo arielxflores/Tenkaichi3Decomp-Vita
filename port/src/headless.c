@@ -172,9 +172,10 @@ int Port_SoakNext(int first) {
             }
         }
     }
-    if (ab) {
+    if (ab) { /* (A first in one round of the stages, B first in the next: the second battle on a stage starts with what
+                  the first left, and a B always second measured that too) */
         n = n0 / 2;
-        gVitaAbSide = n0 & 1;
+        gVitaAbSide = (n0 & 1) ^ ((n / (sStageN > 0 ? sStageN : (int)(sizeof(kStage) / sizeof(kStage[0])))) & 1);
     }
     team = duelOnly ? 0 : n & 1;
     members = team ? 3 : 1;

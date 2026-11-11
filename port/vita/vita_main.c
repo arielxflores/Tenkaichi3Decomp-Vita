@@ -719,9 +719,14 @@ void Vita_VBlank(unsigned vblanks) {
                                         }
                                     }
                                 }
+                                extern unsigned gVitaDpRefWhy[4], gVitaDpBadWhy[4];
                                 logf_("vita:   kept parts walked: %u not to be recorded (off, or their indices' room full), %u refused before; %u refused now as changing"
-                                      " | found in another state, by field: %u x %u, %u x %u, %u x %u\n",
-                                      gVitaDpWalk[0], gVitaDpWalk[1], gVitaDpWalk[2], bi[0], best[0], bi[1], best[1], bi[2], best[2]);
+                                      " | found in another state, by field: %u x %u, %u x %u, %u x %u | not kept: %u vertices being written, %u a strip that cannot be;"
+                                      " %u a GS primitive in it, %u an image upload, %u a register, %u another reason\n",
+                                      gVitaDpWalk[0], gVitaDpWalk[1], gVitaDpWalk[2], bi[0], best[0], bi[1], best[1], bi[2], best[2], gVitaDpRefWhy[0], gVitaDpRefWhy[1],
+                                      gVitaDpBadWhy[0], gVitaDpBadWhy[1], gVitaDpBadWhy[2], gVitaDpBadWhy[3]);
+                                memset(gVitaDpRefWhy, 0, sizeof(gVitaDpRefWhy));
+                                memset(gVitaDpBadWhy, 0, sizeof(gVitaDpBadWhy));
                                 if (!gVitaPerfOn) {
                                     memset(gVitaDpMiss, 0, sizeof(gVitaDpMiss));
                                 }

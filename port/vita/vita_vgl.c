@@ -7862,9 +7862,11 @@ void GsGpu_DpCapAbort(void) {
     gDpCapture = 0;
 }
 /* a strip of the part being walked: drawn with `d` from the chip's buffers as planned (vu_draw_impl) */
+unsigned gVitaDpRefWhy[4]; /* for the log: parts not kept: a strip writing its vertices to the chip, another strip that cannot be */
 static void dp_record(const State *d, int layer, const float (*u)[4], const ChipPlan *p, int ctx) {
     DpRec *r;
     if (sDpRecN == DP_REC || p->upload || (p->mode != 1 && p->mode != 2) || p->count < 3 || sDumping) {
+        gVitaDpRefWhy[p->upload ? 0 : 1] += !sDpRecBad;
         sDpRecBad = 1;
         return;
     }
