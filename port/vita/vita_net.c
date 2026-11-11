@@ -1732,7 +1732,9 @@ static void script_pad(int player, uint32_t tick, uint8_t *out) {
         if (phase < 4) {
             btn = 0x4000; /* CROSS */
         } else if (phase >= 20 && phase < 23 && (x & 3) == 0) {
-            btn = (x & 4) ? 0x0020 : 0x0040; /* right or down */
+            /* up or down (never left or right: on the character select's item sets those open the item panel, which
+               only Triangle leaves, and Triangle could also leave the select itself) */
+            btn = (x & 4) ? 0x0010 : 0x0040;
         }
     } else {
         static const uint32_t kPick[12] = {0x8000, 0x4000, 0x1000, 0x2000, 0x0400, 0x0800, 0x0010, 0x0020, 0x0040, 0x0080, 0x8800, 0x4400};
