@@ -66,7 +66,8 @@ typedef struct PortFile {
 static Partition sPart[8];
 
 /* ---- mods ---- */
-#define MODS_DIR "ux0:data/bt3/mods"
+#include "vita_home.h"
+#define MODS_DIR VITA_HOME "/mods"
 #define MOD_DIRS 96
 #define MOD_PACKS 24
 typedef struct ModFile { uint16_t ptid, dir; uint32_t flid; char name[48]; } ModFile; /* a member (ptid < 8) or a DATA file (ptid 8), in folder `dir` */
@@ -465,6 +466,17 @@ int ADXF_LoadPartitionNw(int ptid, char *fname, void *dir, void *ptinfo) {
         }
         VitaEu_NotePartition(ptid & 7, pt->name);
     }
+#ifdef BT3_BT4
+    {   /* BT4's archives: their tables are in BIN/DBZ4.BIN (port/vita/bt4/vita_bt4.c) */
+        extern uint32_t *Vita_Bt4Table(const char *name, uint32_t *count, uint32_t fileSize);
+        uint32_t n = 0, *t = Vita_Bt4Table(pt->name, &n, (uint32_t)sceIoLseek(pt->fd, 0, SCE_SEEK_END));
+        if (t != NULL) {
+            pt->count = n;
+            pt->table = t;
+            return 0;
+        }
+    }
+#endif
     if (sceIoPread(pt->fd, head, 8, 0) != 8 || memcmp(head, "AFS\0", 4) != 0 || head[1] == 0 || head[1] > 0x100000) {
         Vita_Fatal("not an AFS archive:\n  %s", path);
     }

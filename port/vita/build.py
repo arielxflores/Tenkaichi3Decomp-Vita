@@ -12,6 +12,9 @@ Environment:
     BT3_VITA_DEV=1     the development build: its own title (BTTD00008); it reads every setting of bt3.txt (test
                        fights, statistics in the log), see docs/vita/development.md
     BT3_INCREMENTAL=1  reuse objects newer than their source (headers are not tracked)
+    BT3_BT4=<folder>   the Budokai Tenkaichi 4 program (bt4.bin, started from the BT3 package): the game's code of the
+                       BT4decomp checkout in <folder> with the Vita's changes (port/vita/bt4/), on this port's platform
+                       layer; objects in port/build/obj_vita_bt4_<variant>, the program in port/build/vita_bt4_<variant>/
     BT3_PGO=gen        a build that counts how the program runs (port/vita/vita_pgo.c: ux0:data/bt3/pgo/); objects
                        and package in their own folders (*_pgogen)
     BT3_PGO=use        a build laid out by those counts: port/vita/pgo/<rel or dev>/*.gcda (port/vita/pgo_merge.sh),
@@ -28,13 +31,21 @@ sys.path.insert(0, str(ROOT / "port/tools"))
 sys.path.insert(0, str(ROOT / "port/vita"))
 import portsrc, eeconst
 
+# BT3_BT4: the game's code (src/, include/, port/include/, port/data/) comes from that tree; the platform layer
+# (port/vita, the renderer and the rest of port/src) from this one
+BT4 = pathlib.Path(os.environ["BT3_BT4"]).resolve() if os.environ.get("BT3_BT4") else None
+GROOT = BT4 or ROOT
+if BT4:
+    portsrc.ROOT = GROOT
+    portsrc.GEN = ROOT / "port/build/gen/bt4src"
+
 SDK = pathlib.Path(os.environ.get("VITASDK", "/usr/local/vitasdk"))
 P = str(SDK / "bin/arm-vita-eabi-")
 DEV = os.environ.get("BT3_VITA_DEV") == "1"
 PGO = os.environ.get("BT3_PGO", "")
 if PGO not in ("", "gen", "use"):
     raise SystemExit("BT3_PGO: gen or use")
-TAG = ("_dev" if DEV else "_rel") + ("_pgo" + PGO if PGO else "")
+TAG = ("_bt4" if BT4 else "") + ("_dev" if DEV else "_rel") + ("_pgo" + PGO if PGO else "")
 PGO_DIR = ROOT / "port/vita/pgo" / ("dev" if DEV else "rel")
 OBJ = ROOT / ("port/build/obj_vita" + TAG)
 OUT = ROOT / ("port/build/vita" + TAG)
@@ -61,7 +72,10 @@ RENAME_SOFTFLOAT = {"RefVu0_AddBits": "PortX_VuAdd", "RefVu0_MulBits": "PortX_Vu
 ABI = ["-fsigned-char", "-fno-short-enums", "-fsigned-bitfields"]
 COMMON = ["-O2", "-g", "-fno-strict-aliasing", "-ffp-contract=off", "-w", "-DPORT_VITA=1", "-DPORT_VITA_FIXED=1",
           '-DPORT_VITA_SFX="-vgl.txt"' if DEV else '-DPORT_VITA_SFX=".txt"', "-DPORT_VITA_GFX=1", "-DPORT_VITA_VGL=1",
-          "-DMPEG2_PLAYER=1", "-DPORT_VITA_SOUND=1", "-DPORT_VITA_NATIVE=1"] + ([] if DEV else ["-DPORT_VITA_RELEASE=1"])
+          "-DMPEG2_PLAYER=1", "-DPORT_VITA_SOUND=1", "-DPORT_VITA_NATIVE=1"] + ([] if DEV else ["-DPORT_VITA_RELEASE=1"]) + \
+         (["-DBT3_BT4=1"] if BT4 else [])
+# the game's headers (and, for BT4, its port headers: the game's code calls into them)
+GINC = [f"-I{GROOT / 'include'}", f"-I{GROOT / 'port/include'}"]
 # Profile-guided builds (BT3_PGO): gen counts with atomic updates (several threads run the same code); use takes the
 # counts where there are some (a profile from an older source of a file is used as far as it fits, with a warning)
 # counts only (VitaSDK's libgcov has no value profilers, no atomic updates and no file writing): arcs, with the
@@ -77,15 +91,15 @@ NOBUILTIN = ["-fno-builtin-" + n for n in "sinf cosf tanf asinf acosf atanf atan
              "pow floor ceil fabs abs labs rand srand printf sprintf snprintf fprintf vsprintf puts putchar fputs fwrite strcpy strncpy strcat "
              "strncat strlen strcmp strncmp strchr strrchr strstr malloc calloc realloc free exit abort atoi memcmp memmove".split()]
 GAME = [P + "gcc", "-std=gnu89", "-c", "-fcommon"] + COMMON + ABI + NOBUILTIN + \
-       ["-include", "port_libm.h", "-Iinclude", "-Iport/include", "-Iport/vita", "-include", "port_compat.h"]
+       ["-include", "port_libm.h"] + GINC + ["-Iport/vita", "-include", "port_compat.h"]
 
 # The game's compiler evaluates call arguments from right to left and the game's code depends on it in places; gcc
 # for ARM goes left to right. The preprocessed text is rewritten as in the 64-bit PC build (ptr32.r2l, libclang).
 R2L_ARGS = ["-x", "cpp-output", "--target=arm-none-eabi", "-mfloat-abi=soft", "-std=gnu89", "-fsigned-char", "-fno-short-enums", "-w",
-            "-Wno-error=return-type", "-Wno-error=return-mismatch"]
+            "-Wno-error=return-type", "-Wno-error=return-mismatch", "-Wno-error=implicit-function-declaration"]
 
 
-def r2l(text):
+def r2l(text, std="-std=gnu89"):
     """The game's preprocessed text with call arguments evaluated right to left (ptr32.r2l), the PS2's rule for shift
     counts and its float division by zero written out (port/vita/srcfix.py). Returns (text, shifts rewritten)."""
     if os.environ.get("BT3_CLANG_PY"):
@@ -97,8 +111,9 @@ def r2l(text):
         if lib:
             ci.Config.set_library_file(lib)
     import ptr32, srcfix
-    data, n = srcfix.shifts(ptr32.r2l(text.encode("latin-1"), R2L_ARGS), R2L_ARGS)
-    data, _ = srcfix.divs(data, R2L_ARGS)
+    args = [std if a == "-std=gnu89" else a for a in R2L_ARGS]
+    data, n = srcfix.shifts(ptr32.r2l(text.encode("latin-1"), args), args)
+    data, _ = srcfix.divs(data, args)
     return data.decode("latin-1"), n
 
 
@@ -112,7 +127,7 @@ def compile_ee(cmd, src, o, game=False):
     text = eeconst.transform(r.stdout)
     if game:
         try:
-            text, nshift = r2l(text)
+            text, nshift = r2l(text, next((a for a in cmd if a.startswith("-std=")), "-std=gnu89"))
         except Exception as e:  # no libclang, or text it cannot parse
             return subprocess.CompletedProcess(cmd, 1, "", f"error: r2l: {e}\n")
     i.write_text(text, encoding="latin-1")
@@ -133,11 +148,13 @@ def rename(r, o):
 
 
 def cc_game(f):
-    o = OBJ / (str(f.relative_to(ROOT / "src")).replace("/", "_")[:-2] + ".o")
+    o = OBJ / (str(f.relative_to(GROOT / "src")).replace("/", "_")[:-2] + ".o")
     src, done, missing = portsrc.prepare(f)
     if os.environ.get("BT3_INCREMENTAL") and o.exists() and o.stat().st_mtime > max(src.stat().st_mtime, f.stat().st_mtime):
         return o, f, ""
     r = compile_ee(GAME + [f"-I{f.parent}"], src, o, game=True)
+    if r.returncode and "loop initial declarations" in r.stderr:  # (BT4's code has a few C99 loops: its PC build uses clang)
+        r = compile_ee([a for a in GAME if a != "-std=gnu89"] + ["-std=gnu99", "-fgnu89-inline", "-Wno-error=implicit-function-declaration", f"-I{f.parent}"], src, o, game=True)
     return (o if r.returncode == 0 else None), f, r.stderr
 
 
@@ -150,18 +167,18 @@ def data_tables():
     values comes from on the player's disc as a C table (vita_dat.c)."""
     GEN.mkdir(parents=True, exist_ok=True)
     where, checksum = {}, None
-    for l in (ROOT / "port/data/index.txt").read_text().splitlines():
+    for l in (GROOT / "port/data/index.txt").read_text().splitlines():
         p = l.split()
         if len(p) == 3 and not l.startswith("#"):
             where[p[0]] = (int(p[1]), int(p[2], 16))
         elif len(p) == 2 and p[0] == "checksum":
             checksum = int(p[1], 16)
     objs, decl, rows, total = [], [], [], 0
-    names = sorted(where) + sorted(f.name[:-2] for f in (ROOT / "port/data").glob("*.s") if f.name[:-2] not in where)  # the second lot: no values (.bss)
+    names = sorted(where) + sorted(f.name[:-2] for f in (GROOT / "port/data").glob("*.s") if f.name[:-2] not in where)  # the second lot: no values (.bss)
     for name in names:
         which, so = where.get(name, (None, 0))
         label = "PortTbl_" + re.sub(r"\W", "_", name)
-        text = (ROOT / "port/data" / (name + ".s")).read_text()
+        text = (GROOT / "port/data" / (name + ".s")).read_text()
         off, lines = 0, []
         for l in text.splitlines():
             lines.append(l)
@@ -201,7 +218,7 @@ def port_sources():
     """(file, kind): 'ee' game-side code (PS2 constants), 'gs' the renderer front end and sound (as on PC), 'hard' the
     Vita's own code, 'vu0' the vector-library references."""
     S, V = ROOT / "port/src", ROOT / "port/vita"
-    out = [(ROOT / "src/port/vu0_a.c", "vu0"), (ROOT / "src/port/vu0_b.c", "vu0")]
+    out = [(ROOT / "src/port/vu0_a.c", "vu0"), (ROOT / "src/port/vu0_b.c", "vu0")]  # (BT4 too: its versions differ in the PC's speed-ups only)
     # of port/src: everything but the PC's memory, files, crash report and maths bridge (vita_*.c take their place)
     for n in ("gs_marker", "headless", "mathf_pc", "plat_gs", "plat_mc", "plat_movie", "plat_mpeg2",
               "plat_settings", "plat_stub", "plat_sys", "softfloat_ps2", "port_fast", "port_vufast"):
@@ -214,13 +231,16 @@ def port_sources():
             (V / "vita_text.c", "hard"), (V / "vita_audio.c", "gs"), (S / "gs/snd_adx.c", "gs"), (S / "gs/snd_se.c", "gs"),
             (V / "vita_vufast_wrap.c", "hard"), (V / "vita_tls.c", "hard"), (V / "vita_clib.c", "hard"),
             (V / "vita_crash.c", "hard"), (V / "vita_eu.c", "hard"), (V / "vita_read.c", "hard"), (V / "vita_start.c", "hard"), (V / "vita_pgo.c", "hard")]
+    if BT4:  # BT4's own services (port/vita/bt4) and the game-side rules of BT4decomp's platform layer
+        out += [(V / "bt4/vita_bt4.c", "hard"), (V / "bt4/vita_bt4_shim.c", "hard")]
+        out += [(GROOT / "port/src" / (n + ".c"), "bt4ee") for n in ("bt3_gameplay_rules", "bt3_bombardment", "bt3_zcounter2")]
     return out
 
 
 def cc_port(item):
     f, kind = item
     o = OBJ / ("pc_" + f.stem + ".o")
-    base = [P + "gcc", "-std=gnu99", "-c"] + COMMON + ["-Iinclude", "-Iport/include", "-Iport/src", "-Iport/vita"]
+    base = [P + "gcc", "-std=gnu99", "-c"] + COMMON + GINC + ["-Iport/src", "-Iport/vita"]
     if kind == "gs":  # the PC's renderer front end and sound: ordinary float code; its environment switches answered at once
         o = OBJ / ("gs_" + f.stem + ".o")
         r = subprocess.run(base + ["-O3", "-freorder-blocks-and-partition", "-include", "vita_cold.h", "-Dgetenv=Vita_GsGetenv",
@@ -237,8 +257,11 @@ def cc_port(item):
         r = rename(subprocess.run(base + ABI + mode + fast + ["-include", "math.h", "-include", "stdlib.h", "-include", "port_libm.h",
                                                                "-include", "vu0_names.h", "-DREF_VU0_EXTERN_ARITH", str(f), "-o", str(o)],
                                   cwd=ROOT, capture_output=True, text=True), o)
-    else:
-        r = compile_ee(base + ABI + NOBUILTIN + ["-include", "math.h", "-include", "stdlib.h", "-include", "port_libm.h"], f, o)
+    else:  # "ee", and "bt4ee": BT4decomp's (its port/src after this one's for its own headers)
+        extra = [f"-I{GROOT / 'port/src'}"] if kind == "bt4ee" else []
+        if kind == "bt4ee":
+            o = OBJ / ("bt4_" + f.stem + ".o")
+        r = compile_ee(base + extra + ABI + NOBUILTIN + ["-include", "math.h", "-include", "stdlib.h", "-include", "port_libm.h"], f, o)
     return (o if r.returncode == 0 else None), f, r.stderr
 
 
@@ -352,11 +375,20 @@ def vpk():
     shutil.copy(OUT / "bt3.elf", OUT / "bt3.unstripped.elf")
     subprocess.run([P + "strip", "-g", str(OUT / "bt3.elf")], check=True)
     run("vita-elf-create", OUT / "bt3.elf", OUT / "bt3.velf")
+    if BT4:  # BT4's program: started from the BT3 package (vita_start.c), which carries it as app0:bt4.bin
+        run("vita-make-fself", "-c", OUT / "bt3.velf", OUT / "bt4.bin")
+        print(f"{OUT / 'bt4.bin'}: {(OUT / 'bt4.bin').stat().st_size} bytes")
+        return
     run("vita-make-fself", "-c", OUT / "bt3.velf", OUT / "eboot.bin")
     run("vita-mksfoex", "-s", f"TITLE_ID={TITLE_ID}", "-s", f"APP_VER={APP_VER}", "-d", "ATTRIBUTE2=12", TITLE, OUT / "param.sfo")
     extra = []
     for f in sorted(x for x in SCE_SYS.rglob("*") if x.is_file()):
         extra += ["-a", f"{f}=sce_sys/{f.relative_to(SCE_SYS).as_posix()}"]
+    # BT4's program, when it was built (BT3_BT4) for this variant, or BT3_BT4_BIN=<file>
+    bt4 = pathlib.Path(os.environ.get("BT3_BT4_BIN") or ROOT / ("port/build/vita_bt4" + ("_dev" if DEV else "_rel") + "/bt4.bin"))
+    if bt4.exists():
+        extra += ["-a", f"{bt4}=bt4.bin"]
+        print(f"the package carries BT4's program ({bt4})")
     run("vita-pack-vpk", "-s", OUT / "param.sfo", "-b", OUT / "eboot.bin", *extra, OUT / VPK)
     print(f"{OUT / VPK}: {(OUT / VPK).stat().st_size} bytes")
 

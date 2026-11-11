@@ -35,7 +35,8 @@
 #include <malloc.h>
 #include "debugScreen.h"
 
-#define HOME "ux0:data/bt3"
+#include "vita_home.h"
+#define HOME VITA_HOME
 #ifdef PORT_VITA_SFX /* the development build has its own log, so that its runs and the release's can be kept side by side */
 #define SFX PORT_VITA_SFX
 #else
@@ -46,7 +47,7 @@
 unsigned int _newlib_heap_size_user = 80 * 1024 * 1024;
 unsigned int sceUserMainThreadStackSize = 0x00100000;
 
-char gVitaDisc[256] = HOME "/disc";
+char gVitaDisc[256] = VITA_DISC_DEFAULT;
 static FILE *sLog;
 static int sHeapCdram, sFloatChoice = -1; /* -1: ask */
 static unsigned long long sStart, sBattleStart, sLastDraw;
@@ -1131,7 +1132,7 @@ void __wrap_exit(int code) {
 static int has_slus(const char *dir) {
     char path[300];
     SceIoStat st;
-    snprintf(path, sizeof(path), "%s/SLUS_216.78", dir);
+    snprintf(path, sizeof(path), "%s/" VITA_PROGRAM, dir);
     return sceIoGetstat(path, &st) >= 0 && !SCE_S_ISDIR(st.st_mode);
 }
 
@@ -1168,7 +1169,8 @@ static void find_disc(void) {
     if (has_slus(gVitaDisc)) {
         return;
     }
-    if (strcmp(gVitaDisc, HOME "/disc") == 0 && (find_below(HOME "/disk", 1, found, sizeof(found)) || find_below(HOME, 2, found, sizeof(found)))) {
+    if (strcmp(gVitaDisc, VITA_DISC_DEFAULT) == 0 && (find_below(HOME "/disc", 1, found, sizeof(found)) || find_below(HOME "/disk", 1, found, sizeof(found)) ||
+                                                     find_below(HOME, 2, found, sizeof(found)))) {
         logf_("vita: the disc's files are in %s (not %s)\n", found, gVitaDisc);
         snprintf(gVitaDisc, sizeof(gVitaDisc), "%s", found);
         return;
@@ -1191,10 +1193,16 @@ static void find_disc(void) {
         sceIoDclose(d);
     }
     Vita_Fatal("The game's files were not found. From your own disc of the\n"
-               "USA release (SLUS-21678), copy SLUS_216.78 and the folders\n"
-               "BIN and DATA into\n  %s/\n\n%s%s%s",
+               VITA_RELEASE_NAME ", copy " VITA_PROGRAM " and the folders\n"
+               "BIN and DATA into\n  %s/\n\n%s%s%s%s",
                gVitaDisc, n ? "In " HOME " there is:\n" : "", seen,
-               iso ? "\nAn .iso can't be read as it is: open it with 7-Zip on\na PC and extract those three items (see the README)." : "");
+               iso ? "\nAn .iso can't be read as it is: open it with 7-Zip on\na PC and extract those three items (see the README)." : "",
+#ifndef BT3_BT4
+               sceIoGetstat("app0:bt4.bin", &e.d_stat) >= 0 ? "\n\nFor Budokai Tenkaichi 4: hold SELECT while the game starts." : ""
+#else
+               ""
+#endif
+               );
 }
 
 static void read_settings(void) {
@@ -1580,6 +1588,16 @@ static int watchdog_thread(SceSize args, void *argp) {
                 }
             }
         }
+#ifdef BT3_BT4
+        {   /* BT4's first pictures are up: it got going (vita_start.c, the BT3 program's guard) */
+            static int started;
+            if (!started && gGsFrame > 30) {
+                extern void Vita_Bt4Started(void);
+                started = 1;
+                Vita_Bt4Started();
+            }
+        }
+#endif
         if (gGsFrame != last) {
             last = gGsFrame;
             still = 0;
@@ -1710,6 +1728,14 @@ int __wrap_main(int argc, char **argv) {
         Vita_CrashInit(HOME);
     }
     start_screen();
+    {   /* the start menu with SELECT held (vita_start.c: the game, BT3 or BT4, the language, the unlock cheat), before
+           the disc's files are looked for (BT4 may be all there is); the European languages (vita_eu.c), whose list
+           shows by itself at the first start that finds their archive */
+        extern void VitaEu_Init(const char *home);
+        extern void Vita_StartMenu(void);
+        VitaEu_Init(HOME);
+        Vita_StartMenu();
+    }
 #ifndef PORT_VITA_RELEASE /* (the released program shows nothing until the game's first picture; an error still shows) */
     psvDebugScreenPrintf("Reading the game's data tables from %s ...\n", gVitaDisc);
 #endif
@@ -1724,13 +1750,6 @@ int __wrap_main(int argc, char **argv) {
             wait_buttons(SCE_CTRL_CROSS);
             psvDebugScreenPrintf("\e[H\e[2J");
         }
-    }
-    {   /* the European languages (vita_eu.c), and the start menu with SELECT held (vita_start.c: the language, the
-           unlock cheat); the language list by itself at the first start that finds the European archive */
-        extern void VitaEu_Init(const char *home);
-        extern void Vita_StartMenu(void);
-        VitaEu_Init(HOME);
-        Vita_StartMenu();
     }
     Vita_MapMemory(sHeapCdram);
     logf_("vita: %s floats, game heap at 0x%08X, disc folder %s, %s\n", gPortFastFloat ? "hardware" : "exact", (unsigned)gVitaHeapBase, gVitaDisc,

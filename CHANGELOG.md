@@ -7,8 +7,11 @@ New
 - **Languages**: Spanish, German, French and Italian menus, HUD and battle subtitles, from your own European disc
   (SLES-54945): copy its `DATA/PZS3EU1.AFS` to `ux0:data/bt3/eu/`. The language is chosen at the first start that
   finds it. Based on Matteo Santoro's work.
-- **Start menu**: hold SELECT while the game starts for the language and an **Unlock everything** cheat (the
-  game's own unlock: all characters, stages, music and items, and 4,850,000 Zenni, given to the save it loads).
+- **Budokai Tenkaichi 4** (experimental): Team BT4's B14 Rev2 through NauTaro's BT4decomp, from your own BT4 disc's
+  files in `ux0:data/bt3/bt4/`; chosen in the start menu. See the README.
+- **Start menu**: hold SELECT while the game starts for the game (BT3 or BT4), the language and an **Unlock
+  everything** cheat (the game's own unlock: all characters, stages, music and items, and 4,850,000 Zenni, given to
+  the save it loads).
 - **Disc Fusion**: the modes of the two earlier games' discs are open (the Vita has no disc to swap).
 - A crash writes `ux0:data/bt3/crash.txt` and closes the game, instead of leaving it frozen (with the kubridge
   plugin, which most setups have).

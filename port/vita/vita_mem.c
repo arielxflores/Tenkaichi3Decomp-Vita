@@ -97,6 +97,10 @@ static uint8_t *read_file(const char *path, size_t *size) {
 /* Copies the values of the game's data tables in from <disc>/SLUS_216.78 (its loaded sections as one image from
    0x100000) and <disc>/BIN/DBZP.BIN, and checks them against the checksum of port/data: the same step as
    Port_LoadGameData of the PC build, with the destinations as addresses the Vita's loader has already placed. */
+#include "vita_home.h"
+#ifdef BT3_BT4
+extern void Vita_Bt4CheckProgram(const char *disc, const uint8_t *elf, size_t size);
+#endif
 #define ROM_BASE 0x100000u
 #define ROM_END 0x2FF180u
 
@@ -107,7 +111,7 @@ void Vita_LoadGameData(const char *disc) {
     uint64_t hash = 0xCBF29CE484222325ull;
     uint32_t i, k;
 
-    snprintf(path, sizeof(path), "%s/SLUS_216.78", disc);
+    snprintf(path, sizeof(path), "%s/" VITA_PROGRAM, disc);
     elf = read_file(path, &elfSize);
     if (elf == NULL || elfSize < 0x34 || memcmp(elf, "\177ELF", 4) != 0) {
         Vita_Fatal("the game's program was not found:\n  %s\nCopy the files of your own disc there (see the README).", path);
@@ -131,6 +135,9 @@ void Vita_LoadGameData(const char *disc) {
             }
         }
         free(elf);
+#ifdef BT3_BT4
+        Vita_Bt4CheckProgram(disc, src[0], srcSize[0]); /* (which of the two releases of BT4 B14 Rev2: vita_bt4.c) */
+#endif
     }
     snprintf(path, sizeof(path), "%s/BIN/DBZP.BIN", disc);
     src[1] = read_file(path, &srcSize[1]);
@@ -152,9 +159,11 @@ void Vita_LoadGameData(const char *disc) {
     }
     free(src[0]);
     free(src[1]);
+#ifndef BT3_BT4 /* (BT4: its programs were checked whole above) */
     if (hash != gPortDatChecksum) {
         Vita_Fatal("SLUS_216.78 / BIN/DBZP.BIN in\n  %s\nare not the unmodified USA release (SLUS-21678).", disc);
     }
+#endif
 }
 
 /* The program's end address on the PS2: a table of the PS2's C library points at it; nothing reads it here

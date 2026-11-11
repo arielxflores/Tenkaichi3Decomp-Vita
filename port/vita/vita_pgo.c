@@ -26,7 +26,8 @@ extern void __gcov_info_to_gcda(const struct gcov_info *info, void (*filename_fn
 extern const struct gcov_info *const __start_gcov_info[];
 extern const struct gcov_info *const __stop_gcov_info[];
 
-#define PGO_ROOT "ux0:data/bt3/pgo"
+#include "vita_home.h"
+#define PGO_ROOT VITA_HOME "/pgo"
 static char sRun[64];
 
 typedef struct Out {

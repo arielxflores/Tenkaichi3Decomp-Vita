@@ -1,0 +1,2447 @@
+diff --git a/include/sys/dma.h b/include/sys/dma.h
+index aef448f..5537738 100644
+--- a/include/sys/dma.h
++++ b/include/sys/dma.h
+@@ -100,6 +100,30 @@ extern volatile u32 *Port_DmaChcr(s32 channel);
+ #define D_CTRL ((volatile u32 *)0x1000E000)
+ #define D_STAT ((volatile u32 *)0x1000E010)
+ #define D_PCR ((volatile u32 *)0x1000E020)
++#ifdef PORT_VITA
++/* PS Vita: a program cannot place memory at the PS2's register addresses; PORT_HW() (port_compat.h) leads to a
++   block of ordinary memory instead. */
++#undef VIF1_STAT
++#define VIF1_STAT ((volatile u32 *)PORT_HW(0x10003C00))
++#undef GIF_STAT
++#define GIF_STAT ((volatile u32 *)PORT_HW(0x10003020))
++#undef D1_QWC
++#define D1_QWC ((volatile u32 *)PORT_HW(0x10009020))
++#undef D1_TADR
++#define D1_TADR ((volatile u32 *)PORT_HW(0x10009030))
++#undef D2_MADR
++#define D2_MADR ((volatile u32 *)PORT_HW(0x1000A010))
++#undef D2_QWC
++#define D2_QWC ((volatile u32 *)PORT_HW(0x1000A020))
++#undef D2_TADR
++#define D2_TADR ((volatile u32 *)PORT_HW(0x1000A030))
++#undef D_CTRL
++#define D_CTRL ((volatile u32 *)PORT_HW(0x1000E000))
++#undef D_STAT
++#define D_STAT ((volatile u32 *)PORT_HW(0x1000E010))
++#undef D_PCR
++#define D_PCR ((volatile u32 *)PORT_HW(0x1000E020))
++#endif
+ 
+ /* One quadword of GS packet data seen as a whole, as two doublewords or as four words. */
+ typedef union GsQword {
+diff --git a/include/sys/save.h b/include/sys/save.h
+index f430d08..f14a5c5 100644
+--- a/include/sys/save.h
++++ b/include/sys/save.h
+@@ -139,5 +139,15 @@ void Save_Init(void);
+ void Save_AddItem(s32 idx);
+ void Save_AddMoney(s32 amount);
+ void Save_ResetRules(void);
++#ifdef PORT_VITA
++/* The Normal control type of the handheld: Ki Charge on L (the console's L1) and Blaster Wave on L2
++   (the rear touch pad); the console's own is the other way round. key[i] = the action of button i (circle, cross,
++   square, triangle, L1, L2, R1, R2). */
++void Save_PortDefaultKeys(s32 *key);
++/* 1 when key[] is the console's Normal (what a save made by an early version of this port holds as its custom set) */
++s32 Save_PortKeysConsoleDefault(const s32 *key);
++/* the set the battle uses for controller `pad`: Custom when that controller's custom bit is on, else Normal */
++const s32 *Save_PortKeys(s32 pad, s32 *tmp);
++#endif
+ 
+ #endif
+diff --git a/include/sys/timer.h b/include/sys/timer.h
+index 5f059f1..9fd24cd 100644
+--- a/include/sys/timer.h
++++ b/include/sys/timer.h
+@@ -5,9 +5,17 @@
+ 
+ /* EE hardware timers 0 and 1 used as a stopwatch, src/sys/timer.c = 0x11F190..0x11F548. */
+ 
++#ifdef PORT_VITA
++/* PS Vita: a program cannot place memory at the PS2's register addresses; PORT_HW() (port_compat.h) leads to a
++   block of ordinary memory instead. */
++#define TIMER_COUNT(ch) (*(volatile u32 *)(PORT_HW(0x10000000) + (ch) * 0x800))
++#define TIMER_MODE(ch) (*(volatile u32 *)(PORT_HW(0x10000010) + (ch) * 0x800))
++#define TIMER_COMP(ch) (*(volatile u32 *)(PORT_HW(0x10000020) + (ch) * 0x800))
++#else
+ #define TIMER_COUNT(ch) (*(volatile u32 *)(0x10000000 + (ch) * 0x800)) /* Tn_COUNT */
+ #define TIMER_MODE(ch) (*(volatile u32 *)(0x10000010 + (ch) * 0x800))  /* Tn_MODE */
+ #define TIMER_COMP(ch) (*(volatile u32 *)(0x10000020 + (ch) * 0x800))  /* Tn_COMP */
++#endif
+ 
+ /* Tn_MODE bits */
+ #define TIMER_MODE_CLK_HBLANK 0x003 /* count horizontal blanks */
+diff --git a/port/include/port_compat.h b/port/include/port_compat.h
+index 01fef8a..36fe450 100644
+--- a/port/include/port_compat.h
++++ b/port/include/port_compat.h
+@@ -29,7 +29,38 @@ typedef float f32;
+ #define ASM_STUB_BEGIN() extern int asm_stub_begin_
+ #define ASM_STUB_END() extern int asm_stub_end_
+ 
++/* PS Vita: the PS2's hardware-register addresses (0x1000xxxx: timers, DMA, VIF, GIF; 0x1200xxxx: the GS) cannot be
++   mapped there, so the register macros of the game go through PORT_HW() to two blocks of ordinary memory
++   (port/vita/vita_mem.c). On PC the registers are plain memory at the PS2's own addresses (port/src/plat_mem.c). */
++#ifdef PORT_VITA
++extern char *getenv(const char *name); /* (BT4's game code asks for a few test switches) */
++extern unsigned char gPortHw[], gPortGsReg[];
++#define PORT_HW(a) ((a) >= 0x12000000u ? (unsigned)gPortGsReg + ((a) - 0x12000000u) : (unsigned)gPortHw + ((a) - 0x10000000u))
++#endif
++
+ /* C library calls of the game that must not go to the host's versions (see port/src/plat_mem.c). */
+ #define malloc Port_Malloc
+ 
++#ifdef PORT_VITA
++/* PS Vita: the game's float division (port/vita/srcfix.py divs() writes every `a / b` of floats in the game's text
++   as __port_fdiv(a, b), and `a /= b` as __port_fdiv_to(&(a), b)). The game's code runs on the Vita's float unit,
++   where x / 0 is an infinity and 0 / 0 a NaN; the PS2's gives the largest number, of the sign of the two operands
++   (a divisor that is a denormal is a zero there). Neither exists on the PS2, and the game's loops are not made for
++   them: a NaN or an infinity that reached a fighter's height, an angle being wrapped or a path's length made a loop
++   that never ends (the game stood still, the music played on). */
++static inline __attribute__((always_inline)) float __port_fdiv(float a, float b) {
++    union { float f; unsigned u; } x, y;
++    y.f = b;
++    if (__builtin_expect((y.u & 0x7F800000u) == 0, 0)) {
++        x.f = a;
++        x.u = ((x.u ^ y.u) & 0x80000000u) | 0x7F7FFFFFu;
++        return x.f;
++    }
++    return a / b;
++}
++static inline __attribute__((always_inline)) float __port_fdiv_to(float *p, float b) {
++    return *p = __port_fdiv(*p, b);
++}
++#endif
++
+ #endif
+diff --git a/src/battle/btl_char_move.c b/src/battle/btl_char_move.c
+index b87c613..1cb1bf1 100644
+--- a/src/battle/btl_char_move.c
++++ b/src/battle/btl_char_move.c
+@@ -1411,6 +1411,13 @@ s32 BtlMove_PushOut(BtlMoveChr *chr) {
+ f32 BtlMove_CalcVerticalSpeed(f32 height, f32 extra) {
+     f32 v = 0.0f;
+ 
++#ifdef PORT_VITA
++    /* (Vita: hardware floats) a NaN, an infinity or a height the loop cannot step through (it ends on the change of
++       sign) kept the game in this loop for ever; the PS2 has neither of the first two */
++    if (!(height > -100000.0f && height < 100000.0f)) {
++        height = 0.0f;
++    }
++#endif
+     for (;;) {
+         if (0.0f < height) {
+             height -= v;
+@@ -1474,6 +1481,11 @@ void BtlMove_BeginRiseToOpponent(BtlMoveChr *chr) {
+ f32 BtlMove_CalcJumpSpeed(f32 height) {
+     f32 v = 0.0f;
+ 
++#ifdef PORT_VITA
++    if (!(height > -100000.0f && height < 100000.0f)) { /* (as BtlMove_CalcVerticalSpeed) */
++        height = 0.0f;
++    }
++#endif
+     for (;;) {
+         height -= v;
+         v += BTL_KMH(50.0f);
+diff --git a/src/battle/btl_input.c b/src/battle/btl_input.c
+index 5853672..f4f7772 100644
+--- a/src/battle/btl_input.c
++++ b/src/battle/btl_input.c
+@@ -501,6 +501,20 @@ u32 BtlInput_GetKeyMask(BtlInputChr *chr, s32 action) {
+     s32 padBit[SAVE_KEY_COUNT] = { PAD_CIRCLE, PAD_CROSS, PAD_SQUARE, PAD_TRIANGLE, PAD_L1, PAD_L2, PAD_R1, PAD_R2 };
+     s32 i;
+ 
++#ifdef PORT_VITA
++    { /* the control type as the controller page shows it: Normal (the handheld's: Ki Charge on L) or the
++         custom set, read here rather than from key[], which the console copied only when the player row was left */
++        s32 tmp[SAVE_KEY_COUNT];
++        const s32 *key = Save_PortKeys(chr->player, tmp);
++
++        for (i = 0; i < SAVE_KEY_COUNT; i++) {
++            if (key[i] == action) {
++                return padBit[i];
++            }
++        }
++        return 0;
++    }
++#endif
+     for (i = 0; i < SAVE_KEY_COUNT; i++) {
+         if (gSaveData->key[TagBattle_Active()?chr->pad:chr->player][i] == action) {
+             return padBit[i];
+diff --git a/src/battle/btl_seq.c b/src/battle/btl_seq.c
+index 731528f..f64302d 100644
+--- a/src/battle/btl_seq.c
++++ b/src/battle/btl_seq.c
+@@ -359,7 +359,14 @@ void BtlText_DrawList(void *pkt, s32 x0, s32 x1, s32 y0, s32 y1, s32 mode) {
+             case '#':
+                 if (entry == list->cursor[list->page]) {
+                     Font_SetColor2RGBA(BTLTEXT_COL(128.0f), BTLTEXT_COL(128.0f), BTLTEXT_COL(128.0f), 0x80);
++#ifdef PORT_VITA
++                    {   /* the buttons as the Vita's controls have them (port/vita/vita_text.c) */
++                        extern u16 *Vita_PadLine(u16 *line, s32 pad);
++                        Font_PrintAt(x0 + 0xF, y, Vita_PadLine(p + 1, side));
++                    }
++#else
+                     Font_PrintAt(x0 + 0xF, y, p + 1);
++#endif
+                     y += 0x1C;
+                     Font_SetColor2RGBA(0x80, 0x80, 0x80, 0x80);
+                     if (work->unk10 == 1) {
+diff --git a/src/battle/col_c.c b/src/battle/col_c.c
+index 8220a15..eab4baf 100644
+--- a/src/battle/col_c.c
++++ b/src/battle/col_c.c
+@@ -401,6 +401,13 @@ s32 Font_MeasureWidthEx(void *str, s32 kind, f32 scale) {
+     if (kind == FONT_CMD_STR16) str = (void *)UiText_TranslateString((const u16 *)str);
+ #endif
+ 
++#ifdef PORT_VITA
++    {
++        extern void *Vita_TextFix(void *str, s32 kind);
++        str = Vita_TextFix(str, kind);
++    }
++#endif
++
+     while (1) {
+         ch = Font_ReadChar(kind, str);
+         str = (u8 *)str + Font_CharSize(kind);
+@@ -457,6 +464,13 @@ s32 Font_CountLinesEx(void *str, s32 kind) {
+     if (kind == FONT_CMD_STR16) str = (void *)UiText_TranslateString((const u16 *)str);
+ #endif
+ 
++#ifdef PORT_VITA
++    {
++        extern void *Vita_TextFix(void *str, s32 kind);
++        str = Vita_TextFix(str, kind);
++    }
++#endif
++
+     for (;;) {
+         ch = Font_ReadChar(kind, str);
+         str = (u8 *)str + Font_CharSize(kind);
+@@ -1102,9 +1116,18 @@ void Font_SetCmdCount(s32 count) {
+ }
+ 
+ /* Queues a command with a snapshot of the current style. */
++#ifdef PORT_VITA
++extern void *Vita_TextFix(void *str, s32 kind); /* (port/vita/vita_text.c: the PS2's name out of the menus' text) */
++#endif
+ FontCmd *Font_NewCmd(s32 arg, s32 digits, s32 x, s32 y, s32 homeX, s32 kind) {
+     FontCmd *cmd = Font_AllocCmd();
+ 
++#ifdef PORT_VITA
++    if (kind == FONT_CMD_STR16 || kind == FONT_CMD_STR8) {
++        arg = (s32)Vita_TextFix((void *)arg, kind);
++    }
++#endif
++
+     cmd->arg = arg;
+     cmd->x = x;
+     cmd->y = y;
+diff --git a/src/battle/col_c_b.c b/src/battle/col_c_b.c
+index 0ee0fb9..fa7d7c3 100644
+--- a/src/battle/col_c_b.c
++++ b/src/battle/col_c_b.c
+@@ -468,6 +468,12 @@ void FontTag_Ub0(FontTagDef *def, u64 **pkt, FontCmd *cmd, FontCmd *saved, s32 *
+ void FontIcon_Init(void) {
+     u32 *boot = gCommonRes->boot;
+ 
++#ifdef PORT_VITA
++    { /* L3 / R3 drawn as the Vita's plates, not the PS2's sticks (port/vita/vita_optart.c) */
++        extern void Vita_IconArt(void *boot);
++        Vita_IconArt(boot);
++    }
++#endif
+     gFontIconRes = (FontIconRes *)(boot + (boot[8] >> 2));
+     Res_RelocateOffsets(&gFontIconRes, gFontIconRes, gFontIconRes);
+     Font_SetBeginCallback(FontIcon_Begin);
+diff --git a/src/battle/eft_c.c b/src/battle/eft_c.c
+index 840c168..15721af 100644
+--- a/src/battle/eft_c.c
++++ b/src/battle/eft_c.c
+@@ -1069,6 +1069,12 @@ void EftSurf_Update(void) {
+ 
+ /* Surface task draw. */
+ void EftSurf_Draw(void) {
++#ifdef PORT_VITA
++    extern int gVitaSeaOff;
++    if (gVitaSeaOff) {
++        return; /* (a test's A/B only: bt3.txt seaoff=1, the stage's surfaces not drawn) */
++    }
++#endif
+     if (!(gBtlStage->flags & 1) && BtlStage_IsReady() && EftStage_IsDrawOn()) {
+         EftSurf_DrawMeshes();
+     }
+@@ -1271,6 +1277,106 @@ static inline EftTexEntry *EftSurfRt_GetTex(EftSurfRt *rt, s32 idx) {
+     return &rt->texTbl[idx];
+ }
+ 
++#ifdef PORT_VITA
++/* (port, Vita) 1 when the three corners of a surface triangle all lie clearly outside one of the five clip planes:
++   ClipPoly_ClipPlane leaves nothing of such a triangle, whichever clipping path it takes. Worked out in the console's
++   own float arithmetic it is the same answer except for corners within a hair of the plane, which are left to the
++   original path (the margin). On Namek about half of the 700 surface triangles a frame are wholly off the view, and
++   each went through its corners' set-up and up to five clipping calls first. */
++static s32 EftSurf_PortOutside(EftSurfTri *tri, Vec4 *pl) {
++    s32 p;
++    s32 k;
++
++    for (p = 0; p < 5; p++, pl++) {
++        for (k = 0; k < 3; k++) {
++            f32 a = pl->x * tri->v[k].pos[0], b = pl->y * tri->v[k].pos[1], c = pl->z * tri->v[k].pos[2];
++            f32 d = a + b + c + pl->w;
++            f32 m = (a < 0.0f ? -a : a) + (b < 0.0f ? -b : b) + (c < 0.0f ? -c : c) + (pl->w < 0.0f ? -pl->w : pl->w);
++            if (!(d < -1e-4f * m)) {
++                break; /* (this corner is not clearly outside this plane) */
++            }
++        }
++        if (k == 3) {
++            return 1;
++        }
++    }
++    return 0;
++}
++#endif
++
++#ifdef PORT_VITA
++/* (port, Vita) 1 when the three corners all lie clearly inside the five clip planes: ClipPoly_ClipPlane would hand
++   the triangle back unchanged five times (no corner outside), so the calls are left out. */
++static s32 EftSurf_PortInside(EftSurfVtx *tri, Vec4 *pl) {
++    s32 p;
++    s32 k;
++    extern int gVitaSurfCull;
++
++    if (!gVitaSurfCull) {
++        return 0;
++    }
++    for (p = 0; p < 5; p++, pl++) {
++        for (k = 0; k < 3; k++) {
++            f32 a = pl->x * tri[k].pos[0], b = pl->y * tri[k].pos[1], c = pl->z * tri[k].pos[2];
++            f32 d = a + b + c + pl->w * tri[k].pos[3];
++            f32 m = (a < 0.0f ? -a : a) + (b < 0.0f ? -b : b) + (c < 0.0f ? -c : c) + (pl->w < 0.0f ? -pl->w : pl->w);
++            if (!(d > 1e-4f * m) || tri[k].pos[3] != 1.0f) {
++                return 0;
++            }
++        }
++    }
++    return 1;
++}
++#endif
++
++#ifdef PORT_VITA
++/* where the surfaces' frame goes: [0] all, [1] the triangles' set-up, [2] their draws;
++   counts: [0] frames, [1] triangles looked at, [2] left out (off the view), [3] clipped draws, [4] unclipped draws,
++   [5] other kinds */
++unsigned long long gVitaSurfUs[3];
++unsigned gVitaSurfN[10];
++/* the processor's cycles in the surfaces, one frame in eight: [0] the triangles' set-up, [1] their
++   draw routines, of them [2] clipping, [3] projecting, [4] queueing; [5] triangles, [6] frames, [7] all */
++unsigned long long gVitaSurfCyc[8];
++int gVitaSurfMeas;
++extern int gVitaPerfOn;
++extern int scePerfArmPmonGetCounterValue(int thid, unsigned int counter, unsigned int *value);
++unsigned Vita_SurfCyc(void) {
++    unsigned v = 0;
++    scePerfArmPmonGetCounterValue(0, 31, &v);
++    return v;
++}
++extern unsigned int sceKernelGetProcessTimeLow(void);
++#define SURF_T() sceKernelGetProcessTimeLow()
++/* The vector library's routines the triangles' set-up calls three times a triangle, here in line: the same
++   operations in the same order as the library's fast stand-ins (port/src/port_vufast.c, checked bit for bit against
++   the library), in the float unit's mode of the game's thread; a result that is not finite goes to the library's
++   routine as the stand-in does. The copies are copies. (~1000 triangles a frame on Kame House.) */
++extern struct EftVuHead { f32 vf0[4], vf1[4], vf2[4], vf3[4]; } gRefVu0; /* (the vector unit's registers as the library keeps them: port/vu0_a.h) */
++static inline s32 EftV_Bad(f32 a) {
++    f32 t = a * 0.0f;
++    return t != t;
++}
++static inline f32 EftV_DistSq(f32 *a, f32 *b) {
++    f32 dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2], dw = a[3] - b[3];
++    f32 tx = dx * dx, ty = dy * dy, tz = dz * dz;
++    f32 s = (tx + ty) + gRefVu0.vf3[0] * tz;
++    if (EftV_Bad(s) | EftV_Bad(dw)) {
++        return Vec3_DistSq((Vec4 *)a, (Vec4 *)b);
++    }
++    return s;
++}
++static inline void EftV_Scale3(f32 *o, f32 s) {
++    f32 x = o[0] * s, y = o[1] * s, z = o[2] * s;
++    if (EftV_Bad(x) | EftV_Bad(y) | EftV_Bad(z)) {
++        Vec3_Scale((Vec4 *)o, (Vec4 *)o, s);
++        return;
++    }
++    o[0] = x;
++    o[1] = y;
++    o[2] = z;
++}
++#endif
+ /* Draws every mesh of the surface file: scrolls and tints the vertices of each triangle, then sends it through
+    the draw routine its flags select. */
+ void EftSurf_DrawMeshes(void) {
+@@ -1297,9 +1403,17 @@ void EftSurf_DrawMeshes(void) {
+     s32 near;
+     s32 layer;
+ 
++#ifdef PORT_VITA
++    unsigned surfT0 = SURF_T();
++    unsigned surfC0, surfC1 = 0, surfC2;
++    gVitaSurfN[0]++;
++    gVitaSurfMeas = gVitaPerfOn && (gVitaSurfN[0] & 7) == 0;
++    surfC0 = gVitaSurfMeas ? Vita_SurfCyc() : 0;
++#endif
+     memset(tex, 0, sizeof(tex));
+     EftGfx_UpdateClipPlanes();
+     gEftSurf->u.s.planes = EftGfx_GetClipPlanes();
++
+     Vec4_Copy((Vec4 *)cam, &gBtlCamView->pos);
+     BtlStage_GetWaterLevel(&height);
+     cam[1] = height;
+@@ -1313,6 +1427,35 @@ void EftSurf_DrawMeshes(void) {
+     }
+     Vu0Cur_Push();
+     Vu0Cur_LoadMtx(&gBtlCamView->world2screen);
++#ifdef PORT_VITA
++    {   /* the surfaces' meshes, once a fight, 20 s in */
++        extern void Vita_Log(const char *fmt, ...);
++        static s32 frames;
++        static EftSurf *seen;
++        if (seen != w) {
++            seen = w;
++            frames = 0;
++        }
++        if (++frames == 1200) {
++            EftSurfMesh *m = mesh;
++            s32 mi;
++            Vita_Log("vita: surfaces: %d meshes\n", meshCount);
++            for (mi = 0; mi < meshCount; mi++, m++) {
++                f32 y0 = m->triCount > 0 ? m->tris[0].v[0].pos[1] : 0.0f;
++                s32 t, k2, flat = 1;
++                for (t = 0; t < m->triCount; t++) {
++                    for (k2 = 0; k2 < 3; k2++) {
++                        if (m->tris[t].v[k2].pos[1] != y0) {
++                            flat = 0;
++                        }
++                    }
++                }
++                Vita_Log("vita:   mesh %d: flags %03x, %d triangles, texture %d, z bias %d, y %.2f..%.2f, %s (first corner y %.2f)\n", mi, m->flags, m->triCount, m->tex,
++                         m->zBias, m->boxMin.y, m->boxMax.y, flat ? "flat" : "not flat", y0);
++            }
++        }
++    }
++#endif
+     for (i = 0; i < meshCount; i++, mesh++) {
+         s32 flags;
+         f32 u;
+@@ -1351,15 +1494,72 @@ void EftSurf_DrawMeshes(void) {
+         if (!(flags & EFT_SURF_NO_DEPTH_TEST)) {
+             layer = (flags & EFT_SURF_LAYER2) ? 2 : 0;
+         }
++#ifdef PORT_VITA
++        {   /* a reflecting surface queued in the ordering table whose corners all lie in one horizontal
++               plane: its triangles never cover each other, so Ot_Send may draw its two passes one after the other
++               (src/sys/gfx_ot.c); its packets are marked (eft_d.c EftSurf_QueueTri) */
++            extern int gVitaSeaMark, gVitaSeaRun;
++            gVitaSeaMark = 0;
++            if (gVitaSeaRun && (flags & (EFT_SURF_CLIP | EFT_SURF_REFLECT)) == EFT_SURF_REFLECT && triCount > 0) {
++                f32 y0 = tri[0].v[0].pos[1];
++                s32 t, k2, flat = 1;
++                for (t = 0; t < triCount && flat; t++) {
++                    for (k2 = 0; k2 < 3; k2++) {
++                        if (tri[t].v[k2].pos[1] != y0) {
++                            flat = 0;
++                        }
++                    }
++                }
++                gVitaSeaMark = flat;
++                gVitaSurfN[flat ? 8 : 9]++;
++            }
++        }
++#endif
+         for (j = 0; j < triCount; j++, tri++) {
+             s32 k;
+ 
++#ifdef PORT_VITA
++            gVitaSurfN[1]++;
++            if (gVitaSurfMeas) {
++                surfC1 = Vita_SurfCyc();
++            }
++#endif
++#ifdef PORT_VITA
++            dist[0] = EftV_DistSq(tri->v[0].pos, cam);
++            dist[1] = EftV_DistSq(tri->v[1].pos, cam);
++            dist[2] = EftV_DistSq(tri->v[2].pos, cam);
++#else
+             dist[0] = Vec3_DistSq((Vec4 *)tri->v[0].pos, (Vec4 *)cam);
+             dist[1] = Vec3_DistSq((Vec4 *)tri->v[1].pos, (Vec4 *)cam);
+             dist[2] = Vec3_DistSq((Vec4 *)tri->v[2].pos, (Vec4 *)cam);
++#endif
++#ifdef PORT_VITA
++            {   /* (port, Vita) a triangle the clipping path below would leave nothing of: not prepared at all. The
++                   reflecting surface's far triangles (drawn unclipped) go on as before. */
++                extern int gVitaSurfCull;
++                s32 clipped = 1;
++                if ((flags & (EFT_SURF_CLIP | EFT_SURF_REFLECT)) == (EFT_SURF_CLIP | EFT_SURF_REFLECT)) {
++                    for (k = 0; k < 3; k++) {
++                        if ((dist[k] > distSq ? distSq : dist[k]) > 202500.0f) {
++                            clipped = 0; /* (not near: EftSurf_DrawReflectTri, no clipping) */
++                        }
++                    }
++                }
++                if (gVitaSurfCull && clipped && EftSurf_PortOutside(tri, gEftSurf->u.s.planes)) {
++                    gVitaSurfN[2]++;
++                    continue;
++                }
++            }
++#endif
+             near = 1;
+             for (k = 0; k < 3; k++) {
++#ifdef PORT_VITA
++                __builtin_memcpy(out[k].pos, tri->v[k].pos, 16);
++                __builtin_memcpy(out[k].st, tri->v[k].st, 16);
++                __builtin_memcpy(out[k].color, tri->v[k].color, 16);
++#else
+                 ClipVtx_Set(&out[k], tri->v[k].pos, tri->v[k].st, tri->v[k].color);
++#endif
+                 out[k].pos[3] = 1.0f;
+                 out[k].st[2] = 1.0f;
+                 out[k].st[3] = 1.0f;
+@@ -1371,7 +1571,11 @@ void EftSurf_DrawMeshes(void) {
+                     }
+                     out[k].st[1] += v;
+                 } else if (flags & EFT_SURF_REFLECT) {
++#ifdef PORT_VITA
++                    __builtin_memcpy(out[k].color, light, 16);
++#else
+                     Vec4_Copy((Vec4 *)out[k].color, (Vec4 *)light);
++#endif
+                     out[k].color[3] *= tri->v[k].color[3];
+                     if (dist[k] > distSq) {
+                         dist[k] = distSq;
+@@ -1390,8 +1594,24 @@ void EftSurf_DrawMeshes(void) {
+                     out[k].st[1] += v;
+                     out[k].color[3] *= fade;
+                 }
++#ifdef PORT_VITA
++                EftV_Scale3(out[k].color, bright);
++#else
+                 Vec3_Scale((Vec4 *)out[k].color, (Vec4 *)out[k].color, bright);
++#endif
++            }
++#ifdef PORT_VITA
++            /* (by the way it is drawn: 3 reflecting and clipped, 4 reflecting, 5 clipped (DrawTri*), 6 the
++               ordering table's reflecting (DrawPolyOtClipped), 7 the ordering table's (DrawTriOtClipped); no clock reads
++               per triangle: one takes a microsecond) */
++            gVitaSurfN[(flags & (EFT_SURF_CLIP | EFT_SURF_REFLECT)) == (EFT_SURF_CLIP | EFT_SURF_REFLECT) ? (near ? 3 : 4)
++                       : (flags & EFT_SURF_CLIP) ? 5 : (flags & EFT_SURF_REFLECT) ? 6 : 7]++;
++            if (gVitaSurfMeas) {
++                surfC2 = Vita_SurfCyc();
++                gVitaSurfCyc[0] += surfC2 - surfC1;
++                surfC1 = surfC2;
+             }
++#endif
+             if ((flags & (EFT_SURF_CLIP | EFT_SURF_REFLECT)) == (EFT_SURF_CLIP | EFT_SURF_REFLECT)) {
+                 if (near) {
+                     EftSurf_DrawReflectTriClipped(out, tex, (Vec4 *)fog);
+@@ -1409,10 +1629,28 @@ void EftSurf_DrawMeshes(void) {
+             } else {
+                 EftSurf_DrawTriOtClipped(out, layer, 1, 0, tex0, zBias);
+             }
++#ifdef PORT_VITA
++            if (gVitaSurfMeas) {
++                gVitaSurfCyc[1] += Vita_SurfCyc() - surfC1;
++                gVitaSurfCyc[5]++;
++            }
++#endif
+         }
+     }
+     EftSurf_EndDraw(0);
+     Vu0Cur_Pop();
++#ifdef PORT_VITA
++    {
++        extern int gVitaSeaMark;
++        gVitaSeaMark = 0;
++    }
++    gVitaSurfUs[0] += SURF_T() - surfT0;
++    if (gVitaSurfMeas) {
++        gVitaSurfCyc[7] += Vita_SurfCyc() - surfC0;
++        gVitaSurfCyc[6]++;
++        gVitaSurfMeas = 0;
++    }
++#endif
+ }
+ 
+ #define EFT_F2RGBA(c) \
+@@ -1634,6 +1872,9 @@ void EftSurf_DrawTriClipped(EftSurfVtx *tri, u64 tex0) {
+     s32 count = 3;
+     s32 i;
+ 
++#ifdef PORT_VITA
++    if (!EftSurf_PortInside(tri, plane))
++#endif
+     for (i = 4; i >= 0; i--) {
+         count = ClipPoly_ClipPlane(tri, plane, count);
+         plane++;
+@@ -1685,6 +1926,9 @@ void EftSurf_DrawReflectTriClipped(EftSurfVtx *tri, u64 *tex, Vec4 *fog) {
+     s32 count = 3;
+     s32 i;
+ 
++#ifdef PORT_VITA
++    if (!EftSurf_PortInside(tri, plane))
++#endif
+     for (i = 4; i >= 0; i--) {
+         count = ClipPoly_ClipPlane(tri, plane, count);
+         plane++;
+@@ -1801,6 +2045,9 @@ static inline void EftSurf_QueueTri(EftScreenPos *v0, EftScreenPos *v1, EftScree
+     p->xyz2.y = v2->y;
+     p->xyz2.z = v2->z;
+     p->xyz2.f = 0xFF;
++#ifdef PORT_VITA
++    p->vif0 = 0x5EB00000u | (u32)l; /* (the log: a surface's ordering-table triangle; the word is not sent) */
++#endif
+     if (z < 0) {
+         e = &gOtZ[0].layer[l];
+     } else if (z >= 0x1000) {
+@@ -1828,13 +2075,33 @@ void EftSurf_DrawTriOtClipped(EftSurfVtx *tri, s32 layer, s32 unused, s32 flipZ,
+     Vec4 *plane = gEftSurf->u.s.planes;
+     s32 count = 3;
+     s32 i;
++#ifdef PORT_VITA
++    unsigned c0 = gVitaSurfMeas ? Vita_SurfCyc() : 0, c1;
++#endif
+ 
++#ifdef PORT_VITA
++    if (!EftSurf_PortInside(tri, plane))
++#endif
+     for (i = 4; i >= 0; i--) {
+         count = ClipPoly_ClipPlane(tri, plane, count);
+         plane++;
+     }
++#ifdef PORT_VITA
++    if (gVitaSurfMeas) {
++        c1 = Vita_SurfCyc();
++        gVitaSurfCyc[2] += c1 - c0;
++        c0 = c1;
++    }
++#endif
+     if (count != 0) {
+         ClipPoly_ProjectCur((s32 (*)[4])xyz, st, tri, count);
++#ifdef PORT_VITA
++        if (gVitaSurfMeas) {
++            c1 = Vita_SurfCyc();
++            gVitaSurfCyc[3] += c1 - c0;
++            c0 = c1;
++        }
++#endif
+         for (i = 2; i < count; i++) {
+             s32 z = xyz[0].z >> 8;
+ 
+@@ -1853,6 +2120,11 @@ void EftSurf_DrawTriOtClipped(EftSurfVtx *tri, s32 layer, s32 unused, s32 flipZ,
+             EftSurf_QueueTri(&xyz[0], &xyz[i - 1], &xyz[i], tri[0].color, tri[i - 1].color, tri[i].color, &st[0],
+                              &st[i - 1], &st[i], layer, z - zBias, tex0);
+         }
++#ifdef PORT_VITA
++        if (gVitaSurfMeas) {
++            gVitaSurfCyc[4] += Vita_SurfCyc() - c0;
++        }
++#endif
+     }
+ }
+ 
+diff --git a/src/battle/eft_d.c b/src/battle/eft_d.c
+index a45b6ab..643afaa 100644
+--- a/src/battle/eft_d.c
++++ b/src/battle/eft_d.c
+@@ -183,16 +183,81 @@ static inline void EftSurf_QueueTri(EftScrPos *scr0, EftScrPos *scr1, EftScrPos
+     if (fog[0].w <= 0.01f && fog[1].w <= 0.01f && fog[2].w <= 0.01f) {
+         count = 1;
+     }
++#ifdef PORT_VITA
++    __builtin_memcpy(&col[0], col0, 16); /* (the library's copies, in line) */
++    __builtin_memcpy(&col[1], col1, 16);
++    __builtin_memcpy(&col[2], col2, 16);
++    __builtin_memcpy(&col[3], col0, 16);
++    __builtin_memcpy(&col[4], col1, 16);
++    __builtin_memcpy(&col[5], col2, 16);
++#else
+     Vec4_Copy(&col[0], col0);
+     Vec4_Copy(&col[1], col1);
+     Vec4_Copy(&col[2], col2);
+     Vec4_Copy(&col[3], col0);
+     Vec4_Copy(&col[4], col1);
+     Vec4_Copy(&col[5], col2);
++#endif
+     col[3].w *= fog[0].w;
+     col[4].w *= fog[1].w;
+     col[5].w *= fog[2].w;
+     layer = 0;
++#ifdef PORT_VITA
++    {   /* the corners' red, green and blue as bytes once: both packets have them (the second one differs in
++           its alphas only); the same conversions as EFT_SURF_FILL_PKT's */
++        u8 cr[3], cg[3], cb[3];
++        s32 k;
++        for (k = 0; k < 3; k++) {
++            cr[k] = col[k].x;
++            cg[k] = col[k].y;
++            cb[k] = col[k].z;
++        }
++        for (i = 0; i < count; i++) {
++            Vec4 *c = &col[i * 3];
++            u64 prim;
++
++            if (count == 1 && StgTint_IsOn(0)) {
++                continue;
++            }
++            pkt = (EftTriPkt *)gOtCur;
++            gOtCur = (u32 *)(pkt + 1);
++            prim = 0x1B;
++            ((EftPrim *)&prim)->abe = abe;
++            pkt->prim = prim;
++            pkt->tag = 0x20000007;
++            pkt->vif0 = 0x10000000;
++            pkt->vif1 = 0x50000007;
++            pkt->giftag[0] = 0xC400000000008001;
++            pkt->giftag[1] = 0xF42142142160;
++            pkt->next = 0;
++            pkt->nop = 0;
++            for (k = 0; k < 3; k++) {
++                pkt->v[k].r = cr[k];
++                pkt->v[k].g = cg[k];
++                pkt->v[k].b = cb[k];
++                pkt->v[k].a = c[k].w;
++            }
++            pkt->v[0].q = ((f32 *)st0)[2];
++            pkt->v[1].q = ((f32 *)st1)[2];
++            l = layer;
++            pkt->v[2].q = st2->z;
++            if (!(layer < 2)) {
++                l = layer - 2;
++            }
++            pkt->tex0 = tex[i];
++            EFT_SURF_FILL_PKT2(pkt, (s32 *)scr0, (s32 *)scr1, (s32 *)scr2, (f32 *)st0, (f32 *)st1, (f32 *)st2);
++            {
++                extern int gVitaSeaMark;
++                if (gVitaSeaMark) {
++                    pkt->vif0 = 0x5EA00000u | (u32)l;
++                }
++            }
++            EFT_SURF_QUEUE(pkt, z, l, entry);
++            layer++;
++        }
++        return;
++    }
++#endif
+     for (i = 0; i < count; i++) {
+         Vec4 *c = &col[i * 3];
+         u64 prim;
+@@ -210,11 +275,45 @@ static inline void EftSurf_QueueTri(EftScrPos *scr0, EftScrPos *scr1, EftScrPos
+         }
+         pkt->tex0 = tex[i];
+         EFT_SURF_FILL_PKT2(pkt, (s32 *)scr0, (s32 *)scr1, (s32 *)scr2, (f32 *)st0, (f32 *)st1, (f32 *)st2);
++#ifdef PORT_VITA
++        {   /* a triangle of a flat reflecting surface (the sea): marked in the header's VIF word, which is
++               not sent, for Ot_Send (src/sys/gfx_ot.c) */
++            extern int gVitaSeaMark;
++            if (gVitaSeaMark) {
++                pkt->vif0 = 0x5EA00000u | (u32)l;
++            }
++        }
++#endif
+         EFT_SURF_QUEUE(pkt, z, l, entry);
+         layer++;
+     }
+ }
+ 
++#ifdef PORT_VITA
++/* (port, Vita) 1 when the three corners all lie clearly inside the five clip planes (eft_c.c EftSurf_PortInside):
++   the five ClipPoly_ClipPlane calls would hand the triangle back unchanged. */
++static s32 EftSurfD_PortInside(EftSurfVtxD *tri, Vec4 *pl) {
++    s32 p;
++    s32 k;
++    extern int gVitaSurfCull;
++
++    if (!gVitaSurfCull) {
++        return 0;
++    }
++    for (p = 0; p < 5; p++, pl++) {
++        for (k = 0; k < 3; k++) {
++            f32 a = pl->x * tri[k].pos.x, b = pl->y * tri[k].pos.y, c = pl->z * tri[k].pos.z;
++            f32 d = a + b + c + pl->w;
++            f32 m = (a < 0.0f ? -a : a) + (b < 0.0f ? -b : b) + (c < 0.0f ? -c : c) + (pl->w < 0.0f ? -pl->w : pl->w);
++            if (!(d > 1e-4f * m)) {
++                return 0;
++            }
++        }
++    }
++    return 1;
++}
++#endif
++
+ /* Clips a triangle against the five planes of the surface and queues the resulting polygon as a fan
+    (vertex 0, k - 1, k), each fan triangle through EftSurf_QueueTri. */
+ void EftSurf_DrawPolyOtClipped(EftSurfVtxD *poly, s32 unused, u64 *tex, Vec4 *fog, s32 zBias) {
+@@ -231,18 +330,46 @@ void EftSurf_DrawPolyOtClipped(EftSurfVtxD *poly, s32 unused, u64 *tex, Vec4 *fo
+     Vec4 *plane = gEftSurf->clipPlanes;
+     s32 count = 3;
+     s32 k;
++#ifdef PORT_VITA
++    extern int gVitaSurfMeas;
++    extern unsigned long long gVitaSurfCyc[8];
++    extern unsigned Vita_SurfCyc(void);
++    unsigned c0 = gVitaSurfMeas ? Vita_SurfCyc() : 0, c1;
++#endif
+ 
++#ifdef PORT_VITA
++    if (!EftSurfD_PortInside(poly, plane))
++#endif
+     for (k = 4; k >= 0; k--) {
+         count = ClipPoly_ClipPlane(poly, plane, count);
+         plane++;
+     }
++#ifdef PORT_VITA
++    if (gVitaSurfMeas) {
++        c1 = Vita_SurfCyc();
++        gVitaSurfCyc[2] += c1 - c0;
++        c0 = c1;
++    }
++#endif
+     if (count != 0) {
+         ClipPoly_ProjectCur(scr, st, poly, count);
++#ifdef PORT_VITA
++        if (gVitaSurfMeas) {
++            c1 = Vita_SurfCyc();
++            gVitaSurfCyc[3] += c1 - c0;
++            c0 = c1;
++        }
++#endif
+         for (k = 2; k < count; k++) {
+             EftSurf_QueueTri((EftScrPos *)scr[0], (EftScrPos *)scr[k - 1], (EftScrPos *)scr[k], &poly[0].col,
+                              &poly[k - 1].col, &poly[k].col, (Vec4 *)st[0], (Vec4 *)st[k - 1], (Vec4 *)st[k], unused,
+                              (scr[0][2] >> 8) - zBias, tex, fog, 2);
+         }
++#ifdef PORT_VITA
++        if (gVitaSurfMeas) {
++            gVitaSurfCyc[4] += Vita_SurfCyc() - c0;
++        }
++#endif
+     }
+ }
+ 
+diff --git a/src/battle/hud_c_b.c b/src/battle/hud_c_b.c
+index 64e3a2c..9009f27 100644
+--- a/src/battle/hud_c_b.c
++++ b/src/battle/hud_c_b.c
+@@ -642,7 +642,13 @@ void HudCombo_SetMessage(s32 side, s32 message) {
+ }
+ 
+ /* Starts the text line on a side: the name of entry `text` of the fighter's skill script. */
++#ifdef PORT_VITA
++extern void Vita_FilmTrigger(int side, int text); /* a test run's film from this moment (filmtrig=) */
++#endif
+ void HudCombo_SetText(s32 side, s32 text) {
++#ifdef PORT_VITA
++    Vita_FilmTrigger(side, text);
++#endif
+     gHudCombo->textState[side] = 0;
+     gHudCombo->text[side] = text;
+ }
+diff --git a/src/battle/stg_b.c b/src/battle/stg_b.c
+index de98bcf..3b93b90 100644
+--- a/src/battle/stg_b.c
++++ b/src/battle/stg_b.c
+@@ -992,9 +992,21 @@ void ScrXfade_FreeBuffers(void) {
+ }
+ 
+ /* Reads the frame being shown back from the GS, upper and lower half. */
++#ifdef PORT_VITA
++/* (Vita) The cross-fade the renderer does itself: the GS's picture cannot be read back (the PS2 read the
++   shown frame into two buffers and uploaded them again every frame of the fade: 230,000 pixels a picture written
++   into GS memory for nothing, the picture being on the graphics chip, and the fade's draw then left out as a texture
++   from the depth buffer's page). A capture counts on; the fade's draw is a marker with its alpha and that count, and
++   the renderer copies the picture shown last when the count is new (vita_vgl.c xf_marker). */
++unsigned gVitaXfadeSerial;
++#endif
+ void ScrXfade_Capture(void) {
+     s32 fbp = 0xE00;
+ 
++#ifdef PORT_VITA
++    gVitaXfadeSerial++;
++    return;
++#endif
+     if (!(gGfx.frame & 1)) {
+         fbp = 0;
+     }
+@@ -1066,6 +1078,13 @@ void ScrXfade_Draw(s32 unused, s32 tbp, u8 alpha) {
+     s32 bw;
+     s32 w, h;
+ 
++#ifdef PORT_VITA
++    {
++        extern void Port_GsMarkerArg(int effect, unsigned arg);
++        Port_GsMarkerArg(0x50, (unsigned)alpha | gVitaXfadeSerial << 8);
++        return;
++    }
++#endif
+     /* w and h as variables: `w * h / 64` keeps 0x700 in a register (hoisted by the second loop pass) */
+     w = 0x200;
+     h = 0xE0;
+diff --git a/src/battle/stg_c.c b/src/battle/stg_c.c
+index f3af031..3a64d0b 100644
+--- a/src/battle/stg_c.c
++++ b/src/battle/stg_c.c
+@@ -642,6 +642,9 @@ void StgFx_Term(void) {
+ }
+ 
+ /* First draw pass (after the scene): steps the tints, then the depth-based filters the stage turns on. */
++#ifdef PORT_VITA
++extern void Vita_FilmFxNote(unsigned bits, unsigned flagsHi, unsigned flagsLo); /* the film's notes */
++#endif
+ void StgFx_DrawPre(void) {
+     if (*gStgFx == 0) {
+         StgTint_Update();
+@@ -661,6 +664,10 @@ void StgFx_DrawPre(void) {
+             StgHaze_DrawAll();
+         }
+         StgTint_DrawBack();
++#ifdef PORT_VITA
++        Vita_FilmFxNote((BtlStage_HasFeature(3) ? 1u : 0u) | (BtlStage_HasFeature(0xD) ? 2u : 0u) | (BtlStage_HasFeature(9) ? 4u : 0u),
++                        (unsigned)(Battle_GetWork()->flags >> 32), (unsigned)Battle_GetWork()->flags);
++#endif
+     }
+ }
+ 
+diff --git a/src/menu/menu_a.c b/src/menu/menu_a.c
+index d3fcc84..793c999 100644
+--- a/src/menu/menu_a.c
++++ b/src/menu/menu_a.c
+@@ -312,7 +312,7 @@ void MainMenu_Init(s32 section) {
+             continue;
+         }
+         gMainMenu->items[gMainMenu->itemCount++] = i;
+-#ifdef PORT
++#if defined(PORT) && !defined(PORT_VITA) /* (the PS Vita: no online play) */
+         if (i == 3) {
+             gMainMenu->items[gMainMenu->itemCount++] = MAINMENU_TBO;
+         }
+@@ -325,7 +325,9 @@ void MainMenu_Init(s32 section) {
+         PortMainMenu_WriteRuns(gMainMenu->tex[12] + 0x40, 3, sPortTboOn, sizeof(sPortTboOn) / sizeof(sPortTboOn[0]));
+     }
+ #endif
++#ifndef PORT_VITA
+     if(gProgress->mainMenuItem==4)gProgress->mainMenuItem=MAINMENU_TBO;
++#endif
+     gMainMenu->top = gMainMenu->itemCount - 1;
+     for (i = 0; i < gMainMenu->itemCount; i++) {
+         if (gMainMenu->items[i] == gProgress->mainMenuItem) {
+@@ -587,6 +589,12 @@ void MainMenu_Update(void) {
+ 
+ /* Pad 0: up / down move the cursor (the ring scrolls at the ends), confirm enters a mode, cancel leaves. */
+ void MainMenu_Input(s32 *result) {
++#ifdef PORT_VITA
++    { /* (the touch screen's flings wait for the ring to take a press: port/vita/vita_touch.c) */
++        extern int gVitaMenuReady;
++        gVitaMenuReady = (gMainMenu->flash[0].flags & MFLASH_PAD) != 0;
++    }
++#endif
+     if (!(gMainMenu->flash[0].flags & MFLASH_PAD)) {
+         return;
+     }
+@@ -639,6 +647,9 @@ void MainMenu_Input(s32 *result) {
+             }
+         }
+     moved:
++#ifdef PORT_VITA
++        { extern int gVitaMenuMoves; gVitaMenuMoves++; } /* (the test runs' log: the moves the menu took) */
++#endif
+         MainMenu_PlateGoto(0, "fl_on_start");
+         gMainMenu->guide = Rand_Range(4);
+         if (MAINMENU_VOICED(MAINMENU_CUR(gMainMenu))) {
+diff --git a/src/menu/menu_a_b.c b/src/menu/menu_a_b.c
+index e81d5ef..18cdf15 100644
+--- a/src/menu/menu_a_b.c
++++ b/src/menu/menu_a_b.c
+@@ -65,10 +65,22 @@ s32 Progress_Main(s32 arg) {
+     s32 ret;
+ 
+     Pad_SetRepeat(0x28, 3);
++#ifdef PORT_VITA
++    { /* the touch screen's menu gestures (port/vita/vita_touch.c); a test can start on a given screen (bt3.txt startmode=) */
++        extern int gVitaInMenus, gVitaStartMode;
++        gVitaInMenus = 1;
++        if (gVitaStartMode > 0) {
++            gProgress->mode = gVitaStartMode;
++        }
++    }
++#endif
+     if (gProgress->flags & MPROG_FIRST_RUN) {
+         FirstRun_Main();
+         gProgress->flags &= ~MPROG_FIRST_RUN;
+     }
++#ifdef PORT_VITA
++    { extern int gVitaStartMode; gVitaStartMode = 0; } /* (once: FirstRun_Main skipped the opening film for it) */
++#endif
+     flags = BattleResult_GetFlags();
+     reason = BattleResult_GetReason();
+     if (flags & 8) {
+@@ -125,6 +137,9 @@ s32 Progress_Main(s32 arg) {
+     Snd_LoadBankFile(2, 0x14C);
+ 
+     do {
++#ifdef PORT_VITA
++        { extern int gVitaMenuMode; gVitaMenuMode = gProgress->mode; }
++#endif
+         switch (gProgress->mode) {
+         case 2:
+             PadWatch_SetEnabled(0);
+@@ -257,5 +272,8 @@ s32 Progress_Main(s32 arg) {
+     MENU_ARC_FREE(gMenuArc9);
+     MENU_ARC_FREE(gMenuArc10);
+     MENU_ARC_FREE(gMenuArc11);
++#ifdef PORT_VITA
++    { extern int gVitaInMenus; gVitaInMenus = 0; }
++#endif
+     return 0;
+ }
+diff --git a/src/menu/menu_a_c.c b/src/menu/menu_a_c.c
+index 342b5ab..32aaadd 100644
+--- a/src/menu/menu_a_c.c
++++ b/src/menu/menu_a_c.c
+@@ -82,8 +82,22 @@ void Title_Init(s32 section) {
+     gTitle->tex[14] = MTEX(res, 4);
+     gTitle->tex[15] = MTEX(res, 5);
+     gTitle->tex[16] = MTEX(res, 6);
+-    TT_RES(14);
+-    gTitle->logo = res;
++    /*
++     * European language packs (SLES-54945) keep the same title layout for slots 1..12 but leave the
++     * logo slot (14) empty (offset == end). The USA Title_Init always relocates it; skip when empty
++     * so Italian/Spanish/... can boot, and draw the background during the logo fade instead.
++     */
++    {
++        u32 *hdr = (u32 *)gTitle->res;
++        u32 off = hdr[0] >= 14 ? ((hdr[14] >> 2) << 2) : 0;
++        u32 end = hdr[0] >= 14 ? ((hdr[15] >> 2) << 2) : 0;
++        if (off < end) {
++            TT_RES(14);
++            gTitle->logo = res;
++        } else {
++            gTitle->logo = NULL;
++        }
++    }
+     TT_RES(5);
+     gTitle->tex[23] = MTEX(res, 0);
+     TT_RES(6);
+@@ -338,8 +352,13 @@ extern int Port_NetFixedStart(void); /* port/src/gs/net.c */
+ s32 Title_Run(s32 section) {
+     s32 result = 1;
+     s32 wait = 0;
++    /* USA shows the logo still for ~300 frames; EU packs omit that slot, so skip the long hold. */
++    s32 logoHold = 300;
+ 
+     Title_Init(section);
++    if (gTitle->logo == NULL) {
++        logoHold = 0;
++    }
+     ColorFade_StartIn(0, 0, 0, 0x14);
+ #ifdef PORT
+     /* A setting of the PC version (F1, UI): the copyright page, a still held for 300 frames that no button
+@@ -355,10 +374,10 @@ s32 Title_Run(s32 section) {
+         ColorFade_Update();
+ #ifdef PORT
+         Port_MenuPage(51); /* widescreen menus: the logo page at its true shape, black beside it (port/src/gs_marker.c) */
+-        Sprite_DrawPicture(gTitle->logo, 0, 0, 0x80);
++        Sprite_DrawPicture(gTitle->logo != NULL ? gTitle->logo : gTitle->bg, 0, 0, 0x80); /* (no logo: Title_Init) */
+         Port_MenuPage(0);
+ #else
+-        Sprite_DrawPicture(gTitle->logo, 0, 0, 0x80);
++        Sprite_DrawPicture(gTitle->logo != NULL ? gTitle->logo : gTitle->bg, 0, 0, 0x80); /* (no logo: Title_Init) */
+ #endif
+         ColorFade_Draw();
+         Gfx_EndFrame(1);
+@@ -378,7 +397,7 @@ s32 Title_Run(s32 section) {
+         }
+         if (gTitle->flags & TITLE_FADED_IN) {
+             wait++;
+-            if (wait > 300) {
++            if (wait > logoHold) {
+                 ColorFade_StartOut(0, 0, 0, 0x14);
+             }
+         }
+diff --git a/src/menu/menu_g_c.c b/src/menu/menu_g_c.c
+index a55a3d5..31dc49c 100644
+--- a/src/menu/menu_g_c.c
++++ b/src/menu/menu_g_c.c
+@@ -199,6 +199,12 @@ void DuelMenu_Init(s32 section) {
+     memset(DM, 0, 0x194);
+     DM->pack = (u32 *)MPACK_AT(gMenuArc5, section);
+     DM->res = Sprite_Unpack(DM->pack, NULL, NULL);
++#ifdef PORT_VITA
++    {
++        extern void Vita_VersusArt(void *res); /* port/vita/vita_optart.c: the second plate reads "Multiplayer" */
++        Vita_VersusArt(DM->res);
++    }
++#endif
+     DM_RES(1);
+     DM->bg = res;
+     DM_RES(2);
+diff --git a/src/menu/menu_i_b.c b/src/menu/menu_i_b.c
+index a3bc025..a63c85c 100644
+--- a/src/menu/menu_i_b.c
++++ b/src/menu/menu_i_b.c
+@@ -11,6 +11,17 @@ BootCard *gBootCard = NULL; /* 0x3B5908 */
+ 
+ /* Card-flow callback (both outcomes): start the 15-frame countdown to the fade out. */
+ void BootCard_OnFlowDone(void) {
++#ifdef PORT_VITA
++    { /* the start menu's cheat (port/vita/vita_start.c): the save just loaded (or made) is given everything */
++        extern int gVitaCheatUnlock;
++        extern void Vita_Log(const char *fmt, ...);
++        if (gVitaCheatUnlock) {
++            gVitaCheatUnlock = 0;
++            Save_UnlockAll(gSaveData);
++            Vita_Log("vita: everything unlocked (start menu)\n");
++        }
++    }
++#endif
+     gBootCard->flags |= BOOTCARD_DONE;
+     gBootCard->flags |= BOOTCARD_LEAVING;
+     gBootCard->timer = 0xF;
+@@ -20,6 +31,27 @@ void BootCard_OnFlowDone(void) {
+ void BootCard_Init(s32 section) {
+     gBootCard = Heap_Alloc(0x14, 0x20, 0, 2);
+     memset(gBootCard, 0, 0x14);
++#ifdef PORT_VITA
++    /*
++     * Memory-card lines for this screen live in USA archive baseFile+0x19 (AFS 473). That file has no
++     * European language banks in pzs3eu1. The same dialog blob is slot 12 of the title archive
++     * (baseFile+1), which is remapped for es/de/fr/it — reuse it so "Checking memory card..." is translated.
++     */
++    {
++        extern int VitaEu_UsesMenuRemap(void);
++        if (VitaEu_UsesMenuRemap()) {
++            void *arc = File_LoadSync(gProgress->baseFile + 1, NULL, 0);
++            gBootCard->pack = NULL;
++            gBootCard->res = Sprite_Unpack(MPACK_AT(arc, 1), NULL, NULL);
++            Heap_Free(arc);
++            Dialog_Init(MPACK_AT(gBootCard->res, 12), NULL, 0);
++            McFlow_Init(1);
++            McFlow_SetDoneCb(0, BootCard_OnFlowDone, NULL);
++            McFlow_SetDoneCb(1, BootCard_OnFlowDone, NULL);
++            return;
++        }
++    }
++#endif
+     gBootCard->pack = (u32 *)MPACK_AT(gMenuArc0, section);
+     gBootCard->res = Sprite_Unpack(gBootCard->pack, NULL, NULL);
+     Dialog_Init(MPACK_AT(gBootCard->res, 1), NULL, 0);
+diff --git a/src/menu/menu_i_c.c b/src/menu/menu_i_c.c
+index 47fbdac..e2435a8 100644
+--- a/src/menu/menu_i_c.c
++++ b/src/menu/menu_i_c.c
+@@ -193,9 +193,18 @@ s32 FirstRun_Main(void) {
+ #endif
+     BootCard_Run(2);
+     res = Sprite_Unpack(MPACK_AT(gMenuArc0, 3), NULL, NULL);
++#ifdef PORT_VITA
++    { /* (a test run that starts on a given screen skips the logos too) */
++        extern int gVitaStartMode;
++        if (gVitaStartMode <= 0 && FIRSTRUN_SHOW("skip_logos")) {
++            Logo_ShowAll(res);
++        }
++    }
++#else
+     if (FIRSTRUN_SHOW("skip_logos")) {
+         Logo_ShowAll(res);
+     }
++#endif
+     if (res != NULL) {
+         Heap_Free(res);
+     }
+@@ -204,9 +213,18 @@ s32 FirstRun_Main(void) {
+         gMenuArc0 = NULL;
+     }
+     FirstRun_WaitPartition(2);
++#ifdef PORT_VITA
++    { /* a test run that starts on a given screen (bt3.txt startmode=) skips the opening movie */
++        extern int gVitaStartMode;
++        if (gVitaStartMode <= 0 && FIRSTRUN_SHOW("skip_intro")) {
++            Movie_PlayOpening();
++        }
++    }
++#else
+     if (FIRSTRUN_SHOW("skip_intro")) {
+         Movie_PlayOpening();
+     }
++#endif
+     PadWatch_SetEnabled(1);
+     return 1;
+ }
+diff --git a/src/menu/menu_j_b.c b/src/menu/menu_j_b.c
+index c0c0ba1..91f869d 100644
+--- a/src/menu/menu_j_b.c
++++ b/src/menu/menu_j_b.c
+@@ -114,6 +114,30 @@ void TourMenu_Init(s32 section) {
+     gTourMenu->tex[29] = MTEX(res, 1);
+     Flash_Create(&gTourMenu->flash[0], MPACK_AT(gTourMenu->res, 15), gTourMenu->tex);
+     Flash_Play(&gTourMenu->flash[0], 1);
++#ifdef PORT_VITA
++    /*
++     * USA scratch buffers (0xF000 / 0x41000) fit invites 0..3 (AFS 964..967). Yamcha (invite 4 →
++     * AFS 968) is ~278 KiB packed / ~671 KiB raw: File_LoadSync ignores the size argument and
++     * writes the whole file, so those fixed buffers overflow and crash when that invitation is
++     * pending (tour clock hours 5..6). Size the buffers from the file instead.
++     */
++    gTourMenu->imageFile = NULL;
++    gTourMenu->imageRes = NULL;
++    if (gTourMenu->flags & TOURMENU_INVITE) {
++        gTourMenu->imageFile = File_LoadSync(gTourMenu->invite + 0x3C4, NULL, 0);
++        gTourMenu->imageRes = Sprite_Unpack(gTourMenu->imageFile, NULL, NULL);
++        res = gTourMenu->imageRes;
++        Res_RelocateOffsets(&res, res, res);
++        gTourMenu->texB[4] = MTEX(res, 0);
++        gTourMenu->texB[3] = MTEX(res, 1);
++        TM_RES(16);
++        gTourMenu->texB[2] = MTEX(res, 0);
++        gTourMenu->texB[5] = MTEX(res, 1);
++        TM_RES(17);
++        gTourMenu->texB[1] = MTEX(res, 0);
++        gTourMenu->texB[0] = MTEX(res, 1);
++    }
++#else
+     gTourMenu->imageFile = Heap_Alloc(0xF000, 0x40, 0, 2);
+     gTourMenu->imageRes = Heap_Alloc(0x41000, 0x20, 0, 2);
+     if (gTourMenu->flags & TOURMENU_INVITE) {
+@@ -130,6 +154,7 @@ void TourMenu_Init(s32 section) {
+         gTourMenu->texB[1] = MTEX(res, 0);
+         gTourMenu->texB[0] = MTEX(res, 1);
+     }
++#endif
+     Flash_Create(&gTourMenu->flash[1], MPACK_AT(gTourMenu->res, 18), gTourMenu->texB);
+     TM_RES(22);
+     IconWin_Init(MPACK_AT(gTourMenu->res, 21), res);
+diff --git a/src/menu/menu_x_c.c b/src/menu/menu_x_c.c
+index d89aefe..9556942 100644
+--- a/src/menu/menu_x_c.c
++++ b/src/menu/menu_x_c.c
+@@ -50,6 +50,13 @@ s32 Option_Init(s32 section) {
+     memset(gOption, 0, sizeof(Option));
+     gOption->pack = (u32 *)MPACK_AT(gMenuArc10, section);
+     gOption->res = Sprite_Unpack(gOption->pack, NULL, NULL);
++#ifdef PORT_VITA
++    { /* the controller page for the Vita: the L2 / R2 touch row instead of vibration, a picture of the Vita
++         (port/vita/vita_optart.c) */
++        extern void Vita_OptionArt(void *res);
++        Vita_OptionArt(gOption->res);
++    }
++#endif
+     /*
+      * The rest of the function sits in a block that the compiler sees as a loop (`do { } while (0)`, most likely
+      * from a macro), and the counter of the loop at the end is cleared here, not in its `for`: the original
+@@ -186,6 +193,9 @@ s32 Option_Init(s32 section) {
+             gOption->key[i][5] = 5;
+             gOption->key[i][6] = 6;
+             gOption->key[i][7] = 7;
++#ifdef PORT_VITA
++            Save_PortDefaultKeys(gOption->key[i]); /* the Normal type shown: the handheld's */
++#endif
+         }
+     } while (0);
+     return 1;
+@@ -211,9 +221,315 @@ s32 Option_Run(s32 section) {
+     return 0;
+ }
+ 
++#ifdef PORT_VITA
++/* The Vita has no vibration: that row of the controller page is "Vita Settings" (below: the touch buttons, clashes, a
++   second controller, mods). Its guide lines (24, 39, 40) are spoken of vibration: their text is new (vita_optart.c),
++   their voice is not played. */
++extern void Voice_StopWithLip(void);
++static void Option_VoiceVita(s32 line) {
++    if (line == 24 || line == 39 || line == 40) {
++        Voice_StopWithLip();
++    } else {
++        Voice_PlayWithSubtitle(gOption->subtitles, OPTION_VOICE_BASE, line);
++    }
++}
++#define OPT_VOICE(line) Option_VoiceVita(line)
++#else
+ #define OPT_VOICE(line) Voice_PlayWithSubtitle(gOption->subtitles, OPTION_VOICE_BASE, line)
++#endif
+ #define OPT_PLATE(kind, label) Option_PlateGoto(0, kind, label)
+ 
++#ifdef PORT_VITA
++/* The control type page on the handheld. The console's page had a 1P / 2P row above Normal / Custom, and
++   from Normal / Custom only Up went back (Triangle did nothing there: the page seemed stuck). Here the page opens
++   on Normal / Custom of the first controller, Left / Right switch, Cross on Custom edits the buttons, and Cross on
++   Normal, Triangle, Circle or Up leave the page. The save is marked changed only when something did change. */
++static u32 sVitaKeysFlags;
++static s32 sVitaKeysEdit[SAVE_KEY_COUNT];
++
++static void Option_VitaKeysEnter(void) {
++    s32 i;
++
++    if (Save_PortKeysConsoleDefault(gSaveData->keyEdit[0])) {
++        /* (a save made by an early version of this port: the console's set as the custom one, nothing reassigned) the handheld's
++           Normal in its place, as the battle takes it (Save_PortKeys) */
++        Save_PortDefaultKeys(gSaveData->keyEdit[0]);
++    }
++    sVitaKeysFlags = gSaveData->flags & SAVE_FLAG_PAD_B(0);
++    for (i = 0; i < SAVE_KEY_COUNT; i++) {
++        sVitaKeysEdit[i] = gSaveData->keyEdit[0][i];
++    }
++    gOption->pad = 0;
++    gOption->keyEdit = 0;
++    gOption->keyOld = -1;
++    gOption->value = (gSaveData->flags & SAVE_FLAG_PAD_B(0)) ? 1 : 0;
++    gOption->valueOld = gOption->value;
++    OPT_PLATE(OPT_CLIP_KEY_OFF, "fl_on_start");
++    gOption->state = OPT_ST_KEYS_PAD;
++    Snd_PlaySe(1, 1);
++    gOption->voiceLine = gOption->value != 0 ? 31 : 30;
++    OPT_VOICE(gOption->voiceLine);
++}
++
++static void Option_VitaKeysLeave(void) {
++    s32 i;
++
++    if ((gSaveData->flags & SAVE_FLAG_PAD_B(0)) != sVitaKeysFlags) {
++        gOption->dirty = 1;
++    }
++    for (i = 0; i < SAVE_KEY_COUNT; i++) {
++        if (gSaveData->keyEdit[0][i] != sVitaKeysEdit[i]) {
++            gOption->dirty = 1;
++        }
++    }
++    /* key[] as the console kept it (the battle reads the type through Save_PortKeys) */
++    if (gSaveData->flags & SAVE_FLAG_PAD_B(0)) {
++        for (i = 0; i < SAVE_KEY_COUNT; i++) {
++            gSaveData->key[0][i] = gSaveData->keyEdit[0][i];
++        }
++    } else {
++        Save_PortDefaultKeys(gSaveData->key[0]);
++    }
++    OPT_PLATE(OPT_CLIP_KEY_OFF, "fl_ok");
++    gOption->keyEdit = 0;
++    gOption->keyOld = -1;
++    gOption->pad = 0;
++    gOption->value = 0; /* (the controller page's drawing takes it as the controller shown) */
++    gOption->state = OPT_ITEM_CTRL;
++    gOption->cursor = OPT_ITEM_KEYS;
++    gOption->voiceLine = 23;
++    OPT_VOICE(gOption->voiceLine);
++    OPT_PLATE(OPT_CLIP_ROW_CTRL, "fl_on_start");
++    Flash_GotoLabel(&gOption->flash[0], "fl_ctrl_out", 1);
++    Snd_PlaySe(1, 2);
++}
++
++/* "Vita Settings", the controller page's second row (the console's Vibration). Its page holds four plates of the
++   console's two-way pickers, captioned from the second caption strip, whose rows take turns between two sets
++   (vita_optart.c Vita_OptionCaptions):
++     level 1: Touch, Clashes / 2nd Pad, Mods, the four settings;
++     level 2: Touch: L2, R2 / L3, R3, laid out as the rear pad's quarters; level 3: where the chosen one is touched,
++              Rear / Front, Off (port/vita/vita_touch.c, which keeps it in ux0:data/bt3/touch.txt);
++     level 4: Clashes: Square / Stick, what wins a beam or rush clash (port/vita/vita_gfx.c, clash_square);
++     level 5: 2nd Pad: ON / OFF, a second controller as player 2 (a PS TV's second DualShock);
++     level 6: Mods: ON / OFF, the files of ux0:data/bt3/mods (port/vita/vita_file.c), from the next start.
++   The last three are kept in ux0:data/bt3/bt3_settings.txt, not in the save. In each level Cross chooses (the setting
++   is taken at once), Triangle or Circle go back a level; the plate of the current setting is lit when a level opens.
++   The guide line says what the plate under the cursor does. */
++extern int Vita_TouchGetSpot(int b);
++extern void Vita_TouchSetSpot(int b, int spot);
++extern s32 Vita_OptionGuide(const char *text);
++extern void Vita_OptionCaptions(int set);
++extern int Port_ClashSquare(void);
++extern void Port_ClashSquareSet(int on);
++extern int Vita_Pad2Setting(void);
++extern void Vita_Pad2SettingSet(int on);
++extern int Port_Setting(const char *name, int def);
++extern void Port_SettingSave(const char *name, int value);
++extern void Port_SettingsWrite(void);
++extern void Vita_ModsSummary(char *out, int size);
++static s32 sVitaSetLevel; /* 0 closed, 1..6 above */
++static s32 sVitaSetItem;  /* the setting chosen on level 1 */
++static s32 sVitaTouchBtn; /* the button chosen on level 2 */
++
++static int Option_VitaModsOn(void) {
++    return Port_Setting("mods", 1) != 0;
++}
++
++static void Option_VitaSetGuide(void) {
++    static const char *const kName[4] = {"L2", "R2", "L3", "R3"};
++    static const char *const kQuarter[4] = {"upper left", "upper right", "lower left", "lower right"};
++    static const char *const kCorner[4] = {"bottom left", "bottom right", "top left", "top right"};
++    char text[120], more[64];
++    s32 b, spot, v = gOption->value;
++
++    switch (sVitaSetLevel) {
++    case 1: /* the setting under the cursor, and what it is now */
++        if (v == 0) {
++            sprintf(text, "Touch: where L2, R2, L3 and R3\nare touched.");
++        } else if (v == 1) {
++            sprintf(text, "Clashes: %s\nwins beam and rush clashes.", Port_ClashSquare() ? "pressing Square fast" : "turning the left stick");
++        } else if (v == 2) {
++            sprintf(text, "2nd Pad: a second controller\nis player 2 (PS TV): %s.", Vita_Pad2Setting() ? "ON" : "OFF");
++        } else if (Option_VitaModsOn()) {
++            s32 k, line = 0, sp = -1;
++            Vita_ModsSummary(more, 50);
++            sprintf(text, "Mods (ux0:data/bt3/mods): ON.\nIn use: %s.", more);
++            for (k = 0; text[k] != '\0'; k++) { /* (lines of up to 34 letters, broken at spaces) */
++                if (text[k] == '\n') {
++                    line = 0;
++                    sp = -1;
++                    continue;
++                }
++                if (text[k] == ' ') {
++                    sp = k;
++                }
++                if (++line > 34 && sp >= 0) {
++                    text[sp] = '\n';
++                    line = k - sp;
++                    sp = -1;
++                }
++            }
++        } else {
++            sprintf(text, "Mods: files in ux0:data/bt3/mods\nreplace the disc's: OFF.");
++        }
++        break;
++    case 2: /* the button under the cursor, and where it is now */
++        b = v;
++        spot = Vita_TouchGetSpot(b);
++        if (spot == 0) {
++            sprintf(more, "the rear touch pad's\n%s quarter", kQuarter[b]);
++        } else if (spot == 1) {
++            sprintf(more, "the screen's %s\ncorner", kCorner[b]);
++        } else {
++            sprintf(more, b < 2 ? "SELECT + %c only" : "not on the touch panels", kName[b][0]);
++        }
++        sprintf(text, "%s is %s.\nChoose a button to change it.", kName[b], more);
++        break;
++    case 3: /* the place under the cursor */
++        b = sVitaTouchBtn;
++        if (v == 0) {
++            sprintf(text, "%s on the rear touch pad's\n%s quarter, where a grip\nattachment's %s presses.", kName[b], kQuarter[b], kName[b]);
++        } else if (v == 1) {
++            sprintf(text, "%s on the screen's %s\ncorner.", kName[b], kCorner[b]);
++        } else if (b < 2) {
++            sprintf(text, "%s not on the touch panels\n(SELECT + %c still gives it).", kName[b], kName[b][0]);
++        } else {
++            sprintf(text, "%s not on the touch panels.", kName[b]);
++        }
++        break;
++    case 4:
++        sprintf(text, v == 0 ? "Square: press it again and again\nto win beam and rush clashes."
++                             : "Stick: turn the left stick round\nto win clashes, as on the PS2.");
++        break;
++    case 5:
++        sprintf(text, v == 0 ? "ON: a second controller plays\nas player 2 (Versus: Multiplayer)."
++                             : "OFF: a second controller is not\nused.");
++        break;
++    default:
++        sprintf(text, v == 0 ? "ON: files in ux0:data/bt3/mods\nreplace the disc's, from the\nnext start."
++                             : "OFF: the disc's files only, from\nthe next start.");
++        break;
++    }
++    gOption->voiceLine = Vita_OptionGuide(text);
++    OPT_VOICE(gOption->voiceLine);
++}
++
++static void Option_VitaSetMove(s32 to) {
++    OPT_PLATE(OPT_CLIP_PICK, "fl_off_start");
++    gOption->value = to;
++    OPT_PLATE(OPT_CLIP_PICK, "fl_on_start");
++    Snd_PlaySe(1, 0);
++    Option_VitaSetGuide();
++}
++
++/* to `level`, the cursor on plate `value` */
++static void Option_VitaSetLevel(s32 level, s32 value) {
++    sVitaSetLevel = level;
++    Vita_OptionCaptions(level == 2 || level == 3 ? 0 : 1);
++    Option_DimPickers();
++    gOption->value = value;
++    OPT_PLATE(OPT_CLIP_PICK, "fl_on_start");
++    Option_VitaSetGuide();
++}
++
++static void Option_VitaTouchOpen(void) {
++    OPT_PLATE(OPT_CLIP_ROW_CTRL, "fl_ok");
++    gOption->ctrlKind = 0;
++    gOption->picker = 5;
++    Flash_GotoLabel(&gOption->flash[0], "fl_value_in", 1);
++    gOption->valueOld = 0;
++    Snd_PlaySe(1, 1);
++    Option_VitaSetLevel(1, 0);
++}
++
++static void Option_VitaTouchInput(void) {
++    u32 pressed = gPad[0].gamePressed;
++    s32 v = gOption->value;
++    s32 back = (pressed & (PADG_TRIANGLE | PADG_CIRCLE)) != 0;
++
++    switch (sVitaSetLevel) {
++    case 1: /* Touch Clashes / 2nd Pad Mods */
++        if (pressed & (PADG_LEFT | PADG_RIGHT)) {
++            Option_VitaSetMove(v ^ 1);
++        } else if (pressed & (PADG_UP | PADG_DOWN)) {
++            Option_VitaSetMove(v ^ 2);
++        } else if (pressed & PADG_CROSS) {
++            sVitaSetItem = v;
++            Snd_PlaySe(1, 1);
++            Option_VitaSetLevel(v == 0 ? 2 : v == 1 ? 4 : v == 2 ? 5 : 6,
++                                v == 0 ? 0 : v == 1 ? !Port_ClashSquare() : v == 2 ? !Vita_Pad2Setting() : !Option_VitaModsOn());
++        } else if (back) { /* back to the page */
++            OPT_PLATE(OPT_CLIP_PICK, "fl_off_start");
++            Snd_PlaySe(1, 2);
++            sVitaSetLevel = 0;
++            gOption->state = OPT_ITEM_CTRL;
++            gOption->cursor = OPT_ITEM_VIB;
++            Flash_GotoLabel(&gOption->flash[0], "fl_value_out", 1);
++            OPT_PLATE(OPT_CLIP_ROW_CTRL, "fl_on_start");
++            gOption->voiceLine = 24;
++            OPT_VOICE(gOption->voiceLine);
++        }
++        break;
++    case 2: /* L2 R2 / L3 R3 */
++        if (pressed & (PADG_LEFT | PADG_RIGHT)) {
++            Option_VitaSetMove(v ^ 1);
++        } else if (pressed & (PADG_UP | PADG_DOWN)) {
++            Option_VitaSetMove(v ^ 2);
++        } else if (pressed & PADG_CROSS) {
++            sVitaTouchBtn = v;
++            Snd_PlaySe(1, 1);
++            Option_VitaSetLevel(3, Vita_TouchGetSpot(v));
++        } else if (back) {
++            Snd_PlaySe(1, 2);
++            Option_VitaSetLevel(1, 0);
++        }
++        break;
++    case 3: /* Rear Front / Off */
++        if (pressed & (PADG_LEFT | PADG_RIGHT)) {
++            if (v < 2) {
++                Option_VitaSetMove(v ^ 1);
++            }
++        } else if (pressed & PADG_DOWN) {
++            if (v < 2) {
++                Option_VitaSetMove(2);
++            }
++        } else if (pressed & PADG_UP) {
++            if (v == 2) {
++                Option_VitaSetMove(0);
++            }
++        } else if (pressed & PADG_CROSS) {
++            Vita_TouchSetSpot(sVitaTouchBtn, v);
++            Snd_PlaySe(1, 1);
++            Option_VitaSetLevel(2, sVitaTouchBtn);
++        } else if (back) {
++            Snd_PlaySe(1, 2);
++            Option_VitaSetLevel(2, sVitaTouchBtn);
++        }
++        break;
++    default: /* 4 Square Stick, 5 and 6 ON OFF */
++        if (pressed & (PADG_LEFT | PADG_RIGHT)) {
++            Option_VitaSetMove(v ^ 1);
++        } else if (pressed & PADG_CROSS) {
++            if (sVitaSetLevel == 4) {
++                Port_ClashSquareSet(v == 0);
++            } else if (sVitaSetLevel == 5) {
++                Vita_Pad2SettingSet(v == 0);
++            } else {
++                Port_SettingSave("mods", v == 0);
++                Port_SettingsWrite();
++            }
++            Snd_PlaySe(1, 1);
++            Option_VitaSetLevel(1, sVitaSetItem);
++        } else if (back) {
++            Snd_PlaySe(1, 2);
++            Option_VitaSetLevel(1, sVitaSetItem);
++        }
++        break;
++    }
++}
++#endif
++
+ /*
+  * Pad 0, one state per frame; does nothing until the movie accepts input. Returns 0 when the screen is over
+  * (faded out), else 1. Option.state:
+@@ -808,6 +1124,9 @@ s32 Option_Input(void) {
+             gOption->pad = 0;
+             Option_DimPickers();
+             if (gOption->state == OPT_ITEM_VIB) {
++#ifdef PORT_VITA
++                Option_VitaTouchOpen(); /* "Vita Settings" */
++#else
+                 OPT_PLATE(OPT_CLIP_ROW_CTRL, "fl_ok");
+                 gOption->ctrlKind = 0;
+                 gOption->picker = 2;
+@@ -815,15 +1134,22 @@ s32 Option_Input(void) {
+                 OPT_PLATE(OPT_CLIP_PICK, "fl_on_start");
+                 OPT_PLATE(OPT_CLIP_VIB_OFF, "fl_ok");
+                 Snd_PlaySe(1, 1);
++#endif
+             } else if (gOption->state == OPT_ITEM_KEYS) {
+                 OPT_PLATE(OPT_CLIP_ROW_CTRL, "fl_ok");
+                 gOption->ctrlKind = 1;
+                 gOption->picker = 2;
+                 Flash_GotoLabel(&gOption->flash[0], "fl_ctrl_in", 1);
++#ifdef PORT_VITA
++                /* one player on the handheld: no 1P / 2P row (Option_Draw hides it), the cursor straight
++                   on Normal / Custom of the first controller; Triangle, Circle or Up leave the page from there */
++                Option_VitaKeysEnter();
++#else
+                 OPT_PLATE(OPT_CLIP_PICK, "fl_on_start");
+                 gOption->pad = 0;
+                 OPT_PLATE(OPT_CLIP_KEY_OFF, "fl_ok");
+                 Snd_PlaySe(1, 1);
++#endif
+             } else {
+                 OPT_PLATE(OPT_CLIP_BOTTOM, "fl_ok");
+             }
+@@ -892,6 +1218,38 @@ s32 Option_Input(void) {
+         }
+         break;
+     case OPT_ST_KEYS_PAD:
++#ifdef PORT_VITA
++        if (((gPad[0].gamePressed & PADG_LEFT) || (gPad[0].gamePressed & PADG_RIGHT)) && gOption->keyEdit == 0) {
++            OPT_PLATE(OPT_CLIP_KEY_OFF, "fl_off_start");
++            gOption->value ^= 1;
++            if (gSaveData->flags & SAVE_FLAG_PAD_B(0)) {
++                gSaveData->flags &= ~SAVE_FLAG_PAD_B(0);
++            } else {
++                gSaveData->flags |= SAVE_FLAG_PAD_B(0);
++                /* a save made by an early version of this port holds the console's Normal as its custom set: custom starts from
++                   the handheld's Normal instead */
++                if (Save_PortKeysConsoleDefault(gSaveData->keyEdit[0])) {
++                    Save_PortDefaultKeys(gSaveData->keyEdit[0]);
++                }
++            }
++            OPT_PLATE(OPT_CLIP_KEY_OFF, "fl_on_start");
++            Snd_PlaySe(1, 0);
++            gOption->voiceLine = gOption->value != 0 ? 31 : 30;
++            OPT_VOICE(gOption->voiceLine);
++        } else if ((gPad[0].gamePressed & PADG_CROSS) && gOption->value != 0 && (gSaveData->flags & SAVE_FLAG_PAD_B(0))) {
++            OPT_PLATE(OPT_CLIP_KEY_OFF, "fl_ok");
++            gOption->state = OPT_ST_KEYS_EDIT;
++            gOption->keyEdit = 1;
++            gOption->keyOld = -1;
++            gOption->keyRow = 3;
++            gOption->keyCursor = 2;
++            Option_SetKeyMark(gOption->keyRow);
++            Snd_PlaySe(1, 1);
++        } else if (gPad[0].gamePressed & (PADG_CROSS | PADG_TRIANGLE | PADG_CIRCLE | PADG_UP)) {
++            Option_VitaKeysLeave();
++        }
++        break;
++#endif
+         if (((gPad[0].gamePressed & PADG_LEFT) || (gPad[0].gamePressed & PADG_RIGHT)) && gOption->keyEdit == 0) {
+             OPT_PLATE(OPT_CLIP_KEY_OFF, "fl_off_start");
+             gOption->value ^= 1;
+@@ -980,7 +1338,11 @@ s32 Option_Input(void) {
+                 gOption->keyCursor++;
+             }
+             Snd_PlaySe(1, 0);
+-        } else if ((gPad[0].gamePressed & PADG_TRIANGLE) && gOption->keyOld < 0) {
++        } else if ((gPad[0].gamePressed & PADG_TRIANGLE
++#ifdef PORT_VITA
++                    || gPad[0].gamePressed & PADG_CIRCLE /* Circle backs out too */
++#endif
++                    ) && gOption->keyOld < 0) {
+             /* original bug: address comparisons again, always true */
+             if (gOption->key[0] != gSaveData->keyEdit[0] || gOption->key[1] != gSaveData->keyEdit[1]) {
+                 gOption->dirty = 1;
+@@ -1025,13 +1387,20 @@ s32 Option_Input(void) {
+                 gOption->keyOld = gSaveData->keyEdit[gOption->pad][gOption->keyRow];
+             }
+         }
++#ifdef PORT_VITA
++/* every one of the eight actions in turn, both ways (the console's went 0..3 to the right, so an action
++   of the shoulder buttons reached another button only by the swap) */
++#define OPT_KEY_LAST (OPTION_KEY_NUM - 1)
++#else
++#define OPT_KEY_LAST 3
++#endif
+         if ((gPad[0].gameHeld & PADG_CROSS) && (gPad[0].gamePressed & PADG_LEFT)) {
+             if (--gSaveData->keyEdit[gOption->pad][gOption->keyRow] < 0) {
+-                gSaveData->keyEdit[gOption->pad][gOption->keyRow] = 3;
++                gSaveData->keyEdit[gOption->pad][gOption->keyRow] = OPT_KEY_LAST;
+             }
+             Snd_PlaySe(1, 0);
+         } else if ((gPad[0].gameHeld & PADG_CROSS) && (gPad[0].gamePressed & PADG_RIGHT)) {
+-            if (++gSaveData->keyEdit[gOption->pad][gOption->keyRow] > 3) {
++            if (++gSaveData->keyEdit[gOption->pad][gOption->keyRow] > OPT_KEY_LAST) {
+                 gSaveData->keyEdit[gOption->pad][gOption->keyRow] = 0;
+             }
+             Snd_PlaySe(1, 0);
+@@ -1054,6 +1423,10 @@ s32 Option_Input(void) {
+         }
+         break;
+     case OPT_ITEM_VIB:
++#ifdef PORT_VITA
++        Option_VitaTouchInput();
++        break;
++#endif
+         if ((gPad[0].gamePressed & PADG_LEFT) || (gPad[0].gamePressed & PADG_RIGHT)) {
+             OPT_PLATE(OPT_CLIP_VIB_OFF, "fl_off_start");
+             OPT_PLATE(OPT_CLIP_PICK, "fl_off_start");
+@@ -1319,6 +1692,105 @@ s32 Option_Input(void) {
+                         Flash_ClipSetUv(flash, &ref, &uv); \
+                     }
+ 
++#ifdef PORT_VITA
++/* The control type page without its 1P / 2P row: the row's two plates hidden while the page is up (and
++   while it slides out), Normal / Custom moved up into its place (the offset the password screen uses for its
++   cursor: one plate's position minus the other's); both put back when the page is left. */
++extern void Flash_ClipGetPos(MFlash *flash, MFlashRef *ref, s32 *x, s32 *y);
++extern void Flash_ClipSetOffset(MFlash *flash, MFlashRef *ref, s32 x, s32 y);
++static s32 sVitaRowHidden;
++static s32 sVitaRowOff;
++
++static void Option_VitaKeysLayout(MFlash *flash) {
++    MFlashRef r1, r2, r3, r4;
++    s32 x1, y1, x3, y3, off;
++    s32 keys = gOption->state == OPT_ST_KEYS_PAD || gOption->state == OPT_ST_KEYS_EDIT || gOption->state == OPT_ITEM_KEYS ||
++               (gOption->state == OPT_ITEM_CTRL && gOption->ctrlKind == 1);
++
++    if (!keys && !sVitaRowHidden) {
++        return;
++    }
++    Flash_FindLabel(flash, NULL, "mc_select_plate_1", &r1);
++    Flash_FindLabel(flash, NULL, "mc_select_plate_2", &r2);
++    Flash_FindLabel(flash, NULL, "mc_select_plate_3", &r3);
++    Flash_FindLabel(flash, NULL, "mc_select_plate_4", &r4);
++    if (keys) {
++        Flash_ClipSetFlags(flash, &r1, 2, 0);
++        Flash_ClipSetFlags(flash, &r2, 2, 0);
++        sVitaRowHidden = 1;
++        off = 0;
++        if (r1.id >= 0 && r3.id >= 0 && r4.id >= 0) {
++            Flash_ClipGetPos(flash, &r1, &x1, &y1);
++            Flash_ClipGetPos(flash, &r3, &x3, &y3);
++            off = y1 - (y3 - sVitaRowOff); /* (GetPos counts the offset already given) */
++            if (off < -160 || off > 0) {
++                off = 0; /* (not the layout this was made for: left where it is) */
++            }
++            Flash_ClipSetOffset(flash, &r3, 0, off);
++            Flash_ClipSetOffset(flash, &r4, 0, off);
++        }
++        sVitaRowOff = off;
++    } else {
++        Flash_ClipSetFlags(flash, &r1, 2, 1);
++        Flash_ClipSetFlags(flash, &r2, 2, 1);
++        if (r3.id >= 0 && r4.id >= 0) {
++            Flash_ClipSetOffset(flash, &r3, 0, 0);
++            Flash_ClipSetOffset(flash, &r4, 0, 0);
++        }
++        sVitaRowHidden = 0;
++        sVitaRowOff = 0;
++    }
++}
++
++/* "Vita Settings" (Option_VitaTouchInput): the plates' captions for the level, from the second caption strip (its
++   rows as Vita_OptionCaptions has set them) and the first one's ON / OFF; the plates a level does not use are hidden
++   while it is up, and shown again for the other pickers. */
++static s32 sVitaPlatesHidden;
++
++static void Option_VitaTouchPlates(MFlash *flash) {
++    /* per level: the plates used, and each plate's strip (0 the first, 1 the second) and row */
++    static const s8 kCount[7] = {0, 4, 4, 3, 2, 2, 2};
++    static const s8 kTex[7][4] = {{0}, {1, 1, 1, 1}, {1, 1, 1, 1}, {1, 1, 0, 0}, {1, 1, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}};
++    static const s8 kRow[7][4] = {{0}, {0, 1, 4, 5}, {0, 1, 4, 7}, {5, 6, 1, 0}, {6, 7, 0, 0}, {0, 1, 0, 0}, {0, 1, 0, 0}};
++    MFlashRef ref;
++    MFlashUv uv;
++    char name[0x40];
++    s32 i, lv = sVitaSetLevel;
++
++    if (gOption->picker != 5 || lv < 1 || lv > 6) {
++        if (sVitaPlatesHidden) {
++            for (i = 0; i < 4; i++) {
++                sprintf(name, "mc_select_plate_%d", i + 1);
++                Flash_FindLabel(flash, NULL, name, &ref);
++                Flash_ClipSetFlags(flash, &ref, 2, 1);
++            }
++            sVitaPlatesHidden = 0;
++        }
++        return;
++    }
++    for (i = 0; i < 4; i++) {
++        sprintf(name, "mc_select_plate_%d", i + 1);
++        Flash_FindLabel(flash, NULL, name, &ref);
++        if (i >= kCount[lv]) {
++            Flash_ClipSetFlags(flash, &ref, 2, 0);
++            sVitaPlatesHidden = 1;
++            continue;
++        }
++        Flash_ClipSetFlags(flash, &ref, 2, 1);
++        memset(&uv, 0, sizeof(uv));
++        uv.x1 = 0x100;
++        uv.y0 = kRow[lv][i] * 0x20;
++        uv.y1 = uv.y0 + 0x20;
++        Flash_FindLabel(flash, name, "mc_select_text_off", &ref);
++        Flash_ClipSetUv(flash, &ref, &uv);
++        Flash_ClipSetTex(flash, &ref, kTex[lv][i]);
++        Flash_FindLabel(flash, name, "mc_select_text_on", &ref);
++        Flash_ClipSetUv(flash, &ref, &uv);
++        Flash_ClipSetTex(flash, &ref, kTex[lv][i]);
++    }
++}
++#endif
++
+ /* Per frame: sets up every clip of the movie from the screen's state and draws the screen. */
+ void Option_Draw(void) {
+     MFlashRef ref;
+@@ -1768,6 +2240,9 @@ void Option_Draw(void) {
+             break;
+     }
+ 
++#ifdef PORT_VITA
++    Option_VitaKeysLayout(flash);
++#endif
+     /* the two-way picker's captions */
+     if (gOption->picker == 4 || gOption->picker == 2) {
+         baseY = 0;
+@@ -1823,6 +2298,9 @@ void Option_Draw(void) {
+             Flash_ClipSetFlags(flash, &ref, 2, 0);
+         }
+     }
++#ifdef PORT_VITA
++    Option_VitaTouchPlates(flash); /* (after the console's captions: in their place for "Vita Settings") */
++#endif
+ 
+     /* the volume window: ten numbered plates per volume */
+     for (i = 0; i < 3; i++) {
+@@ -2178,6 +2656,13 @@ void Option_UpdateReset(void) {
+                 if (!(gSaveData->flags & 4)) {
+                     gSaveData->flags |= 4;
+                 }
++#ifdef PORT_VITA
++                for (i = 0; i < 4; i++) {
++                    Vita_TouchSetSpot(i, 0); /* L2, R2, L3, R3 back on the rear pad */
++                }
++                Port_ClashSquareSet(1); /* clashes with Square, a second controller as player 2 (mods as they are) */
++                Vita_Pad2SettingSet(1);
++#endif
+                 for (i = 0; i < 2; i++) {
+                     gSaveData->keyEdit[i][0] = 2;
+                     gSaveData->keyEdit[i][1] = 1;
+@@ -2187,6 +2672,10 @@ void Option_UpdateReset(void) {
+                     gSaveData->keyEdit[i][5] = 5;
+                     gSaveData->keyEdit[i][6] = 6;
+                     gSaveData->keyEdit[i][7] = 7;
++#ifdef PORT_VITA
++                    Save_PortDefaultKeys(gSaveData->keyEdit[i]); /* the handheld's Normal */
++                    Save_PortDefaultKeys(gSaveData->key[i]);
++#endif
+                 }
+             }
+             gOption->resetStep = 3;
+@@ -2275,6 +2764,12 @@ void Option_OnSaved(void) {
+ /* Frees the screen. */
+ void Option_Term(void) {
+     s32 i;
++#ifdef PORT_VITA
++    {
++        extern void Vita_OptionArtEnd(void); /* (the screen's pack is let go) */
++        Vita_OptionArtEnd();
++    }
++#endif
+ 
+     Dialog_Term();
+     MsgWin_Term();
+diff --git a/src/sys/adx.c b/src/sys/adx.c
+index 7413806..1e47a29 100644
+--- a/src/sys/adx.c
++++ b/src/sys/adx.c
+@@ -131,7 +131,18 @@ void Adx_ResumeSeVoice(void) {
+ }
+ 
+ /* Starts file `id` on a player with the given volume and pan; a voice channel that is reserved is left alone. */
++#ifdef PORT_VITA
++extern void Vita_Log(const char *fmt, ...);
++static s32 sAdxPlayLog; /* the voice lines asked for, and those a busy line slot kept back */
++#endif
+ void Adx_Play(s32 ch, s32 id, s32 vol, s32 pan) {
++#ifdef PORT_VITA
++    if ((ch == ADX_CH_VOICE0 || ch == ADX_CH_VOICE1) && sAdxPlayLog < 200) {
++        sAdxPlayLog++;
++        Vita_Log("adx: voice %d file %d volume %d%s\n", ch - ADX_CH_VOICE0, id, vol,
++                 BtlScript_IsSlotBusy(ch - ADX_CH_VOICE0, 0) || BtlScript_IsSlotBusy(ch - ADX_CH_VOICE0, 1) ? " (kept back: a line slot is busy)" : "");
++    }
++#endif
+     switch (ch) {
+     case ADX_CH_VOICE0:
+         if (BtlScript_IsSlotBusy(0, 0)) {
+diff --git a/src/sys/dma.c b/src/sys/dma.c
+index 8418b69..8320550 100644
+--- a/src/sys/dma.c
++++ b/src/sys/dma.c
+@@ -78,9 +78,40 @@ void Dma_Flush(void) {
+     p[1] = 0;
+     p[2] = 0;
+     p[3] = 0;
++#ifdef PORT_VITA
++    {   /* PS Vita: the list is drawn on another thread while the game goes on, and may take longer than a frame.
++           A third buffer takes turns with the two, so the list sent before this one may still be unfinished
++           when the next is written (port/src/gs/gs_core.c waits for the one before that). */
++        extern int gVitaDmaFlush, gVitaTriple;
++        extern u32 Port_DmaSpare(u32 size);
++        static u32 spare;
++        u32 t;
++
++        if (spare == 0) {
++            spare = Port_DmaSpare(DMA_BUF_SIZE);
++        }
++        {   /* (the three buffers, for the renderer: what lies in them is rewritten every frame) */
++            extern u32 gPortDmaBufs[3];
++            gPortDmaBufs[0] = gDmaBuf[0];
++            gPortDmaBufs[1] = gDmaBuf[1];
++            gPortDmaBufs[2] = spare;
++        }
++        gVitaDmaFlush = 1;
++        Dma_SendVif1(gDmaBuf[gDmaBufIdx]);
++        gDmaBufIdx ^= 1;
++        if (gVitaTriple) {
++            t = gDmaBuf[gDmaBufIdx];
++            gDmaBuf[gDmaBufIdx] = spare;
++            gDmaBufEnd[gDmaBufIdx] = spare + DMA_BUF_SIZE;
++            spare = t;
++        }
++        gDmaCur = (u32 *)gDmaBuf[gDmaBufIdx];
++    }
++#else
+     Dma_SendVif1(gDmaBuf[gDmaBufIdx]);
+     gDmaBufIdx ^= 1;
+     gDmaCur = (u32 *)gDmaBuf[gDmaBufIdx];
++#endif
+ }
+ 
+ /* Reserves `size` bytes (whole quadwords) in the display list and returns where they start. */
+@@ -122,6 +153,12 @@ void Dma_EndDirect(u64 *end) {
+ 
+ /* Makes both buffers an empty list (a lone END tag) and rewinds the cursor to the current one. */
+ void Dma_ResetBuffers(void) {
++#ifdef PORT_VITA
++    {
++        extern void Port_GsSync(void);
++        Port_GsSync(); /* (no list is being drawn from them) */
++    }
++#endif
+     ((u32 *)gDmaBuf[0])[0] = DMA_TAG_END;
+     ((u32 *)gDmaBuf[0])[1] = 0;
+     ((u32 *)gDmaBuf[0])[2] = 0;
+diff --git a/src/sys/file.c b/src/sys/file.c
+index 9a543aa..64ee518 100644
+--- a/src/sys/file.c
++++ b/src/sys/file.c
+@@ -292,6 +292,15 @@ void *File_LoadSyncEx(s32 id, char *name, void *buf, s32 unused) {
+         ADXM_ExecMain();
+     } while (ADXF_GetStat(adxf) != ADXF_STAT_READEND);
+     ADXF_Close(adxf);
++#ifdef PORT_VITA
++    { /* bt3.txt dump=1 (tests): a copy of each file read this way, ux0:data/bt3/dump/<id>.bin */
++        extern int gVitaDump;
++        extern void Vita_DumpFile(s32 id, void *data, s32 size);
++        if (gVitaDump) {
++            Vita_DumpFile(id, dst, sectors * FILE_SECTOR_SIZE);
++        }
++    }
++#endif
+     buf = dst;
+     return buf;
+ }
+diff --git a/src/sys/gfx.c b/src/sys/gfx.c
+index 0c2c2f3..ad8a698 100644
+--- a/src/sys/gfx.c
++++ b/src/sys/gfx.c
+@@ -81,12 +81,23 @@ extern void PadWatch_Draw(void);
+ extern void Vu0_CheckState(void);
+ 
+ /* GS privileged (display) registers. */
++#ifdef PORT_VITA
++/* PS Vita: a program cannot place memory at the PS2's register addresses; PORT_HW() (port_compat.h) leads to a
++   block of ordinary memory instead. */
++#define GS_PMODE ((volatile u64 *)PORT_HW(0x12000000))
++#define GS_DISPFB1 ((volatile u64 *)PORT_HW(0x12000070))
++#define GS_DISPLAY1 ((volatile u64 *)PORT_HW(0x12000080))
++#define GS_DISPFB2 ((volatile u64 *)PORT_HW(0x12000090))
++#define GS_DISPLAY2 ((volatile u64 *)PORT_HW(0x120000A0))
++#define GS_EXTWRITE ((volatile u64 *)PORT_HW(0x120000D0))
++#else
+ #define GS_PMODE ((volatile u64 *)0x12000000)
+ #define GS_DISPFB1 ((volatile u64 *)0x12000070)
+ #define GS_DISPLAY1 ((volatile u64 *)0x12000080)
+ #define GS_DISPFB2 ((volatile u64 *)0x12000090)
+ #define GS_DISPLAY2 ((volatile u64 *)0x120000A0)
+ #define GS_EXTWRITE ((volatile u64 *)0x120000D0)
++#endif
+ 
+ /* Switches the GS to interlaced NTSC field mode and builds the 512x448 double buffer in gGfx. */
+ void Gfx_InitDrawEnv(void) {
+diff --git a/src/sys/gfx_ot.c b/src/sys/gfx_ot.c
+index e16e340..31a4d23 100644
+--- a/src/sys/gfx_ot.c
++++ b/src/sys/gfx_ot.c
+@@ -173,6 +173,164 @@ s32 Ot_Draw(void) {
+     return Ot_Reset();
+ }
+ 
++#ifdef PORT_VITA
++/* The sea of Kame House is ~900 triangles a frame, each queued twice in the slot of its depth: once in
++   layer 0 (blended over the picture) and once in layer 1 (added). Sent in the table's order, the two blend modes take
++   turns slot after slot, and the renderer has to begin a new batch of triangles at every turn (500 a picture, the
++   drawing thread's time there). Where the table holds nothing but the sea's triangles and the slots' head packets
++   between two other packets, every triangle of layer 0 of that stretch is sent first and then every one of layer 1:
++   a surface in one plane covers each pixel once, so no pixel sees its passes in another order (and the additions
++   are clamped per pixel as before). Each sea triangle sets its own PRIM and TEX0 (its palette loaded each time, which
++   is checked); what the GS holds after the stretch is put back as the original order leaves it: the last head packet
++   (the blend of the layer), then PRIM, TEX0, RGBAQ and ST of the stretch's last triangle. bt3.txt searun=0: off. */
++int gVitaSeaRun = 1;
++int gVitaSeaMark;
++unsigned gVitaOtRun[6]; /* (the log) sea packets; stretches put together, their packets; stretches left; other packets after a stretch */
++#define OT_SEA_L0 0x5EA00000u
++static s32 Ot_IsHead(OtPrim *p) {
++    s32 l;
++    for (l = 0; l < OT_LAYER_COUNT; l++) {
++        if ((u8 *)p >= (u8 *)gOt->headBuf[l] && (u8 *)p < (u8 *)gOt->headBuf[l] + OT_SLOT_COUNT * OT_HEAD_SIZE) {
++            return 1 + l;
++        }
++    }
++    return 0;
++}
++static s32 Ot_IsSea(OtPrim *p) {
++    return p->qwc == 7 && (p->vif[0] & ~1u) == OT_SEA_L0 ? 1 + (s32)(p->vif[0] & 1) : 0;
++}
++static u8 *Ot_Copy(u8 *dst, OtPrim *p) {
++    memcpy(dst, p + 1, p->qwc << 4);
++    return dst + (p->qwc << 4);
++}
++extern void Vita_Log(const char *fmt, ...);
++extern int snprintf(char *s, unsigned n, const char *fmt, ...);
++/* the table's packets in order, by kind, run-length: a = head of layer 0, b = of layer 1, S / s = the
++   sea's layer 0 / 1, P / p = another surface's, o<qwc> = anything else */
++static void Ot_LogKinds(void) {
++    char line[1000];
++    s32 len = 0, run = 0, n = 0;
++    char last = 0;
++    u32 lastQ = 0;
++    OtPrim *p;
++    for (p = gOtHead; p != NULL; p = p->next) {
++        s32 h = Ot_IsHead(p);
++        char c = h == 1 ? 'a' : h == 2 ? 'b' : (p->vif[0] & ~1u) == OT_SEA_L0 ? ((p->vif[0] & 1) ? 's' : 'S')
++               : (p->vif[0] & ~1u) == 0x5EB00000u ? ((p->vif[0] & 1) ? 'p' : 'P') : 'o';
++        n++;
++        if (c == last && (c != 'o' || p->qwc == lastQ)) {
++            run++;
++            continue;
++        }
++        if (last != 0 && len < (s32)sizeof(line) - 24) {
++            len += last == 'o' ? snprintf(line + len, sizeof(line) - (unsigned)len, "o%u", lastQ) : snprintf(line + len, sizeof(line) - (unsigned)len, "%c", last);
++            if (run > 1) {
++                len += snprintf(line + len, sizeof(line) - (unsigned)len, "%d", run);
++            }
++            line[len++] = ' ';
++            line[len] = 0;
++        }
++        last = c;
++        lastQ = p->qwc;
++        run = 1;
++        if (len >= (s32)sizeof(line) - 24) {
++            Vita_Log("vita:   ot: %s\n", line);
++            len = 0;
++            line[0] = 0;
++        }
++    }
++    if (last != 0 && len < (s32)sizeof(line) - 24) {
++        len += snprintf(line + len, sizeof(line) - (unsigned)len, "%c%d", last, run);
++    }
++    Vita_Log("vita:   ot: %s (%d packets)\n", line, n);
++}
++static u8 *Ot_SendRuns(u8 *dst) {
++    OtPrim *p = gOtHead, *q, *r, *lastHead, *lastSea, *firstHead[2];
++    s32 n[2], ok, k;
++    static u32 frames;
++
++    if (++frames == 1500 || frames == 3300) {
++        Ot_LogKinds();
++    }
++
++    while (p != NULL) {
++        if (!Ot_IsHead(p)) {
++            if (Ot_IsSea(p)) {
++                gVitaOtRun[0]++;
++            }
++            dst = Ot_Copy(dst, p);
++            p = p->next;
++            continue;
++        }
++        /* a stretch from this head: heads and sea triangles only */
++        n[0] = n[1] = 0;
++        firstHead[0] = firstHead[1] = NULL;
++        lastHead = NULL;
++        lastSea = NULL;
++        ok = 1;
++        for (q = p; q != NULL; q = q->next) {
++            s32 h = Ot_IsHead(q), sea = h ? 0 : Ot_IsSea(q);
++            if (h) {
++                if (firstHead[h - 1] == NULL) {
++                    firstHead[h - 1] = q;
++                }
++                lastHead = q;
++            } else if (sea) {
++                const u64 *g = (const u64 *)(q + 1);
++                n[sea - 1]++;
++                lastSea = q;
++                if ((g[3] >> 61) != 1) {
++                    ok = 0; /* (a palette not loaded by the triangle itself: the order would matter) */
++                }
++            } else {
++                break;
++            }
++        }
++        gVitaOtRun[0] += n[0] + n[1];
++        if (q != NULL) {
++            gVitaOtRun[4]++;
++            if ((q->vif[0] & ~1u) == 0x5EB00000u) {
++                gVitaOtRun[5]++; /* (another surface's triangle) */
++            }
++        }
++        if (n[0] + n[1] < 4 || n[0] == 0 || n[1] == 0 || !ok || firstHead[0] == NULL || firstHead[1] == NULL) {
++            if (n[0] + n[1] >= 4 && !ok) {
++                gVitaOtRun[3]++;
++            }
++            for (r = p; r != q; r = r->next) {
++                dst = Ot_Copy(dst, r);
++            }
++            p = q;
++            continue;
++        }
++        gVitaOtRun[1]++;
++        gVitaOtRun[2] += n[0] + n[1];
++        for (k = 0; k < 2; k++) {
++            dst = Ot_Copy(dst, firstHead[k]);
++            for (r = p; r != q; r = r->next) {
++                if (Ot_IsSea(r) == k + 1) {
++                    dst = Ot_Copy(dst, r);
++                }
++            }
++        }
++        dst = Ot_Copy(dst, lastHead);
++        {   /* the stretch's last triangle's PRIM, TEX0, RGBAQ and ST */
++            const u64 *g = (const u64 *)(lastSea + 1); /* tag, regs, PRIM, TEX0, then 3 x (RGBAQ, ST, XYZF2) */
++            u64 *o = (u64 *)dst;
++            o[0] = 0x1000000000000004ull;     /* GIF tag: NLOOP 4, NREG 1, PACKED (A+D) */
++            o[1] = 0xE;                       /* A+D */
++            o[2] = g[2]; o[3] = 0x00;          /* PRIM */
++            o[4] = g[3]; o[5] = (g[1] >> 4) & 0xF; /* TEX0_1 or TEX0_2, as the triangle has it */
++            o[6] = g[10]; o[7] = 0x01;         /* RGBAQ of its third corner */
++            o[8] = g[11]; o[9] = 0x02;         /* ST */
++            dst += 5 * 16;
++        }
++        p = q;
++    }
++    return dst;
++}
++#endif
++
+ /* Copies the GIF data of every linked packet into the display list, between the sorted-pass state and its restore. */
+ s32 Ot_Send(void) {
+     OtPrim *prim;
+@@ -183,6 +341,11 @@ s32 Ot_Send(void) {
+     }
+     Ot_AddEnv(0);
+     dst = (u8 *)Dma_BeginDirect();
++#ifdef PORT_VITA
++    if (gVitaSeaRun) {
++        dst = Ot_SendRuns(dst);
++    } else
++#endif
+     for (prim = gOtHead; prim != NULL; prim = prim->next) {
+         memcpy(dst, prim + 1, prim->qwc << 4);
+         dst += prim->qwc << 4;
+diff --git a/src/sys/gfxm_a.c b/src/sys/gfxm_a.c
+index dd0bafa..f04b340 100644
+--- a/src/sys/gfxm_a.c
++++ b/src/sys/gfxm_a.c
+@@ -621,18 +621,28 @@ void StgPanBlur_RestoreEnv(void) {
+    coordinates go through `s64` temporaries (so that the `|` with the V half is not narrowed to 32 bits and they
+    step as 64-bit values), and the first corner's X comes from `i`, not from `x` (so the loop cannot be reversed
+    before the second loop pass, which puts the counter's initial value behind that corner's). */
+-#ifdef PORT
++#if defined(PORT) && !defined(PORT_VITA)
+ extern void Port_GsMarker(s32 effect); /* port/src/gs_marker.c */
+ #define PORT_GLOW_BEGIN 0x20 /* the PC renderer draws the chain's work pages at the PS2's resolution (gs_draw.c) */
+ #define PORT_GLOW_END 0x21
+ #endif
++#ifdef PORT_VITA
++extern void Port_GsMarkerArg(s32 effect, u32 arg);
++extern void Port_GsMarker(s32 effect);
++#endif
+ void GfxPost_DrawGlow(s32 passes, u32 color, u32 glow) {
+     u64 *p;
+     s32 i;
+     s32 x;
+ 
++#ifdef PORT_VITA
++    /* (Vita) the glow drawn natively (port/vita/vita_vgl.c, glow_exec): its passes below are dropped up to the end
++       marker. The chain of work pages costs the Vita's chip a scene per pass (about thirty a picture). */
++    Port_GsMarkerArg(0x40, color);
++    Port_GsMarkerArg(0x41, glow);
++#endif
+     passes += passes & 1;
+-#ifdef PORT
++#if defined(PORT) && !defined(PORT_VITA)
+     Port_GsMarker(PORT_GLOW_BEGIN);
+ #endif
+     Gfx_AddDefaultEnv();
+@@ -1050,9 +1060,12 @@ void GfxPost_DrawGlow(s32 passes, u32 color, u32 glow) {
+     p[1] = GS_CLAMP_1;
+     p += 2;
+     Dma_EndDirect(p);
+-#ifdef PORT
++#if defined(PORT) && !defined(PORT_VITA) /* (the Vita marks the glow its own way: 0x40..0x42) */
+     Port_GsMarker(PORT_GLOW_END);
+ #endif
++#ifdef PORT_VITA
++    Port_GsMarker(0x42);
++#endif
+ }
+ 
+ /* Draws a 16-bit texture over the screen, one line up, with the given blend. */
+@@ -1721,6 +1734,18 @@ void StgDepthTint_Draw(void) {
+         }
+     }
+     tint = &gStgDepthTint[medium];
++#ifdef PORT_VITA
++    {   /* the film's notes: the medium, and the camera's height against the water's */
++        extern void Vita_FilmTintNote(int medium, int enabled, int additive, int camY16, int waterY16);
++        f32 lv;
++        if (!Battle_IsSplitScreen() && BtlStage_GetWaterLevel(&lv)) {
++            Mtx_InverseRT(&m, &view->world2view2);
++            Vita_FilmTintNote(medium, tint->enabled, tint->additive, (s32)(m.m[3][1] * 16.0f), (s32)(lv * 16.0f));
++        } else {
++            Vita_FilmTintNote(medium, tint->enabled, tint->additive, 0, -1);
++        }
++    }
++#endif
+     if (tint->enabled != 0) {
+         Gfx_AddDefaultEnv();
+         Dma_AddData(tint->tex.upload, 0x10);
+diff --git a/src/sys/gfxm_c.c b/src/sys/gfxm_c.c
+index c5f153f..6793247 100644
+--- a/src/sys/gfxm_c.c
++++ b/src/sys/gfxm_c.c
+@@ -697,6 +697,12 @@ void FlashSlot_Draw(FlashSlot *slot, FlashProp *parent, Flash *flash) {
+                     Port_MenuClipPlace((int)gPortFlashBox[0], (int)gPortFlashBox[1]) : -1;
+             }
+             prev = part >= 0 ? Port_MenuPart(part) : 0;
++#endif
++#ifdef PORT_VITA
++        { /* where the menus' items are on the screen, for the touch screen (port/vita/vita_touch.c) */
++            extern void Vita_FlashClipBegin(const void *clip, const void *flash);
++            Vita_FlashClipBegin(clip, flash);
++        }
+ #endif
+         if (!(clip->flags & 0x10)) FlashTl_Draw(&clip->tl, &prop);
+         if (clip->drawOver != NULL) {
+@@ -705,6 +711,9 @@ void FlashSlot_Draw(FlashSlot *slot, FlashProp *parent, Flash *flash) {
+         if (clip->postDraw != NULL) {
+             clip->postDraw(clip->postArg);
+         }
++#ifdef PORT_VITA
++        { extern void Vita_FlashClipEnd(void); Vita_FlashClipEnd(); }
++#endif
+ #ifdef PORT
+             if (part >= 0) {
+                 Port_MenuPart(prev);
+@@ -920,6 +929,9 @@ void FlashDraw_Quad(FlashTex *tex, FlashQuad *q) {
+         }
+         return;
+     }
++#endif
++#ifdef PORT_VITA
++    { extern void Vita_FlashQuad(const float *pt, unsigned flags, int alpha); Vita_FlashQuad(&q->pt[0][0], q->flags, q->rgba[3]); }
+ #endif
+     if (tex != NULL) {
+         tex0 = FlashDraw_UploadTex(tex, q->uv.tex, 0x3000);
+@@ -1125,6 +1137,9 @@ void Flash_Create(Flash *flash, u8 *file, FlashTex **tex) {
+ 
+ /* Frees everything Flash_Create allocated. */
+ void Flash_Destroy(Flash *flash) {
++#ifdef PORT_VITA
++    { extern void Vita_FlashGone(const void *flash); Vita_FlashGone(flash); }
++#endif
+     if (flash->shapes != NULL) {
+         FlashShapePool_Term(flash->shapes);
+         if (flash->shapes != NULL) {
+diff --git a/src/sys/gfxm_e_b.c b/src/sys/gfxm_e_b.c
+index c185883..3e0b589 100644
+--- a/src/sys/gfxm_e_b.c
++++ b/src/sys/gfxm_e_b.c
+@@ -702,6 +702,14 @@ void ObjShadow_Free(ObjMdlObj *obj) {
+ 
+ /* Restores the full-screen scissor and the renderer's normal state after the shadow passes. */
+ void ObjShadow_ResetEnv(void) {
++#ifdef PORT_VITA
++    {
++        extern void Port_ShadowSilEnd(void);
++        extern void Port_GsMarker(s32 effect);
++        Port_ShadowSilEnd();
++        Port_GsMarker(0x2F); /* (Vita) the shadows are over: the page is no fighter's now */
++    }
++#endif
+     Dma_AddScissor(0, 0x1FF, 0, 0x1BF);
+     ObjGs_AddDefaultEnv();
+ }
+@@ -744,6 +752,27 @@ void ObjShadow_BeginRender(ObjMdlObj *obj) {
+         ObjShadow_SetTarget(obj, work);
+         ObjShadow_MakeLightMtx(obj, work);
+         ObjShadow_MakeProjMtx(obj, work);
++#ifdef PORT_VITA
++        /* (Vita) No ground triangles under the object this frame, or the shadow faded out with the height: nothing
++           will be laid on the ground (ObjShadow_Draw draws no triangle, or draws them with alpha 0, which the alpha
++           test drops), so the silhouette is not drawn. On the Vita it is a whole second pass over the fighter. */
++        if (obj->shadow->count == 0 || !(obj->shadow->alpha > 0.0f)) {
++            return;
++        }
++        {   /* (Vita) the renderer keeps each shadow's silhouette in a place of its own (by the shadow's place
++               in the pool): on every other picture none is drawn and the shadow is laid with the one before (the
++               fighter's pose a picture old, where it is now). The marker tells the renderer which, in the list. */
++            extern int Port_ShadowSil(s32 slot);
++            extern void Port_GsMarker(s32 effect);
++            s32 slot = (s32)(obj->shadow - BtlObjPool3_Get()->nodes);
++
++            if (slot >= 0 && slot < OBJ_SHADOW_MAX && !Port_ShadowSil(slot)) {
++                Port_GsMarker(0x28 + slot); /* the shadow `slot` with the silhouette drawn before */
++                return;
++            }
++            Port_GsMarker(0x20 + (slot >= 0 && slot < OBJ_SHADOW_MAX ? slot : 5)); /* the silhouette of `slot`, drawn now */
++        }
++#endif
+         ObjShadow_AddTargetEnv();
+         ObjShadow_LoadProg(obj, work);
+     }
+diff --git a/src/sys/heap.c b/src/sys/heap.c
+index 11ad726..8e735ac 100644
+--- a/src/sys/heap.c
++++ b/src/sys/heap.c
+@@ -91,7 +91,11 @@ HeapBlock *Heap_NextBlock(HeapBlock *block) {
+ }
+ 
+ void Heap_Create(void) {
++#ifdef PORT_VITA /* the end of the PS2 program as a number: no symbol can have that address in a Vita program */
++    s32 size = 0x1EFB000 - 0x3BE71C;
++#else
+     s32 size = 0x1EFB000 - (u32)D_3BE71C;
++#endif
+     HeapBlock *start;
+ 
+     size += Mem_Align4Pad(size);
+diff --git a/src/sys/movie.c b/src/sys/movie.c
+index 8ccfe61..3e6b856 100644
+--- a/src/sys/movie.c
++++ b/src/sys/movie.c
+@@ -60,8 +60,13 @@ extern volatile u32 *Port_DmaChcr(s32 channel);
+ #else
+ #define D4_CHCR ((volatile u32 *)0x1000B400)
+ #endif
++#ifdef PORT_VITA
++#define D4_MADR ((volatile u32 *)PORT_HW(0x1000B410))
++#define D4_QWC ((volatile u32 *)PORT_HW(0x1000B420))
++#else
+ #define D4_MADR ((volatile u32 *)0x1000B410)
+ #define D4_QWC ((volatile u32 *)0x1000B420)
++#endif
+ 
+ #ifdef PORT
+ #define UNCACHED(p) ((void *)(p)) /* no uncached mirror of memory on PC */
+@@ -268,6 +273,9 @@ void Movie_Run(void) {
+     s32 skip = 0;
+ 
+     gMovieRunCount++;
++#ifdef PORT_VITA
++    { extern int gVitaInMovie; gVitaInMovie = 1; } /* (a tap on the touch screen skips it: port/vita/vita_touch.c) */
++#endif
+     m = gMovie;
+     mp = &m->mpeg;
+     gMovieEsBuf = m->es;
+@@ -322,6 +330,9 @@ void Movie_Run(void) {
+     Dma_Flush();
+     Gfx_EndFrame(1);
+     Fade_Reset(0);
++#ifdef PORT_VITA
++    { extern int gVitaInMovie; gVitaInMovie = 0; }
++#endif
+ }
+ 
+ /* libmpeg stream callback: appends demuxed video data to the ring buffer; returns 0 when it does not fit. */
+diff --git a/src/sys/save.c b/src/sys/save.c
+index 432c922..265d415 100644
+--- a/src/sys/save.c
++++ b/src/sys/save.c
+@@ -153,6 +153,10 @@ void Save_SetDefaults(SaveData *opt) {
+         opt->keyEdit[i][5] = 5;
+         opt->keyEdit[i][6] = 6;
+         opt->keyEdit[i][7] = 7;
++#ifdef PORT_VITA
++        Save_PortDefaultKeys(opt->key[i]);
++        Save_PortDefaultKeys(opt->keyEdit[i]);
++#endif
+     }
+     opt->flags |= SAVE_FLAG_DEFAULT;
+     opt->unk1694 = 0;
+@@ -190,6 +194,52 @@ void Save_AddMoney(s32 amount) {
+     }
+ }
+ 
++#ifdef PORT_VITA
++void Save_PortDefaultKeys(s32 *key) {
++    static const s32 kNormal[SAVE_KEY_COUNT] = {2, 1, 0, 3, 5, 4, 6, 7};
++    s32 i;
++
++    for (i = 0; i < SAVE_KEY_COUNT; i++) {
++        key[i] = kNormal[i];
++    }
++}
++
++s32 Save_PortKeysConsoleDefault(const s32 *key) {
++    static const s32 kConsole[SAVE_KEY_COUNT] = {2, 1, 0, 3, 4, 5, 6, 7};
++    s32 i;
++
++    for (i = 0; i < SAVE_KEY_COUNT; i++) {
++        if (key[i] != kConsole[i]) {
++            return 0;
++        }
++    }
++    return 1;
++}
++
++const s32 *Save_PortKeys(s32 pad, s32 *tmp) {
++    s32 seen = 0, i;
++
++    if (pad >= 0 && pad < SAVE_PAD_COUNT && gSaveData != NULL && (gSaveData->flags & SAVE_FLAG_PAD_B(pad))) {
++        /* a save made by an early version of this port with Custom chosen but the console's own set in it (nothing reassigned): the
++           handheld's Normal (Ki Charge on L) */
++        if (Save_PortKeysConsoleDefault(gSaveData->keyEdit[pad])) {
++            Save_PortDefaultKeys(gSaveData->keyEdit[pad]);
++        }
++        /* a custom set is used only when it is a whole assignment (each of the eight actions once) */
++        for (i = 0; i < SAVE_KEY_COUNT; i++) {
++            if (gSaveData->keyEdit[pad][i] >= 0 && gSaveData->keyEdit[pad][i] < SAVE_KEY_COUNT) {
++                seen |= 1 << gSaveData->keyEdit[pad][i];
++            }
++        }
++        if (seen == (1 << SAVE_KEY_COUNT) - 1) {
++            return gSaveData->keyEdit[pad];
++        }
++    }
++    Save_PortDefaultKeys(tmp);
++    return tmp;
++}
++#endif
++
+ /* Restores the six rule settings at 0xC34 to 3, 2, 2, 0, 0, 0. */
+ void Save_ResetRules(void) {
+     gSaveData->rule[0] = 3;

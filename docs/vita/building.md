@@ -58,6 +58,23 @@ The build generates, under `port/build/gen/vita_rel/`, the table of where each o
 values on the disc (`vita_dat.c`) and the stubs (`stubs.c`). `port/build/vita_rel/bt3.unstripped.elf` and
 `bt3.map` are kept for reading crash dumps.
 
+## Budokai Tenkaichi 4
+
+The package can carry a second program, `bt4.bin`: the game code of NauTaro's
+[BT4decomp](https://github.com/NauTaro/DBZ-BT4-Tag-Team-Decomp) (Team BT4's Budokai Tenkaichi 4 B14 Rev2 on
+Tenkaichi3Decomp) on this port's platform layer. The BT3 program starts it (`port/vita/vita_start.c`).
+
+```
+port/vita/bt4/get_bt4decomp.sh                         # BT4decomp at the pinned commit, with bt4decomp-vita.patch
+BT3_BT4=port/build/bt4decomp python3 port/vita/build.py # -> port/build/vita_bt4_rel/bt4.bin
+python3 port/vita/build.py                             # the BT3 package, which then carries bt4.bin
+```
+
+`bt4decomp-vita.patch` holds the port's changes to the game code, merged into BT4decomp's, and leaves out its online
+item of the main menu. What BT4's code needs from the platform layer beyond BT3's is in `port/vita/bt4/`:
+`vita_bt4.c` (its archives, whose tables are in `BIN/DBZ4.BIN`; the release check; memory beyond the game's heap)
+and `vita_bt4_shim.c` (BT4decomp's PC and online services, answering as when they are not in use).
+
 ## Profile-guided builds
 
 A build laid out by how the game really runs (which branches are taken, which calls are hot) is made in two steps:

@@ -46,7 +46,8 @@ int gVitaInMovie;      /* src/sys/movie.c: a film is playing (a tap skips it: ST
        L3=off
    A button not in the file is on the rear pad. (The first versions wrote one word, "rear" or "front", for L2 and R2:
    read as that place for all four.) */
-#define TOUCH_FILE "ux0:data/bt3/touch.txt"
+#include "vita_home.h"
+#define TOUCH_FILE VITA_HOME "/touch.txt"
 static const char *const kSpotName[3] = {"rear", "front", "off"};
 static const char *const kBtnName[4] = {"L2", "R2", "L3", "R3"};
 static const unsigned kBtnBit[4] = {B_L2, B_R2, B_L3, B_R3};
@@ -978,8 +979,8 @@ int gVitaStartMode; /* bt3.txt startmode=<n>: the menus begin on screen n (src/m
 void Vita_DumpFile(int id, void *data, int size) {
     char path[96];
     FILE *fp;
-    sceIoMkdir("ux0:data/bt3/dump", 0777);
-    snprintf(path, sizeof(path), "ux0:data/bt3/dump/%d.bin", id);
+    sceIoMkdir(VITA_HOME "/dump", 0777);
+    snprintf(path, sizeof(path), VITA_HOME "/dump/%d.bin", id);
     fp = fopen(path, "rb");
     if (fp != NULL) { /* (once) */
         fclose(fp);

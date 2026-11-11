@@ -134,10 +134,32 @@ On a PS TV, or with a DualShock paired, the controller's own L2, R2, L3 and R3 b
 
 Hold SELECT while the game starts (from the LiveArea until the text screen shows) for:
 
+- **Game**: Budokai Tenkaichi 3 or [Budokai Tenkaichi 4](#budokai-tenkaichi-4-experimental). The choice is kept: BT4
+  then starts each time, until you change it here again.
 - **Language**: with the European archive (see [Languages](#languages-optional)).
 - **Unlock everything (cheat)**: the game's own unlock, which the game never uses: every character, stage, song and
   item, and 4,850,000 Zenni, given to the save the game loads. It stays once the game saves, and cannot be taken
   back: copy `ux0:data/bt3/saves/` first if you want to keep the save as it is.
+
+## Budokai Tenkaichi 4 (experimental)
+
+The package also carries **Team BT4's Budokai Tenkaichi 4 B14 Rev2**, through
+[NauTaro's BT4decomp](https://github.com/NauTaro/DBZ-BT4-Tag-Team-Decomp), the mod's game running on Tenkaichi3Decomp,
+built for the Vita with this port. You need your own disc image of BT4 B14 Rev2 (its English or Spanish release, as
+published by Team BT4). From the image, copy `SLUS_219.78` and the `BIN` and `DATA` folders, so that the memory card
+has:
+
+```
+ux0:data/bt3/bt4/SLUS_219.78
+ux0:data/bt3/bt4/BIN/DBZ4.BIN
+ux0:data/bt3/bt4/BIN/DBZP.BIN
+ux0:data/bt3/bt4/DATA/PZS4US0.AFS     (to PZS4US3.AFS, and the other files of the DATA folder: about 5.9 GB)
+```
+
+Then hold SELECT while the game starts and choose **Game** in the [start menu](#start-menu). BT4 keeps its own saves,
+settings and log in `ux0:data/bt3/bt4/`. The PC version's online play, Tag Team battles and its other PC features are
+not part of the Vita's. Should BT4 crash or freeze before its first pictures, the next start says so and starts BT3
+instead (`ux0:data/bt3/bt4/log.txt` and `crash.txt` tell what happened: please attach them to a report).
 
 ## Mods
 
@@ -161,9 +183,9 @@ Packs are used in the order of their names, after the loose files (the first fil
 used). A pack whose name starts with `_` is skipped. The folders are read when the game starts; **Vita Settings →
 Mods** shows what is in use and turns it all off without deleting anything (from the next start).
 
-Mods that change only the disc's data files work. Mods that change the game's program, like Team BT4's
-Budokai Tenkaichi 4, cannot: the program is compiled into the port from the unmodified USA release, and those
-mods' data files are made for their own program. A pack holding a changed `SLUS_216.78` or `BIN/DBZP.BIN` is left
+Mods that change only the disc's data files work. Mods that change the game's program cannot: the program is
+compiled into the port from the unmodified USA release, and those mods' data files are made for their own program.
+Budokai Tenkaichi 4 is the exception, as a program of its own (see above). A pack holding a changed `SLUS_216.78` or `BIN/DBZP.BIN` is left
 out, with a message when the game starts. A disc image (`.iso`) is not read: copy a modded disc's files into a
 pack instead.
 
@@ -210,6 +232,8 @@ changes the Vita needed in the shared code, most of them inside `#ifdef PORT_VIT
   [Tenkaichi3Decomp](https://github.com/z3xox/Tenkaichi3Decomp), the PC port this one is built on, and the
   authors of the BT3-Decompiled decompilation it uses; z3xox's later fixes are ported here (the seam models,
   the story mode's saga list, the palette tables) along with the PC version's Square option for clashes
+- [NauTaro](https://github.com/NauTaro) for [BT4decomp](https://github.com/NauTaro/DBZ-BT4-Tag-Team-Decomp), whose
+  game code the Budokai Tenkaichi 4 program is built from, and Team BT4 for Budokai Tenkaichi 4
 - [Matteo Santoro](https://github.com/Matt-code-d) for the European languages and the Dragon World Tour fix
   (Yamcha's invitation), and [limeking614-dev](https://github.com/limeking614-dev) for the PS TV controller
   support, from their forks
