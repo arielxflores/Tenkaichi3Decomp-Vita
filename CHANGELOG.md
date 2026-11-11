@@ -1,5 +1,24 @@
 # Changes (PS Vita port)
 
+## Unreleased
+
+Faster
+
+- **Detailed stages stay fast**: in a survey of 25 stages (a duel on each, stages 0 to 24), the slowest went from
+  16.7-18.7 pictures a second to 26-29, the average from 25.2 to 28.8, and stages at 28 or more from 7 to 21 of 25.
+  Three causes, all in the copies of the game's model calls the port keeps: their cache filled up over a session and
+  was never emptied (a stage played after others ran without it); the kept parts' places were too few and shared at
+  random; and only the first 2 MB of a stage's vertices could be kept, so a fight began fast and slowed down as more
+  of the stage came into view.
+- Kept parts are no longer drawn again the long way every other frame (the game draws into its two display buffers
+  in turn).
+- With the CapUnlocker plugin, the fourth CPU core works out the image uploads' numbers the list reader worked out
+  before, and vitaGL leaves out GPU state calls that change nothing.
+
+New
+
+- Options → Controller → Vita Settings says whether the game has the fourth CPU core (CapUnlocker on or off).
+
 ## 1.1
 
 New
