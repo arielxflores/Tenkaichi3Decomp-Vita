@@ -2655,10 +2655,11 @@ extern unsigned gVitaChipGen;
    CC_STALE lists (bt3.txt ccevict=0: as before). */
 #define CC_N 16384
 #define CC_STALE 150u
-typedef struct CallCache { uint32_t addr, gen, bytes, at, uses, serial, used; uint8_t state; uint8_t *data; } CallCache; /* state: 0 new, 1 read once, 2 kept, 3 never; used: the list it was last called in */
+typedef struct CallCache { uint32_t addr, gen, bytes, at, uses, serial, used, es; uint8_t state; uint8_t *data; } CallCache; /* state: 0 new, 1 read once, 2 kept, 3 never; used: the list it was last called in; es: the engine seam's generation (its own table), 0 the cache's */
 static uint32_t sCcSerial; /* numbers the kept copies (the back end keeps its own form of each: see dp_part) */
 static CallCache sCC[CC_N];
-static int sCcCap = -1;          /* the entry being read the long way (and recorded), -1: none */
+static int sCcCap = -1;          /* the entry being read the long way (and recorded), -1: none (CC_N: one of the engine seam's) */
+static CallCache *sCcCapE;       /* (that entry) */
 static unsigned sCcStart, sCcDepth;
 unsigned gVitaCc[4];              /* for the log: calls replayed, read the long way, kept, dropped */
 int gVitaCcBits = 12;             /* the places used: 1 << this (bt3.txt ccsize) */
@@ -2710,6 +2711,52 @@ static CallCache *cc_find(uint32_t addr) {
     }
     gVitaCcNoRoom++;
     return NULL;
+}
+
+/* ---- The engine seam (port/src/gs_marker.c, bt3.txt native=1): a call whose packet carries the seam's MARK is one of
+   the stage's meshes, the stage file's static data, named by the game. It is kept in a table of its own for the
+   stage's life: found by its address and the stage's generation (the MARK's low 15 bits), with no place given up to
+   another call and no part found again by the cache's guess. A new generation lets the whole table go (a stage
+   loaded, another model). Read again the long way only every nativecheck-th call (bt3.txt; 0 never; the cache's
+   calls every 64th), in case the game writes into a mesh. ---- */
+#define SEAM_N 8192
+static CallCache *sEsTab;          /* (SEAM_N entries, from the heap at the first use) */
+static uint32_t sEsGenNow;      /* the generation the table holds */
+static uint32_t sEsMark;        /* the list reader: the MARK of the DMA tag being read (0x10000 | its value), 0 none */
+int gVitaEsCheck = 512;         /* bt3.txt nativecheck */
+unsigned gVitaEs[5];            /* for the log: calls sent from the seam's copies, read the long way, kept, table full (to the cache), tables let go */
+static CallCache *es_find(uint32_t addr, uint32_t gen) {
+    uint32_t h, k;
+    if (sEsTab == NULL) {
+        sEsTab = (CallCache *)calloc(SEAM_N, sizeof(CallCache));
+        if (sEsTab == NULL) {
+            return NULL;
+        }
+    }
+    if (gen != sEsGenNow) { /* (another stage, or the same loaded again: what was kept is another's) */
+        for (k = 0; k < SEAM_N; k++) {
+            if (sEsTab[k].data != NULL) {
+                cc_retire(sEsTab[k].data);
+            }
+        }
+        memset(sEsTab, 0, SEAM_N * sizeof(CallCache));
+        sEsGenNow = gen;
+        gVitaEs[4]++;
+    }
+    h = (addr * 0x9E3779B1u) >> (32 - 13);
+    for (k = 0; k < 64; k++, h = (h + 1) & (SEAM_N - 1)) {
+        CallCache *e = &sEsTab[h];
+        if (e->addr == addr || e->addr == 0) {
+            if (e->addr == 0) { memset(e, 0, sizeof(*e)); e->addr = addr; e->gen = gVitaChipGen; e->es = gen | 0x10000u; }
+            if (e->gen != gVitaChipGen) { /* (the chip's buffers were let go: what was kept refers to them) */
+                cc_retire(e->data); e->data = NULL; e->state = 0; e->gen = gVitaChipGen;
+            }
+            e->used = sFeListSeq;
+            return e;
+        }
+    }
+    gVitaEs[3]++;
+    return NULL; /* (full: the cache's way) */
 }
 
 /* The call to e->addr ended: keep what it made, if it can be kept. */
@@ -2835,6 +2882,9 @@ static void cc_end(CallCache *e) {
         return;
     }
     gVitaCc[1]++;
+    if (e->es != 0) {
+        gVitaEs[1]++;
+    }
     if (uploads != 0 || e->state == 0) { /* (first sight, or written to the chip just now: kept from the next sight on) */
         free(buf);
         if (e->state == 2) { gVitaCc[3]++; cc_retire(e->data); e->data = NULL; }
@@ -2852,6 +2902,9 @@ static void cc_end(CallCache *e) {
     e->state = 2;
     e->uses = 0;
     gVitaCc[2]++;
+    if (e->es != 0) {
+        gVitaEs[2]++;
+    }
 }
 
 /* Send what the call to e->addr made, with the constants of now: one record (the back end walks the kept ones). */
@@ -3304,6 +3357,9 @@ __attribute__((hot)) static void vif(const uint32_t *w, uint32_t count) {
         case 0x03: GsVu1_SetBase(imm); break;
         case 0x04: GsVu1_SetItop(imm); break;
         case 0x05: GsVu1_SetMode(imm); break;
+#ifdef PORT_VITA
+        case 0x07: sEsMark = 0x10000u | imm; break; /* MARK: the engine seam's (port/src/gs_marker.c) */
+#endif
         case 0x14: case 0x15: GsVu1_Call((int)imm); break;
         case 0x17: GsVu1_Call(-1); break;
         case 0x20: need = 1; break;
@@ -4699,6 +4755,9 @@ static void run_chain(uint32_t tadr, int tte) {
         const uint32_t *data;
         int end = 0;
 
+#ifdef PORT_VITA
+        sEsMark = 0; /* (the engine seam's MARK counts only for the call whose packet carries it) */
+#endif
         switch (id) {
         case 0: data = (const uint32_t *)(uintptr_t)addr; end = 1; break;                 /* REFE */
         case 1: data = tag + 4; tadr += 16 + qwc * 16; break;                             /* CNT */
@@ -4713,7 +4772,7 @@ static void run_chain(uint32_t tadr, int tte) {
         if (id == 6 && sCcCap >= 0 && sp == sCcDepth) { /* (the recorded call returns: after its RET's own data) */
             if (tte) { vif(tag + 2, 2); }
             vif(tag + 4, qwc * 4);
-            cc_end(&sCC[sCcCap]);
+            cc_end(sCcCapE);
             continue;
         }
         if (sSnapCountA[sSnapCur] != 0 && (id == 0 || id == 3 || id == 4)) { /* (by the tag, not in order) */
@@ -4749,21 +4808,30 @@ static void run_chain(uint32_t tadr, int tte) {
         if (id == 5 && ccOn && gGsSplit && !gVitaGsSkipF && sp > 0 && sCcCap < 0) {
             extern int Vita_InBattle(void), Vita_ChipResetDue(void);
             extern int gT116Fe;
-            CallCache *e = Vita_InBattle() && !(gT116Fe & 2) ? cc_find(addr) : NULL; /* (no calls replayed) */
+            int inb = Vita_InBattle() && !(gT116Fe & 2);
+            CallCache *e = inb && (sEsMark & 0x18000u) == 0x18000u ? es_find(addr, sEsMark & 0x7FFFu) : NULL; /* (the engine seam's) */
+            if (e == NULL) {
+                e = inb ? cc_find(addr) : NULL; /* (no calls replayed) */
+            }
             if (Vita_ChipResetDue()) {
                 gr_simple(GR_CHIPRESET, 0, 0, 0);
                 e = NULL;
             }
-            if (e != NULL && e->state == 2 && e->gen == gVitaChipGen && ++e->uses % 64 != 0) {
+            if (e != NULL && e->state == 2 && e->gen == gVitaChipGen &&
+                (e->es != 0 ? gVitaEsCheck <= 0 || ++e->uses % (unsigned)gVitaEsCheck != 0 : ++e->uses % 64 != 0)) {
                 GZM2(20);
                 cc_replay(e);
+                if (e->es != 0) {
+                    gVitaEs[0]++;
+                }
                 GZM2(24);
                 tadr = stack[--sp]; /* (the chain itself is not read) */
             } else if (e != NULL && e->state != 3) {
                 if (sRegDefN != 0) {
                     reg_def_flush(); /* (what was put off before the call is not the call's) */
                 }
-                sCcCap = (int)(e - sCC); /* read the long way, and recorded */
+                sCcCapE = e;
+                sCcCap = e->es != 0 ? CC_N : (int)(e - sCC); /* read the long way, and recorded */
                 sCcStart = sGrTail;
                 sCcDepth = sp - 1;
                 memcpy(sCcK0, GsVu1_Consts(), 512); /* (the constants as the call found them: cc_end) */

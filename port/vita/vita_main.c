@@ -1080,6 +1080,7 @@ void Vita_VBlank(unsigned vblanks) {
                                             { extern void Vita_UpLog(void); Vita_UpLog(); }
                                             { extern unsigned gVitaXf[3]; if (gVitaXf[0] | gVitaXf[1] | gVitaXf[2]) { logf_("vita:   the intro's cross-fade: %u pictures copied, %u fade draws, %u left out\n", gVitaXf[0], gVitaXf[1], gVitaXf[2]); memset(gVitaXf, 0, sizeof(gVitaXf)); } }
                                             { extern unsigned gVitaCc[4]; logf_("vita:   model calls: %u sent from copies, %u read the long way and recorded, %u kept, %u dropped (changed)\n", gVitaCc[0], gVitaCc[1], gVitaCc[2], gVitaCc[3]); memset(gVitaCc, 0, sizeof(gVitaCc)); }
+                                            { extern unsigned gVitaEs[5], gVitaEsGens; if (gVitaEs[0] | gVitaEs[1] | gVitaEs[3] | gVitaEs[4]) { logf_("vita:   engine seam (native=1): %u stage meshes sent from their copies, %u read the long way, %u kept, %u to the cache (table full), %u tables let go, %u stage generations\n", gVitaEs[0], gVitaEs[1], gVitaEs[2], gVitaEs[3], gVitaEs[4], gVitaEsGens); memset(gVitaEs, 0, sizeof(gVitaEs)); } }
                                             { extern unsigned gVitaDp[8], gVitaDpMerge[2]; logf_("vita:   model parts drawn directly: %u (%u draws in %u states), %u parts walked (%u kept now, %u refused, %u found in another state), %u KB of indices on the chip; the stage's draws: %u merged into %u\n", gVitaDp[0], gVitaDp[1], gVitaDp[2], gVitaDp[6], gVitaDp[3], gVitaDp[4], gVitaDp[5], gVitaDp[7], gVitaDpMerge[0], gVitaDpMerge[1]); gVitaDpMerge[0] = gVitaDpMerge[1] = 0; { unsigned kb = gVitaDp[7]; memset(gVitaDp, 0, sizeof(gVitaDp)); gVitaDp[7] = kb; } }
                                             { extern unsigned gVitaCcWhy[9], gVitaCcMax, gVitaFtWhere[4], gVitaDpMiss[34], gVitaDpShared, gVitaList[2][2]; extern unsigned long long gVitaDpUs;
                                               unsigned perList = gVitaList[1][0] ? gVitaList[1][0] : 1, best[3] = {0, 0, 0}, bi[3] = {0, 0, 0}, i2, j2;
@@ -1503,6 +1504,12 @@ static void read_settings(void) {
         } else if (strcmp(line, "dpframe") == 0) { /* kept parts matched with FRAME's buffer as "the picture": 0 off, 1 on, 2 in the soak's B battles (gs_core.c dp_norm) */
             extern int gVitaDpFrame;
             gVitaDpFrame = atoi(eq);
+        } else if (strcmp(line, "native") == 0) { /* the engine seam: the stage's meshes named by the game, kept for the stage's life: 0 off, 1 on, 2 in the soak's B battles (gs_marker.c, gs_core.c es_find) */
+            extern int gVitaNative;
+            gVitaNative = atoi(eq);
+        } else if (strcmp(line, "nativecheck") == 0) { /* the engine seam's meshes read again the long way every n-th call (default 512; 0 never) */
+            extern int gVitaEsCheck;
+            gVitaEsCheck = atoi(eq);
         } else if (strcmp(line, "fxlow") == 0) { /* the screen-filling additive effects drawn at a lower resolution and added: 0 off (as before), 1 on (default), 2 in the soak's B battles (vita_vgl.c) */
             extern int gVitaFxLow;
             gVitaFxLow = atoi(eq);
