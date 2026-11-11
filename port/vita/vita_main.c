@@ -672,6 +672,34 @@ void Vita_VBlank(unsigned vblanks) {
                     logf_("vita:   lists: %u not drawn, %u us each; %u drawn, %u us each | vectors unpacked per blank: %u the short way, %u the long way\n",
                           gVitaList[0][0], gVitaList[0][1] / (gVitaList[0][0] ? gVitaList[0][0] : 1), gVitaList[1][0],
                           gVitaList[1][1] / (gVitaList[1][0] ? gVitaList[1][0] : 1), gVitaUnpack[0] / vb, gVitaUnpack[1] / vb);
+                    {   /* the replayed calls and the kept parts, without the counters plugin too (with it, these come with the
+                           counters below, and are reset there) */
+                        extern int gVitaPerfOn;
+                        if (!gVitaPerfOn) {
+                            extern unsigned gVitaCc[4], gVitaDp[8], gVitaCcWhy[9], gVitaCcMax, gVitaCcNoRoom, gVitaDpBusy, gVitaCcEvicted, gVitaDpWalk[3];
+                            extern void GsFE_CcCensus(unsigned out[6]);
+                            unsigned cen[6];
+                            GsFE_CcCensus(cen);
+                            logf_("vita:   call cache: %u of %u places taken (%u new, %u read once, %u kept, %u never), %u calls found no place, %u places"
+                                  " given up | model calls: %u sent from copies, %u read the long way and recorded, %u kept, %u dropped (changed)\n",
+                                  cen[0], cen[5], cen[1], cen[2], cen[3], cen[4], gVitaCcNoRoom, gVitaCcEvicted, gVitaCc[0], gVitaCc[1], gVitaCc[2], gVitaCc[3]);
+                            gVitaCcEvicted = 0;
+                            logf_("vita:   kept parts: %u drawn directly, %u walked (%u kept now, %u refused, %u found in another state), %u not recorded"
+                                  " (their place another part's) | calls not kept: %u too big (largest %u KB), %u wrapped, %u empty, %u strips copied,"
+                                  " %u strips not planned, %u other constants, %u other records, %u writing the constants\n",
+                                  gVitaDp[0], gVitaDp[6], gVitaDp[3], gVitaDp[4], gVitaDp[5], gVitaDpBusy, gVitaCcWhy[0], gVitaCcMax >> 10, gVitaCcWhy[1],
+                                  gVitaCcWhy[2], gVitaCcWhy[3], gVitaCcWhy[4], gVitaCcWhy[5], gVitaCcWhy[6], gVitaCcWhy[8]);
+                            memset(gVitaCc, 0, sizeof(gVitaCc));
+                            memset(gVitaDp, 0, 7 * sizeof(gVitaDp[0])); /* ([7]: the KB of indices on the chip, a total) */
+                            memset(gVitaCcWhy, 0, sizeof(gVitaCcWhy));
+                            gVitaCcMax = 0;
+                            gVitaCcNoRoom = 0;
+                            gVitaDpBusy = 0;
+                            logf_("vita:   kept parts walked: %u not to be recorded (off, or their indices' room full), %u refused before; %u refused now as changing\n",
+                                  gVitaDpWalk[0], gVitaDpWalk[1], gVitaDpWalk[2]);
+                            memset(gVitaDpWalk, 0, sizeof(gVitaDpWalk));
+                        }
+                    }
                     {
                         extern unsigned gVglUs[6], gVglCalls[6];
                         logf_("vita:   per picture, us (calls): vertex-program calls %u (%u), of them strips %u (%u); state %u (%u); GS primitives %u (%u); to the chip %u (%u); swap %u (%u)\n",
@@ -1403,6 +1431,29 @@ static void read_settings(void) {
             }
         } else if (strcmp(line, "soakstages") == 0) { /* the soak's stages in turn: ids and ranges, "0-34" or "1,6,0x10" */
             setenv("BT3_SOAK_STAGES", eq, 1);
+        } else if (strcmp(line, "ccsize") == 0) { /* the replayed calls' places (gs_core.c cc_find): a power of two, 2048 .. 16384 */
+            extern int gVitaCcBits;
+            int n = atoi(eq), b = 11;
+            while (b < 14 && (1 << b) < n) {
+                b++;
+            }
+            gVitaCcBits = b;
+        } else if (strcmp(line, "ccevict") == 0) { /* 0: a replayed call's place is never given up (as before; gs_core.c cc_find) */
+            extern int gVitaCcEvict;
+            gVitaCcEvict = atoi(eq) != 0;
+        } else if (strcmp(line, "dppick") == 0) { /* 0: a kept part's place is its number's, taken or not (as before; gs_core.c dp_pick_serial) */
+            extern int gVitaDpPick;
+            gVitaDpPick = atoi(eq) != 0;
+        } else if (strcmp(line, "dpslots") == 0) { /* the kept parts' places: a power of two, 1024 (as before) to 8192 (gs_core.c dp_alloc) */
+            extern int gVitaDpSlots;
+            int v = atoi(eq), n = 1024;
+            while (n < v && n < 8192) {
+                n *= 2;
+            }
+            gVitaDpSlots = n;
+        } else if (strcmp(line, "dpbank") == 0) { /* 0: the stage's kept groups only from the stage buffer's first 2 MB (as before; vita_vgl.c gVitaDpBank) */
+            extern int gVitaDpBank;
+            gVitaDpBank = atoi(eq) != 0;
         } else if (strcmp(line, "soakduel") == 0) { /* 1: the soak's battles all duels (the same work on every stage) */
             setenv("BT3_SOAK_DUEL", eq, 1);
         } else if (strcmp(line, "startmode") == 0) { /* the menus start on this screen (62 the options) */

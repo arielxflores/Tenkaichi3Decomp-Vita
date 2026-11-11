@@ -7759,7 +7759,14 @@ typedef struct DpRec { State d; uint64_t t0, texa; float u17[3]; const ChipPlan 
 #define DP_REC 768
 static DpRec sDpRec[DP_REC];
 static int sDpRecN, sDpRecBad;
-typedef struct DpGroup { State st; uint64_t t0, texa; uint32_t ioff, icount; uint16_t strips, ub; uint8_t mode, layer; const uint16_t *iptr; } DpGroup;
+typedef struct DpGroup { State st; uint64_t t0, texa; uint32_t ioff, icount; uint16_t strips, ub; uint8_t mode, layer, bank; const uint16_t *iptr; } DpGroup;
+/* The stage's kept groups: their indices (16 bits) count from the start of one of the stage buffer's 1 MB banks
+   (32,768 vertices: bank << 15), the group's own. They counted from the buffer's start, so only what lay in its
+   first 2 MB could be kept: the rest of a detailed stage (the buffer filling up as the fight went on) was refused
+   and walked the long way every frame from then on, the pictures a second falling from 29 to 22 in a fight.
+   bt3.txt dpbank=0: as before. */
+int gVitaDpBank = 1;
+#define DP_BANK_SHIFT 15
 typedef struct DpUb { float u17[3]; uint8_t mode, layer; } DpUb;
 #define DP_UB 8
 typedef struct DpBlob { int ngroups, nub; DpUb ub[DP_UB]; DpGroup g[1]; } DpBlob;
@@ -7852,7 +7859,7 @@ void *GsGpu_DpCapEnd(void) {
     typedef struct { State st; uint64_t t0, texa; float u17[3]; uint32_t mode, layer; } Key;
     static Key key[64];
     static uint8_t gi[DP_REC];
-    static uint32_t gcount[64], gstrips[64];
+    static uint32_t gcount[64], gstrips[64], gmin[64], gmax[64];
     Key k;
     DpBlob *b;
     int i, j, ng = 0;
@@ -7885,6 +7892,8 @@ void *GsGpu_DpCapEnd(void) {
             key[ng] = k;
             gcount[ng] = 0;
             gstrips[ng] = 0;
+            gmin[ng] = 0xFFFFFFFFu;
+            gmax[ng] = 0;
             ng++;
         }
         gi[i] = (uint8_t)j;
@@ -7894,10 +7903,17 @@ void *GsGpu_DpCapEnd(void) {
             const uint32_t *ix = (const uint32_t *)(const void *)((const uint8_t *)r->p + 32);
             uint32_t n = (r->p->count - 2) * 3, q;
             for (q = 0; q < n; q++) {
-                if (ix[q] > 0xFFFFu) {
+                if (ix[q] > 0xFFFFu && !gVitaDpBank) {
                     return NULL;
                 }
+                gmin[j] = ix[q] < gmin[j] ? ix[q] : gmin[j];
+                gmax[j] = ix[q] > gmax[j] ? ix[q] : gmax[j];
             }
+        }
+    }
+    for (j = 0; j < ng; j++) { /* (the stage's groups: a bank each, their indices within 64K vertices of its start) */
+        if (gmax[j] != 0 && gmax[j] - ((gmin[j] >> DP_BANK_SHIFT) << DP_BANK_SHIFT) > 0xFFFFu) {
+            return NULL;
         }
     }
     for (j = 0; j < ng; j++) {
@@ -7923,6 +7939,7 @@ void *GsGpu_DpCapEnd(void) {
         g->texa = key[j].texa;
         g->mode = (uint8_t)key[j].mode;
         g->layer = (uint8_t)key[j].layer;
+        g->bank = gVitaDpBank && g->mode == 2 && gmax[j] != 0 ? (uint8_t)(gmin[j] >> DP_BANK_SHIFT) : 0;
         g->ioff = at; /* (in `tmp` for now) */
         g->icount = 0;
         g->strips = (uint16_t)gstrips[j];
@@ -7954,8 +7971,9 @@ void *GsGpu_DpCapEnd(void) {
             memcpy(dst, (const uint8_t *)r->p + 32, n * 2);
         } else {
             const uint32_t *ix = (const uint32_t *)(const void *)((const uint8_t *)r->p + 32);
+            const uint32_t base = (uint32_t)g->bank << DP_BANK_SHIFT;
             for (q = 0; q < n; q++) {
-                dst[q] = (uint16_t)ix[q];
+                dst[q] = (uint16_t)(ix[q] - base);
             }
         }
         g->icount += n;
@@ -8779,7 +8797,7 @@ int GsGpu_DsSil(int ctx, uint32_t count, const float *c, const void *plan) {
 /* the kept parts' draws, from the items given (the drawing thread's own, or the render thread's copy) */
 unsigned gVitaOrderRuns[2]; /* for the log: runs begun anew to keep the order, draws put with an earlier run */
 static void dp_draw_items(DpItem *items, int n, int prof, unsigned frame) {
-    static struct { State st; uint32_t h; int mode, first, last; } bk[512];
+    static struct { State st; uint32_t h; int mode, bank, first, last; } bk[512];
     static int16_t bhead[512], bnext[512]; /* (the runs found by their number, not one after the other) */
     int lastUnsafe = -1; /* the run begun last that is not st_commutes */
     /* pass 2: the silhouettes, into the work page; first when the page is the target now (its clear was
@@ -8808,9 +8826,9 @@ static void dp_draw_items(DpItem *items, int n, int prof, unsigned frame) {
             st = it->g->st;
             st.tex = it->tex;
             st.tme = st.tme && it->tex != 0;
-            h = state_hash(&st) ^ (uint32_t)it->g->mode * 0x9E3779B1u;
+            h = state_hash(&st) ^ (uint32_t)it->g->mode * 0x9E3779B1u ^ (uint32_t)it->g->bank * 0x85EBCA6Bu;
             hs = (h * 0x2545F491u) >> 23;
-            for (b = bhead[hs]; b >= 0 && !(bk[b].h == h && bk[b].mode == it->g->mode && memcmp(&bk[b].st, &st, sizeof(st)) == 0); b = bnext[b]) {
+            for (b = bhead[hs]; b >= 0 && !(bk[b].h == h && bk[b].mode == it->g->mode && bk[b].bank == it->g->bank && memcmp(&bk[b].st, &st, sizeof(st)) == 0); b = bnext[b]) {
             }
             safe = st_commutes(&st) || !gVitaOrder || it->g->mode == 1; /* (the fighters' parts: together as before) */
             if (b >= 0 && it->g->mode != 1 && !(safe ? lastUnsafe < b : b == nb - 1)) {
@@ -8830,6 +8848,7 @@ static void dp_draw_items(DpItem *items, int n, int prof, unsigned frame) {
                     bk[b].st = st;
                     bk[b].h = h;
                     bk[b].mode = it->g->mode;
+                    bk[b].bank = it->g->bank;
                     bk[b].first = i;
                     bk[b].last = i;
                     bnext[b] = bhead[hs];
@@ -8915,6 +8934,11 @@ static void dp_draw_items(DpItem *items, int n, int prof, unsigned frame) {
                 ZM(41);
                 if (vglFastPrepare(GL_UNSIGNED_SHORT)) {
                     ZM(42);
+                    if (bk[i].bank != 0) { /* the group's bank: its vertices' streams moved on (32-byte vertices). Not through
+                                              glVertexAttribPointer's offset: a vertex layout keeps 16 bits of it, the
+                                              stage drawn from the wrong vertices (seen in a test) */
+                        vglFastVertexBase((uint32_t)bk[i].bank << (DP_BANK_SHIFT + 5));
+                    }
                     /* The stage's groups of one state with the same constants (parts placed in the world as they
                        are: the same screen matrix) as ONE draw: their indices one after the other in this frame's
                        memory. A draw costs the processor ~1,300 cycles, a group's indices ~ a hundred to copy. */

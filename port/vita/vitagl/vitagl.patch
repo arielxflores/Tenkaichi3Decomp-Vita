@@ -1,5 +1,5 @@
 diff --git a/source/custom_shaders.c b/source/custom_shaders.c
-index 3b91d11..682f460 100644
+index 3b91d11..3182862 100644
 --- a/source/custom_shaders.c
 +++ b/source/custom_shaders.c
 @@ -218,11 +218,11 @@ char vgl_file_cache_path[256];
@@ -126,7 +126,16 @@ index 3b91d11..682f460 100644
  #ifdef HAVE_SHARK_LOG
  static char *shark_log = NULL;
  #endif
-@@ -1345,9 +1406,12 @@ GLboolean _glDrawElements_CustomShadersIMPL(uint16_t *idx_buf, GLsizei count, ui
+@@ -1340,14 +1401,21 @@ GLboolean _glDrawArrays_CustomShadersIMPL(GLint first, GLsizei count, GLboolean
+ 	return GL_TRUE;
+ }
+ 
++/* bt3 port: the vertex streams the last indexed draw set up, for vglFastVertexBase */
++static const void *bt3_stream_ptr[VERTEX_ATTRIBS_NUM];
++static uint8_t bt3_stream_data[VERTEX_ATTRIBS_NUM];
++static int bt3_stream_n;
+ GLboolean _glDrawElements_CustomShadersIMPL(uint16_t *idx_buf, GLsizei count, uint32_t top_idx, uint32_t base_idx, SceGxmIndexSource index_type) {
+ #ifdef HAVE_PROFILING
  	uint32_t draw_start = sceKernelGetProcessTimeLow();
  #endif
  	program *p = &progs[cur_program - 1];
@@ -139,7 +148,7 @@ index 3b91d11..682f460 100644
  
  	// Uploading fragment textures on relative texture units
  	for (int i = 0; i < p->max_frag_texunit_idx; i++) {
-@@ -1464,7 +1528,10 @@ GLboolean _glDrawElements_CustomShadersIMPL(uint16_t *idx_buf, GLsizei count, ui
+@@ -1464,18 +1532,22 @@ GLboolean _glDrawElements_CustomShadersIMPL(uint16_t *idx_buf, GLsizei count, ui
  			vertex_layout_setup_ptrs(p, layout_entry->is_packed, 0, top_idx, top_idx, ptrs);
  			p->vprog = layout_entry->vprog;
  			sceGxmSetVertexProgram(gxm_context, p->vprog);
@@ -150,7 +159,39 @@ index 3b91d11..682f460 100644
  			for (int i = 0; i < p->attr_num; i++) {
  				uint8_t attr_idx = p->attr_map[i];
  				if (cur_vao->vertex_attrib_state & (1 << attr_idx)) {
-@@ -2149,6 +2216,8 @@ GLuint glCreateProgram(void) {
+-					if (layout_entry->is_packed)
+-						sceGxmSetVertexStream(gxm_context, i, ptrs[0]);
+-					else
+-						sceGxmSetVertexStream(gxm_context, i, ptrs[i]);
++					bt3_stream_ptr[i] = layout_entry->is_packed ? ptrs[0] : ptrs[i];
++					bt3_stream_data[i] = 1;
++					sceGxmSetVertexStream(gxm_context, i, bt3_stream_ptr[i]);
+ 				} else {
++					bt3_stream_data[i] = 0;
+ 					sceGxmSetVertexStream(gxm_context, i, cur_vao->vertex_attrib_value[attr_idx]);
+ 				}
+ 			}
++			bt3_stream_n = p->attr_num;
+ #ifdef HAVE_PROFILING
+ 			shaders_draw_profiler_cnt += sceKernelGetProcessTimeLow() - draw_start;
+ 			shaders_draw_cnt++;
+@@ -1656,11 +1728,15 @@ GLboolean _glDrawElements_CustomShadersIMPL(uint16_t *idx_buf, GLsizei count, ui
+ 			sceGxmSetVertexStream(gxm_context, i, is_packed[i] ? ptrs[0] : ptrs[i]);
+ #else
+ 			sceGxmSetVertexStream(gxm_context, i, is_packed ? ptrs[0] : ptrs[i]);
++			bt3_stream_ptr[i] = is_packed ? ptrs[0] : ptrs[i];
++			bt3_stream_data[i] = 1;
+ #endif
+ #endif
+ 		} else {
++			bt3_stream_data[i] = 0;
+ 			sceGxmSetVertexStream(gxm_context, i, cur_vao->vertex_attrib_value[attr_idx]);
+ 		}
++		bt3_stream_n = p->attr_num;
+ 		if (!p->has_unaligned_attrs) {
+ 			attributes[i].regIndex = i;
+ 			if (!is_active) {
+@@ -2149,6 +2225,8 @@ GLuint glCreateProgram(void) {
  			progs[i].num_glsl_attr = 0;
  			progs[i].glsl_attr_map = NULL;
  			progs[i].is_fbo_float = 0xFF;
@@ -159,7 +200,7 @@ index 3b91d11..682f460 100644
  			for (j = 0; j < VERTEX_ATTRIBS_NUM; j++) {
  				progs[i].attr[j].regIndex = 0xDEAD;
  			}
-@@ -2451,6 +2520,8 @@ void glLinkProgram(GLuint progr) {
+@@ -2451,6 +2529,8 @@ void glLinkProgram(GLuint progr) {
  		return;
  	}
  	p->status = PROG_LINKED;
@@ -168,7 +209,7 @@ index 3b91d11..682f460 100644
  	
  	// Set up uniform buffers
  	if (p->vshader->unif_buf_size) {
-@@ -3197,7 +3268,7 @@ void glEnableVertexAttribArray(GLuint index) {
+@@ -3197,7 +3277,7 @@ void glEnableVertexAttribArray(GLuint index) {
  	uint32_t bit = 1 << index;
  	if (!(cur_vao->vertex_attrib_state & bit)) {
  		cur_vao->vertex_attrib_state |= bit;
@@ -177,7 +218,7 @@ index 3b91d11..682f460 100644
  	}
  #else
  	cur_vao->vertex_attrib_state |= (1 << index);
-@@ -3216,7 +3287,7 @@ void glDisableVertexAttribArray(GLuint index) {
+@@ -3216,7 +3296,7 @@ void glDisableVertexAttribArray(GLuint index) {
  	uint32_t bit = 1 << index;
  	if (cur_vao->vertex_attrib_state & bit) {
  		cur_vao->vertex_attrib_state &= ~bit;
@@ -186,7 +227,7 @@ index 3b91d11..682f460 100644
  	}
  #else
  	cur_vao->vertex_attrib_state &= ~(1 << index);
-@@ -3296,7 +3367,7 @@ void glVertexAttribPointer(GLuint index, GLint size, GLenum type, GLboolean norm
+@@ -3296,7 +3376,7 @@ void glVertexAttribPointer(GLuint index, GLint size, GLenum type, GLboolean norm
  	streams->stride = stride ? stride : bpe * size;
  #if defined(HAVE_VERTEX_LAYOUT_CACHE) && !defined(STRICT_DRAW_COMPLIANCE) && !defined(DRAW_SPEEDHACK)
  	if (old_offset != cur_vao->vertex_attrib_offsets[index] || old_vbo != cur_vao->vertex_attrib_vbo[index] || old_format != attributes->format || old_component_count != attributes->componentCount || old_stride != streams->stride) {
@@ -195,7 +236,7 @@ index 3b91d11..682f460 100644
  	}
  #endif
  }
-@@ -3318,11 +3389,11 @@ void glVertexAttribDivisor(GLuint index, GLuint divisor) {
+@@ -3318,11 +3398,11 @@ void glVertexAttribDivisor(GLuint index, GLuint divisor) {
  	if (divisor) {
  		if (!(cur_vao->vertex_attrib_divisor & bit)) {
  			cur_vao->vertex_attrib_divisor |= bit;
@@ -209,7 +250,7 @@ index 3b91d11..682f460 100644
  	}
  #else
  	if (divisor) {
-@@ -3424,7 +3495,7 @@ void glVertexAttrib1f(GLuint index, GLfloat v0) {
+@@ -3424,7 +3504,7 @@ void glVertexAttrib1f(GLuint index, GLfloat v0) {
  
  #if defined(HAVE_VERTEX_LAYOUT_CACHE) && !defined(STRICT_DRAW_COMPLIANCE) && !defined(DRAW_SPEEDHACK)
  	if (cur_vao->vertex_attrib_size[index] != 1) {
@@ -218,7 +259,7 @@ index 3b91d11..682f460 100644
  	}
  #endif
  	cur_vao->vertex_attrib_value[index] = reserve_attrib_pool(1);
-@@ -3437,7 +3508,7 @@ void glVertexAttrib2f(GLuint index, GLfloat v0, GLfloat v1) {
+@@ -3437,7 +3517,7 @@ void glVertexAttrib2f(GLuint index, GLfloat v0, GLfloat v1) {
  
  #if defined(HAVE_VERTEX_LAYOUT_CACHE) && !defined(STRICT_DRAW_COMPLIANCE) && !defined(DRAW_SPEEDHACK)
  	if (cur_vao->vertex_attrib_size[index] != 2) {
@@ -227,7 +268,7 @@ index 3b91d11..682f460 100644
  	}
  #endif
  	cur_vao->vertex_attrib_value[index] = reserve_attrib_pool(2);
-@@ -3451,7 +3522,7 @@ void glVertexAttrib3f(GLuint index, GLfloat v0, GLfloat v1, GLfloat v2) {
+@@ -3451,7 +3531,7 @@ void glVertexAttrib3f(GLuint index, GLfloat v0, GLfloat v1, GLfloat v2) {
  
  #if defined(HAVE_VERTEX_LAYOUT_CACHE) && !defined(STRICT_DRAW_COMPLIANCE) && !defined(DRAW_SPEEDHACK)
  	if (cur_vao->vertex_attrib_size[index] != 3) {
@@ -236,7 +277,7 @@ index 3b91d11..682f460 100644
  	}
  #endif
  	cur_vao->vertex_attrib_value[index] = reserve_attrib_pool(3);
-@@ -3466,7 +3537,7 @@ void glVertexAttrib4f(GLuint index, GLfloat v0, GLfloat v1, GLfloat v2, GLfloat
+@@ -3466,7 +3546,7 @@ void glVertexAttrib4f(GLuint index, GLfloat v0, GLfloat v1, GLfloat v2, GLfloat
  
  #if defined(HAVE_VERTEX_LAYOUT_CACHE) && !defined(STRICT_DRAW_COMPLIANCE) && !defined(DRAW_SPEEDHACK)
  	if (cur_vao->vertex_attrib_size[index] != 4) {
@@ -245,7 +286,7 @@ index 3b91d11..682f460 100644
  	}
  #endif
  	cur_vao->vertex_attrib_value[index] = reserve_attrib_pool(4);
-@@ -3482,7 +3553,7 @@ void glVertexAttrib1fv(GLuint index, const GLfloat *v) {
+@@ -3482,7 +3562,7 @@ void glVertexAttrib1fv(GLuint index, const GLfloat *v) {
  
  #if defined(HAVE_VERTEX_LAYOUT_CACHE) && !defined(STRICT_DRAW_COMPLIANCE) && !defined(DRAW_SPEEDHACK)
  	if (cur_vao->vertex_attrib_size[index] != 1) {
@@ -254,7 +295,7 @@ index 3b91d11..682f460 100644
  	}
  #endif
  	cur_vao->vertex_attrib_value[index] = reserve_attrib_pool(1);
-@@ -3495,7 +3566,7 @@ void glVertexAttrib2fv(GLuint index, const GLfloat *v) {
+@@ -3495,7 +3575,7 @@ void glVertexAttrib2fv(GLuint index, const GLfloat *v) {
  
  #if defined(HAVE_VERTEX_LAYOUT_CACHE) && !defined(STRICT_DRAW_COMPLIANCE) && !defined(DRAW_SPEEDHACK)
  	if (cur_vao->vertex_attrib_size[index] != 2) {
@@ -263,7 +304,7 @@ index 3b91d11..682f460 100644
  	}
  #endif
  	cur_vao->vertex_attrib_value[index] = reserve_attrib_pool(2);
-@@ -3509,7 +3580,7 @@ void glVertexAttrib3fv(GLuint index, const GLfloat *v) {
+@@ -3509,7 +3589,7 @@ void glVertexAttrib3fv(GLuint index, const GLfloat *v) {
  
  #if defined(HAVE_VERTEX_LAYOUT_CACHE) && !defined(STRICT_DRAW_COMPLIANCE) && !defined(DRAW_SPEEDHACK)
  	if (cur_vao->vertex_attrib_size[index] != 3) {
@@ -272,7 +313,7 @@ index 3b91d11..682f460 100644
  	}
  #endif
  	cur_vao->vertex_attrib_value[index] = reserve_attrib_pool(3);
-@@ -3524,7 +3595,7 @@ void glVertexAttrib4fv(GLuint index, const GLfloat *v) {
+@@ -3524,7 +3604,7 @@ void glVertexAttrib4fv(GLuint index, const GLfloat *v) {
  
  #if defined(HAVE_VERTEX_LAYOUT_CACHE) && !defined(STRICT_DRAW_COMPLIANCE) && !defined(DRAW_SPEEDHACK)
  	if (cur_vao->vertex_attrib_size[index] != 4) {
@@ -281,7 +322,7 @@ index 3b91d11..682f460 100644
  	}
  #endif
  	cur_vao->vertex_attrib_value[index] = reserve_attrib_pool(4);
-@@ -3972,3 +4043,55 @@ void vglShaderGxpBinary(GLsizei count, const GLuint *handles, const void *binary
+@@ -3972,3 +4052,65 @@ void vglShaderGxpBinary(GLsizei count, const GLuint *handles, const void *binary
  	sceGxmShaderPatcherRegisterProgram(gxm_shader_patcher, s->prog, &s->id);
  	s->unif_buf_size = sceGxmProgramGetDefaultUniformBufferSize(s->prog);
  }
@@ -299,6 +340,16 @@ index 3b91d11..682f460 100644
 +	GLboolean r = _glDrawElements_CustomShadersIMPL((uint16_t *)gpu_buf->ptr, 3, 0, 0, type == GL_UNSIGNED_INT ? SCE_GXM_INDEX_SOURCE_INDEX_32BIT : SCE_GXM_INDEX_SOURCE_INDEX_16BIT);
 +	gpu_buf->last_frame = vgl_framecount;
 +	return r;
++}
++
++/* bt3 port: the vertex data of the draws that follow `bytes` further on in their buffers (the indices count from
++   there): the streams vglFastPrepare set up, moved. The attribute offsets of a vertex layout are 16 bits, so a
++   buffer's far part cannot be reached through glVertexAttribPointer's offset. */
++void vglFastVertexBase(uint32_t bytes) {
++	for (int i = 0; i < bt3_stream_n; i++) {
++		if (bt3_stream_data[i])
++			sceGxmSetVertexStream(gxm_context, i, (const uint8_t *)bt3_stream_ptr[i] + bytes);
++	}
 +}
 +
 +void vglFastDraw(GLenum type, uint32_t offset, uint32_t count, const void *vunif, uint32_t size) {
@@ -612,10 +663,10 @@ index bf5e4d4..a09b42f 100644
 +	(void)path; /* (not in this SDK's vitashark) */
  }
 diff --git a/source/vitaGL.h b/source/vitaGL.h
-index 336bc14..4704582 100644
+index 336bc14..8296874 100644
 --- a/source/vitaGL.h
 +++ b/source/vitaGL.h
-@@ -1319,6 +1319,14 @@ void vglUseVramForUSSE(GLboolean usage);
+@@ -1319,6 +1319,15 @@ void vglUseVramForUSSE(GLboolean usage);
  // Allows vitaGL to use newlib memory once all internal mempools are exhausted. Default value: GL_TRUE.
  void vglUseExtraMem(GLboolean usage);
  
@@ -623,6 +674,7 @@ index 336bc14..4704582 100644
 +// (offset in bytes into the bound element array buffer). vglFastPrepare once, then vglFastDraw per draw.
 +GLboolean vglFastPrepare(GLenum type);
 +void vglFastDraw(GLenum type, uint32_t offset, uint32_t count, const void *vunif, uint32_t size);
++void vglFastVertexBase(uint32_t bytes); /* the following draws' vertices this many bytes further on in their buffers (after vglFastPrepare) */
 +void vglFastDrawPtr(GLenum type, const void *idx, uint32_t count, const void *vunif, uint32_t size); /* indices anywhere in GPU-visible memory (vglAllocFromScratch) */
 +uint32_t vglFastVertUniformSize(GLuint prog);
 +int vglFastUniformOffset(GLuint prog, GLint location);
