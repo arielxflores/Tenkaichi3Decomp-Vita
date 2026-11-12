@@ -709,6 +709,7 @@ void Vita_VBlank(unsigned vblanks) {
                                 extern unsigned gVitaFeHelp[4], vgl_bt3_gxm_skipped[2];
                                 logf_("vita:   GXM state calls: %u left out (they changed nothing), %u made\n", vgl_bt3_gxm_skipped[0], vgl_bt3_gxm_skipped[1]);
                                 vgl_bt3_gxm_skipped[0] = vgl_bt3_gxm_skipped[1] = 0;
+                                { extern unsigned gVitaTexId[5]; if (gVitaTexId[0] | gVitaTexId[3] | gVitaTexId[4]) { logf_("vita:   textures named by the game (nativetex): %u uploads' numbers from their names, %u checked by their bytes, %u found changed, %u named first or anew, %u read by their bytes (found changed before)\n", gVitaTexId[0], gVitaTexId[1], gVitaTexId[2], gVitaTexId[3], gVitaTexId[4]); memset(gVitaTexId, 0, sizeof(gVitaTexId)); } }
                                 logf_("vita:   uploads' numbers on the fourth core: %u worked out (%u ms), %u left to the drawing thread (too many waiting), %u dropped (late)\n",
                                       gVitaFeHelp[0], gVitaFeHelp[1] / 1000, gVitaFeHelp[2], gVitaFeHelp[3]);
                                 memset(gVitaFeHelp, 0, sizeof(gVitaFeHelp));
@@ -1530,6 +1531,12 @@ static void read_settings(void) {
         } else if (strcmp(line, "native") == 0) { /* the engine seam: the stage's meshes named by the game, kept for the stage's life: 0 off, 1 on, 2 in the soak's B battles (gs_marker.c, gs_core.c es_find) */
             extern int gVitaNative;
             gVitaNative = atoi(eq);
+        } else if (strcmp(line, "nativetex") == 0) { /* the stage's and the fighters' textures named by the game: their uploads' numbers not worked out from their bytes each time: 0 off (default), 1 on, 2 in the soak's B battles (gs_marker.c, gs_core.c texid_hash) */
+            extern int gVitaNativeTex;
+            gVitaNativeTex = atoi(eq);
+        } else if (strcmp(line, "nativetexcheck") == 0) { /* a named texture's bytes read again every n-th upload (default 128; 0 never) */
+            extern int gVitaTexCheck;
+            gVitaTexCheck = atoi(eq);
         } else if (strcmp(line, "nativecheck") == 0) { /* the engine seam's meshes read again the long way every n-th call (default 512; 0 never) */
             extern int gVitaEsCheck;
             gVitaEsCheck = atoi(eq);

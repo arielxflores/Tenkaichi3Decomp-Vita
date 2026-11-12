@@ -54,10 +54,48 @@ int gVitaNative = 0;    /* bt3.txt native: 0 off, 1 on, 2 in the soak's B battle
 static void *sEsMdl;
 static int sEsBusy = 1;
 static unsigned sEsGen, sEsGenM = 1;
+/* ---- The textures named by the game (bt3.txt nativetex): an upload of a texture of the stage's texture file or of a
+   fighter's carries, in its BITBLTBUF packet's VIF NOP, a MARK: the seam's flag (0x8000), 0x3000 (no named call has
+   it: a model part's program is 0, 1 or 2) and the generation of the stage's textures, or with 0x4000 that of the
+   models (sEsGenM). The list reader (gs_core.c texid_hash) then takes the upload's number from what it worked out
+   the first time that place and length came with that generation, instead of reading the bytes again, and reads
+   them again every gVitaTexCheck-th time to see that they are the same. The stage's textures' generation changes
+   whenever the stage may have been loaded (Port_EsStageBusy) or its texture file is another. ---- */
+int gVitaNativeTex = 0; /* bt3.txt nativetex: 0 off, 1 on, 2 in the soak's B battles */
+static void *sTexFile;
+static int sTexBusy = 1, sTexScope;
+static unsigned sTexGen;
+static int tex_on(void) {
+    return gVitaNativeTex == 2 ? gVitaAbSide == 1 : gVitaNativeTex != 0;
+}
+/* (src/battle/stgm_a.c) the uploads of the stage's texture file `file` begin / end */
+void Port_EsTexStage(void *file) {
+    if (sTexBusy || file != sTexFile) {
+        sTexBusy = 0;
+        sTexFile = file;
+        sTexGen = (sTexGen + 1) & 0xFFF;
+        if (sTexGen == 0) {
+            sTexGen = 1;
+        }
+    }
+    sTexScope = 1;
+}
+void Port_EsTexStageEnd(void) {
+    sTexScope = 0;
+}
+/* (src/sys/gfxm_b_b.c) the VIF word for the BITBLTBUF packet of an upload: the MARK inside the stage's scope, else 0 (NOP) */
+uint32_t Port_EsTexWord(void) {
+    return sTexScope && tex_on() ? 0x07000000u | 0x8000u | 0x3000u | sTexGen : 0;
+}
+/* (src/sys/gfxm_d_c.c) the same for a fighter's textures */
+uint32_t Port_EsTexModelWord(void) {
+    return tex_on() ? 0x07000000u | 0x8000u | 0x4000u | 0x3000u | sEsGenM : 0;
+}
 unsigned gVitaEsGens[2]; /* for the log: the stage's generations begun, the models' */
 
 void Port_EsStageBusy(void) {
     sEsBusy = 1;
+    sTexBusy = 1;
 }
 void Port_EsModelBound(void) {
     sEsGenM = (sEsGenM + 1) & 0xFFF;

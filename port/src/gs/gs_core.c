@@ -427,7 +427,7 @@ int gVitaFeHelper = 1;
 extern int gVitaAbSide;
 static volatile unsigned sGrHead, sGrTail; /* (below, with the queue) */
 int Port_InGr(const void *p);
-typedef struct FeJob { const uint8_t *d; uint32_t len, seq, at; uint32_t inGr; } FeJob;
+typedef struct FeJob { const uint8_t *d; uint32_t len, seq, at; uint32_t inGr, ready; uint64_t h; } FeJob; /* ready: h is the number already (a texture named by the game) */
 /* (at the render thread's priority, the highest an application's thread can have (60 was refused: the helper
    was not made, the reader worked the numbers out as before), asleep on a semaphore when there is nothing: below
    it, with 64 waiting at most, the drawing thread found a number not ready 4.7 times as often as the reader alone had left it, and worked
@@ -457,7 +457,7 @@ static int fe_helper_thread(SceSize args, void *argp) {
                 gVitaFeHelp[3]++; /* (late: the drawing thread is there or past it) */
             } else {
                 unsigned long long t0 = sceKernelGetProcessTimeWide();
-                uint64_t h = up_hash_quick_q(&sUpQHelp, d, len);
+                uint64_t h = j->ready ? j->h : up_hash_quick_q(&sUpQHelp, d, len);
                 __sync_synchronize();
                 if (inGr && (int)(sGrHead - at) > 0) {
                     gVitaFeHelp[3]++; /* (the bytes may have been read by the drawing thread meanwhile, or be others now) */
@@ -503,6 +503,76 @@ static int fe_helper_use(void) {
     return sFeHelperUp > 0;
 }
 #endif
+#ifdef PORT_VITA
+/* ---- Textures named by the game (port/src/gs_marker.c, bt3.txt nativetex): the upload in the DMA tag after a
+   BITBLTBUF packet with the seam's texture MARK comes from the stage's or a fighter's texture file, whose bytes stay
+   as they were loaded while their generation (in the MARK) is the same. Its number is the one worked out (all its
+   bytes, up_hash) the first time that place and length came with that generation; every gVitaTexCheck-th time it is
+   worked out again and compared: a texture found changed is read as before (its bytes sampled) from then on. */
+static uint32_t sFeTexMark;      /* the list reader: the texture MARK for the DMA tag being read (0 none) */
+static uint32_t sTexMarkNext;    /* (the MARK of the tag before, for the next one: the BITBLTBUF packet's, for the pixels) */
+int gVitaTexCheck = 128;         /* bt3.txt nativetexcheck: a named texture's bytes read again every n-th upload (0 never) */
+unsigned gVitaTexId[5];          /* for the log: numbers taken from the names, checked, found changed, named first or anew, read by their bytes (found changed before) */
+typedef struct TexId { const uint8_t *p; uint32_t len, mark, uses; uint64_t h; uint8_t bad; } TexId;
+#define TEXID_N 8192
+static TexId *sTexId;
+static int texid_hash(const uint8_t *d, uint32_t len, uint32_t mark, uint64_t *h) {
+    uint32_t k = ((uint32_t)(uintptr_t)d * 0x9E3779B1u ^ len * 0x85EBCA6Bu) >> 19, i;
+    TexId *e = NULL;
+    if (sTexId == NULL) {
+        sTexId = (TexId *)calloc(TEXID_N, sizeof(TexId));
+        if (sTexId == NULL) {
+            return 0;
+        }
+    }
+    for (i = 0; i < 8; i++) {
+        TexId *c = &sTexId[(k + i) & (TEXID_N - 1)];
+        if (c->p == d && c->len == len) {
+            e = c;
+            break;
+        }
+        if (e == NULL && c->p == NULL) {
+            e = c;
+        }
+    }
+    if (e == NULL) {
+        e = &sTexId[k & (TEXID_N - 1)]; /* (eight places taken: the first is given to this one) */
+    }
+    if (e->p != d || e->len != len || e->mark != mark) { /* (first seen, or another generation: the bytes read once) */
+        e->p = d;
+        e->len = len;
+        e->mark = mark;
+        e->uses = 0;
+        e->bad = 0;
+        e->h = up_hash(d, len);
+        gVitaTexId[3]++;
+        *h = e->h;
+        return 1;
+    }
+    if (e->bad) {
+        gVitaTexId[4]++;
+        return 0;
+    }
+    if (gVitaTexCheck > 0 && ++e->uses % (unsigned)gVitaTexCheck == 0) {
+        uint64_t h2 = up_hash(d, len);
+        gVitaTexId[1]++;
+        if (h2 != e->h) {
+            extern void Vita_Log(const char *fmt, ...);
+            static unsigned lines;
+            gVitaTexId[2]++;
+            e->bad = 1;
+            if (lines < 50) {
+                lines++;
+                Vita_Log("gs: a named texture changed: %u bytes at %p (mark %04x), list %u: read by its bytes from now on\n", len, (const void *)d, (unsigned)(mark & 0xFFFF), sFeListSeq);
+            }
+            return 0;
+        }
+    }
+    gVitaTexId[0]++;
+    *h = e->h;
+    return 1;
+}
+#endif
 static void fe_hash_gif(const uint8_t *p, uint32_t qwc, int keep) {
     uint32_t q = 0;
     if (sFeGifLeft >= qwc) {
@@ -524,6 +594,16 @@ static void fe_hash_gif(const uint8_t *p, uint32_t qwc, int keep) {
         if (keep && flg >= 2 && nloop >= 128 && q + dq <= qwc) {
             const uint8_t *d = p + (size_t)q * 16;
 #ifdef PORT_VITA
+            uint64_t named = 0;
+            int isNamed = sFeTexMark != 0 && texid_hash(d, nloop * 16, sFeTexMark, &named);
+            if (isNamed && !fe_helper_use()) {
+                if (sFeHelperUp > 0 && sFeJobGot != sFeJobPut) {
+                    gVitaFeHelp[2]++; /* (the helper still at the last ones: one writer a slot; the drawing thread works it out) */
+                    goto next;
+                }
+                fe_publish(d, nloop * 16, named, sFeListSeq);
+                goto next;
+            }
             if (fe_helper_use()) {
                 unsigned put = sFeJobPut;
                 if (put - sFeJobGot < FEJ_MAX) {
@@ -533,6 +613,8 @@ static void fe_hash_gif(const uint8_t *p, uint32_t qwc, int keep) {
                     j->seq = sFeListSeq;
                     j->inGr = Port_InGr(d);
                     j->at = sGrTail; /* (the record being made begins here: GsFE_GifHashed) */
+                    j->ready = (uint32_t)isNamed;
+                    j->h = named;
                     __sync_synchronize();
                     sFeJobPut = put + 1;
                     __sync_synchronize();
@@ -4782,6 +4864,8 @@ static void run_chain(uint32_t tadr, int tte) {
 
 #ifdef PORT_VITA
         sEsMark = 0; /* (the engine seam's MARK counts only for the call whose packet carries it) */
+        sFeTexMark = sTexMarkNext; /* (a texture's MARK, in the tag before: for this one, its pixels) */
+        sTexMarkNext = 0;
 #endif
         switch (id) {
         case 0: data = (const uint32_t *)(uintptr_t)addr; end = 1; break;                 /* REFE */
@@ -4828,6 +4912,10 @@ static void run_chain(uint32_t tadr, int tte) {
         vif(data, qwc * 4);
 #ifdef PORT_VITA
         GZM2(20);
+        sFeTexMark = 0;
+        if ((sEsMark & 0x1B000u) == 0x1B000u) { /* (the seam's texture MARK: gs_marker.c Port_EsTexWord) */
+            sTexMarkNext = sEsMark & 0xFFFFu;
+        }
 #endif
 #ifdef PORT_VITA
         if (id == 5 && ccOn && gGsSplit && !gVitaGsSkipF && sp > 0 && sCcCap < 0) {
