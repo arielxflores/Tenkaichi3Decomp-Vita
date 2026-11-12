@@ -1470,8 +1470,10 @@ static void frame_begin(void) {
     }
     target_set(0);
     {   /* a fight's picture in parts: decided before the picture's first scene is begun (by the clear) */
-        extern int Vita_RenderAsFight(void);
-        vgl_bt3_split_on = Vita_RenderAsFight() && !(gVglSafe2 & 1);
+        extern int Vita_InBattle(void);
+        /* (a fight only: the dragon's screen, drawn otherwise the fights' way, handed over in parts lost its glow and
+           brightness and drew the dragon balls' shadows as solid navy discs; whole, it keeps its 30 pictures a second) */
+        vgl_bt3_split_on = Vita_InBattle() && !(gVglSafe2 & 1);
         sSplitN = 0;
         sSplitAt = vgl_bt3_split_on ? sceKernelGetProcessTimeWide() + SPLIT_MS * 1000ull : 0;
     }
