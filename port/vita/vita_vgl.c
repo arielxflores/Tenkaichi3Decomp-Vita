@@ -7523,9 +7523,9 @@ int Vita_ChipPlan(int which, int layer, const float *v, uint32_t count, const fl
     }
     extern int Vita_RenderAsFight(void);
     extern int Vita_InBattle(void), gVitaShenFast;
-    if (which == 0 && layer <= (Vita_InBattle() ? 2 : gVitaShenFast - 1) && sFtProg != 0 && Vita_RenderAsFight() && !(gT116Fe & 4)) {
+    if (which == 0 && layer <= (Vita_InBattle() ? 2 : gVitaShenFast >= 4 ? -1 : gVitaShenFast - 1) && sFtProg != 0 && Vita_RenderAsFight() && !(gT116Fe & 4)) {
         /* (the fighters not on the chip; layer 2, the silhouettes, too. The dragon's screen: its models' first layer
-           only (bt3.txt shenfast=2, 3: more): the dragon balls' glow and their shadows are its other layers, which
+           only (bt3.txt shenfast=2, 3: more; 4: none): the dragon balls' glow and their shadows are its other layers, which
            drawn from the chip came out wrong, the glow as white crescents beside the balls and the shadows as solid
            discs) */
         h = ((uint32_t)(uintptr_t)v * 0x9E3779B1u ^ count) >> 19;
