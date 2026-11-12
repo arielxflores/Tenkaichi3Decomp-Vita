@@ -8132,7 +8132,7 @@ typedef struct DpUb { float u17[3]; uint8_t mode, layer; float t8[8]; } DpUb; /*
 #define DP_UB 8
 typedef struct DpBlob { int ngroups, nub; uint8_t unsafe, seeThru; uint32_t tris, stripsF, stripsS; DpUb ub[DP_UB]; DpGroup g[1]; } DpBlob;
 /* (dpfast: unsafe, a stage group in it that does not commute; seeThru, a group with mask 8; the triangles and strips, for the counters) */
-int gVitaDpFast = 0;  /* bt3.txt dpfast: a kept part drawn with what does not change worked out when it was kept: 0 off, 1 on, 2 in the soak's B battles */
+int gVitaDpFast = 1;  /* bt3.txt dpfast: a kept part drawn with what does not change worked out when it was kept: 0 off, 1 on (default), 2 in the soak's B battles */
 unsigned gVitaDpFastN[3];    /* for the log: parts drawn the quick way */
 int GsGpu_DpFastOn(void) {
     extern int gVitaAbSide;

@@ -931,7 +931,7 @@ static uint32_t up_rect_id(uint32_t bp, uint32_t bw, uint32_t psm, uint32_t x0, 
    upload's number and their place, up_piece), so it is worked out once and kept (sRectMemo). The renderer's
    texture key then takes the rectangle's number from the destination whose rectangle is the texture (or its
    palette) instead of from its blocks; every 16th time from the blocks too, compared. ---- */
-int gVitaUpDest = 0;      /* 0 off, 1 on, 2 in the soak's B battles */
+int gVitaUpDest = 1;      /* 0 off, 1 on (default), 2 in the soak's B battles */
 int gVitaUpDestLog;       /* (bt3.txt updestlog=1: the destinations made and the lookups that found none, in the log) */
 unsigned gVitaDest[7];    /* for the log: uploads found the same by their destination, rectangles' numbers kept, worked out;
                              texture keys from a destination, checked, wrong; destinations found changed */
@@ -2541,9 +2541,9 @@ static void tri_run(const uint64_t *q, uint32_t n) {
    PRIM, TEX0, RGBAQ, 4 x (ST, XYZF2), NOP), PRIM a triangle strip, all with the same PRIM and TEX0: each drawn as its
    strip's two triangles the triangle runs' way (GsGpu_DrawTriRun) instead of register by register and the full way
    for each triangle (a particle: 14 register writes and two GsGpu_Draw_impl). And the triangle runs' additive
-   triangles go into the additive groups (vita_vgl.c) instead of closing them. 0 off (default), 1 on, 2 in the
+   triangles go into the additive groups (vita_vgl.c) instead of closing them. 0 off, 1 on (default), 2 in the
    soak's B battles. */
-int gVitaFxRun = 0;
+int gVitaFxRun = 1;
 unsigned gVitaQuadRunN[2]; /* (the log) quad runs, quads in them */
 int Gs_FxRunOn(void) {
     extern int gVitaAbSide;

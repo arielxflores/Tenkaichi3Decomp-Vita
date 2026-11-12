@@ -22,13 +22,18 @@ Faster
   effects covering at least two screens' worth are drawn so; the edge of a fighter inside a beam can show a step of
   two pixels. Development build: `fxlow=0` goes back.
 
+- **The first steps of a native renderer** (the "engine seam", as BT3-Recomp's and Celosia's; `docs/vita/native.md`):
+  the game names what it draws to the renderer instead of the renderer finding it again in the PS2 display list
+  every frame. The stage's meshes and animated objects and the fighters' model parts are kept by their names; the
+  stage's and the fighters' textures are known by their names and each upload's destination remembers what it left
+  there; the kept parts are drawn with what does not change worked out once; the effects' particles are read as
+  runs. On three heavy stages the list reader works a third of what it did and the drawing thread about two thirds:
+  the pictures a second were at the 30 cap already, what this gives is room in the busy moments and for a console
+  without the fourth core. Development build: `native=0`, `nativetex=0`, `updest=0`, `dpfast=0`, `fxrun=0` go back.
+
 New
 
 - Options → Controller → Vita Settings says whether the game has the fourth CPU core (CapUnlocker on or off).
-- Development build: `native=1`, the first step of a native renderer (the "engine seam", as BT3-Recomp's and
-  Celosia's): the stage's meshes and animated objects and the fighters' model parts are named by the game, and the
-  renderer keeps them instead of finding them again in the display list by a cache of calls. Off by default until measured on a console
-  (`native=2` with `soakab=1`). See `docs/vita/native.md`.
 
 ## 1.1
 

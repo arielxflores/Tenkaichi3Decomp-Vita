@@ -50,7 +50,7 @@ void Port_GsMarkerArg(int effect, unsigned arg) {
 extern void *Dma_Alloc(int size);
 extern uint32_t *Vu1Pkt_CallProg7(uint32_t chain, float w);
 extern int gVitaAbSide; /* (port/src/headless.c: the soak's A / B side) */
-int gVitaNative = 0;    /* bt3.txt native: 0 off, 1 on, 2 in the soak's B battles */
+int gVitaNative = 1;    /* bt3.txt native: 0 off, 1 on (default), 2 in the soak's B battles */
 static void *sEsMdl;
 static int sEsBusy = 1;
 static unsigned sEsGen, sEsGenM = 1;
@@ -61,7 +61,7 @@ static unsigned sEsGen, sEsGenM = 1;
    the first time that place and length came with that generation, instead of reading the bytes again, and reads
    them again every gVitaTexCheck-th time to see that they are the same. The stage's textures' generation changes
    whenever the stage may have been loaded (Port_EsStageBusy) or its texture file is another. ---- */
-int gVitaNativeTex = 0; /* bt3.txt nativetex: 0 off, 1 on, 2 in the soak's B battles */
+int gVitaNativeTex = 1; /* bt3.txt nativetex: 0 off, 1 on (default), 2 in the soak's B battles */
 static void *sTexFile;
 static int sTexBusy = 1, sTexScope;
 static unsigned sTexGen;

@@ -1532,16 +1532,16 @@ static void read_settings(void) {
             gVitaDpFrame = atoi(eq);
         } else if (strcmp(line, "exitafter") == 0) { /* the program ends itself after that many seconds, its log written (test runs) */
             gVitaExitAfter = atoi(eq);
-        } else if (strcmp(line, "native") == 0) { /* the engine seam: the stage's meshes named by the game, kept for the stage's life: 0 off, 1 on, 2 in the soak's B battles (gs_marker.c, gs_core.c es_find) */
+        } else if (strcmp(line, "native") == 0) { /* the engine seam: the stage's meshes named by the game, kept for the stage's life: 0 off, 1 on (default), 2 in the soak's B battles (gs_marker.c, gs_core.c es_find) */
             extern int gVitaNative;
             gVitaNative = atoi(eq);
-        } else if (strcmp(line, "fxrun") == 0) { /* the effects as runs: quad particles decoded as triangle runs, triangle runs into the additive groups: 0 off (default), 1 on, 2 in the soak's B battles (gs_core.c quad_run, vita_vgl.c GsGpu_DrawTriRun) */
+        } else if (strcmp(line, "fxrun") == 0) { /* the effects as runs: quad particles decoded as triangle runs, triangle runs into the additive groups: 0 off, 1 on (default), 2 in the soak's B battles (gs_core.c quad_run, vita_vgl.c GsGpu_DrawTriRun) */
             extern int gVitaFxRun;
             gVitaFxRun = atoi(eq);
-        } else if (strcmp(line, "dpfast") == 0) { /* kept parts drawn with what does not change worked out once, their textures remembered while GS memory is the same: 0 off (default), 1 on, 2 in the soak's B battles (vita_vgl.c GsGpu_DpDraw) */
+        } else if (strcmp(line, "dpfast") == 0) { /* kept parts drawn with what does not change worked out once, their textures remembered while GS memory is the same: 0 off, 1 on (default), 2 in the soak's B battles (vita_vgl.c GsGpu_DpDraw) */
             extern int gVitaDpFast;
             gVitaDpFast = atoi(eq);
-        } else if (strcmp(line, "updest") == 0) { /* native textures, step 2: each upload's destination remembers what it left there; the texture keys take the rectangle's number from it: 0 off (default), 1 on, 2 in the soak's B battles (gs_core.c Gs_DestRect) */
+        } else if (strcmp(line, "updest") == 0) { /* native textures, step 2: each upload's destination remembers what it left there; the texture keys take the rectangle's number from it: 0 off, 1 on (default), 2 in the soak's B battles (gs_core.c Gs_DestRect) */
             extern int gVitaUpDest;
             gVitaUpDest = atoi(eq);
         } else if (strcmp(line, "updestlog") == 0) {
@@ -1550,7 +1550,7 @@ static void read_settings(void) {
         } else if (strcmp(line, "upprof") == 0) { /* a measuring run: every upload timed by the way it went, and the texture lookups (gs_core.c transfer_data) */
             extern int gVitaUpProf;
             gVitaUpProf = atoi(eq);
-        } else if (strcmp(line, "nativetex") == 0) { /* the stage's and the fighters' textures named by the game: their uploads' numbers not worked out from their bytes each time: 0 off (default), 1 on, 2 in the soak's B battles (gs_marker.c, gs_core.c texid_hash) */
+        } else if (strcmp(line, "nativetex") == 0) { /* the stage's and the fighters' textures named by the game: their uploads' numbers not worked out from their bytes each time: 0 off, 1 on (default), 2 in the soak's B battles (gs_marker.c, gs_core.c texid_hash) */
             extern int gVitaNativeTex;
             gVitaNativeTex = atoi(eq);
         } else if (strcmp(line, "nativetexcheck") == 0) { /* a named texture's bytes read again every n-th upload (default 128; 0 never) */

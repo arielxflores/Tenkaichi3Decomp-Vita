@@ -22,6 +22,16 @@ geometry to VU1 (the "engine seam"), and keep reading the GIF stream for 2D only
 | rac1-native-game (Ratchet & Clank) | "Not drawn by emulating the PS2's graphics chip": the renderer reads what the game decided to draw |
 | TwinsanityEvolved (Crash Twinsanity, Vita) | The decompilation's platform layer is the seam; meshes, skins and particles drawn by the engine |
 
+## Where it stands (2026-11-12)
+
+On by default since the console runs of 2026-11-12 ([status.md](status.md)): `native` (the seam below), `nativetex`
+and `updest` (the textures named by the game, and each upload's destination remembering what it left), `dpfast`
+(kept parts drawn with what does not change worked out once), `fxrun` (the effects' quad particles read as runs).
+Measured and left: the stage's same-state groups as one draw (the copying cost more than the draws), each kept
+group remembering its texture (never found the same), the sea of Kame House in a vertex shader (its work is on the
+game thread, which has room: 35-40% busy). Next: textures bound by their names without GS memory's emulation in
+between (the ~30,000 texture lookups every two seconds), then the calls sent straight to the drawing thread.
+
 ## What `native=1` does now: the engine seam
 
 The game names its static geometry to the renderer at the point where it hands it to VU1:
