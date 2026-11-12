@@ -27,7 +27,7 @@ The switches are read from `ux0:data/bt3/bt3.txt` by the **development build** o
 **None of these four commits has been run on a console or an emulator yet.** What was checked:
 
 - every file they touch compiles, up to syntax and types, for the Vita's processor against the SDK's and vitaGL's
-  headers: `port/vita/tools/check_syntax.sh` (no VitaSDK needed; no link, nothing run);
+  headers: `port/vita/tools/check_syntax.sh` (no VitaSDK needed; no link, nothing run; [testing.md](testing.md));
 - by reading: the order of the draws (the effects' groups are drawn at their place; a named call is the cache's call,
   found another way), and that every change to the game's text is under `#ifdef PORT_VITA` (the PS2 matching build
   and the PC port see none of it).
@@ -74,25 +74,13 @@ Build the development package (`BT3_VITA_DEV=1`, [building.md](building.md)), in
 When a picture is wrong: `film=` takes pictures into the log, `drawlog=` and `bislist=` find the draw
 ([development.md](development.md)); each change has its switch to tell whether it is the cause.
 
-## Testing without the console: what other ports do
+## Testing without holding the console
 
-The native ports with a Vita build do most of their testing off the console and keep the console for the speed:
-
-- **TwinsanityEvolved** runs its Vita package in **Vita3K** with a script (`tools/vita/vita3k_run.sh`): the game
-  replays a recorded pad log, deterministically, stops itself at a given frame (`--stop-at`), and logs a hash of every
-  draw of every picture (Vita3K's picture read-back is empty); a second script compares two runs picture by picture.
-  The desktop build of the same code is its everyday test bed, with regression "judges" on recorded routes. Its notes:
-  Vita3K's timing and float rounding are not the console's, so a speed figure or a last-bit difference is settled on
-  the console.
-- **Celosia** (Shadow of the Colossus) measures in Vita3K too (its profiles order the hot code), and keeps settings
-  for Vita3K's differences (memory pools sized as on a console, render targets Vita3K would alias).
-
-This port has none of that yet: no Vita3K runner, no recorded pad logs, no draw hashes. What it has: the demo fight and
-the soak (computer against computer, `headless.c`), `film=` pictures in the log, and the PC port's software GS
-(`BT3_GS=1`) as a reference for the GS front end's code. A Vita3K runner along TwinsanityEvolved's lines (install the
-development package, a `bt3.txt` with `mode=demo`, a seed and a frame to stop at, a draw hash per picture in the log,
-a script comparing two logs) would let an agent check a change's pictures without a console. Vita3K does not give the
-fourth core's behaviour (CapUnlocker) nor the console's timing.
+[testing.md](testing.md): the four levels (the syntax check; Vita3K; the console driven over the network with
+vitacompanion; by hand), what each shows, how to set each up once, and the two runners:
+`port/vita/tools/vita3k_run.sh` and `port/vita/tools/vita_console_run.sh` (a run with a given `bt3.txt`, the log
+fetched, `perfsum.py` over it). Both were written from the tools' documentation and tried only against stand-ins of
+Vita3K and of the console (not on the real ones yet).
 
 ## Rules for whoever goes on
 

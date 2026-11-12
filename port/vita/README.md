@@ -7,6 +7,7 @@ of `port/` are shared with the PC builds, and most of the Vita's changes to them
 - The development build, its settings and a map of the files here: [docs/vita/development.md](../../docs/vita/development.md)
 - Towards a native renderer (the engine seam): [docs/vita/native.md](../../docs/vita/native.md)
 - The renderer work in progress, its state and how to test it (handoff): [docs/vita/status.md](../../docs/vita/status.md)
+- Testing: the syntax check, Vita3K, the console over the network: [docs/vita/testing.md](../../docs/vita/testing.md)
 - Installing and playing: the [README](../../README.md)
 
 How the Vita differs from the PC builds, in short:
