@@ -77,8 +77,11 @@ Sound
 
 Fixed
 
-- A crash in fights (seen in BT4, the same code in BT3): a ki blast's hit read its fighter before it was known (the
-  game's code passes it and fills it in the same call, in an order the PS2's compiler kept and the Vita's does not).
+- BT4: crashes in fights. The game's code counts on a call's arguments being worked out right to left, as the PS2's
+  compiler did; BT3's build rewrites its calls so (port/tools/ptr32.py r2l), BT4's build did not (its sources lie in
+  their own tree), so a ki blast's hit read its fighter before it was known, among others. BT4's sources now get the
+  same rewrite, and its shifts and divisions the PS2's rules (port/vita/srcfix.py). The ki blast's record is also
+  fetched in its own statement now (BT3 and BT4).
 - BT4: the fight camera stood still (it kept the fight's first picture's pose, so it did not follow the fighters and
   the right stick could not move it).
 - The dragon's screen (Shenron): the dragon balls' white outlines no longer lag behind or sit apart from the balls.

@@ -6,6 +6,13 @@
 #ifdef PORT_VITA
 #include "battle/col_c.h" /* (the game's plain font: Vita Settings' page number) */
 #include "sys/dma.h"         /* (its plate: one flat sprite) */
+
+#ifdef PORT_VITA
+/* The top page's rows on the handheld: Vita Settings, Controls, Sound, Save/Load (the console's Save/Load, Screen,
+   Sound, Controller). The cursor still names the item (OPT_ITEM_*); its row, its plate and its caption follow these. */
+static const s8 kVitaTopRow[6] = {0, 4, 1, 3, 2, 5};  /* item -> row (plate mc_menu_plate_<row>) */
+static const s8 kVitaTopItem[6] = {0, 2, 4, 3, 1, 5}; /* row -> item */
+#endif
 #endif
 
 Option *gOption = NULL; /* 0x3BC364 */
@@ -233,12 +240,6 @@ static void Option_VoiceVita(s32 line) {
 #endif
 #define OPT_PLATE(kind, label) Option_PlateGoto(0, kind, label)
 
-#ifdef PORT_VITA
-/* The top page's rows on the handheld: Vita Settings, Controls, Sound, Save/Load (the console's Save/Load, Screen,
-   Sound, Controller). The cursor still names the item (OPT_ITEM_*); its row, its plate and its caption follow these. */
-static const s8 kVitaTopRow[6] = {0, 4, 1, 3, 2, 5};  /* item -> row (plate mc_menu_plate_<row>) */
-static const s8 kVitaTopItem[6] = {0, 2, 4, 3, 1, 5}; /* row -> item */
-#endif
 
 #ifdef PORT_VITA
 /* The control type page on the handheld. The console's page had a 1P / 2P row above Normal / Custom, and
@@ -430,7 +431,7 @@ static void Option_VitaSetGuide(void) {
         if (v == 9) {
             sprintf(text, "Screen: the camera, the screen's\nshake and its position.");
         } else if (v == 8) {
-            sprintf(text, "Game: Budokai Tenkaichi 3, or Team\nBT4's Budokai Tenkaichi 4 mod\n(from your own BT4 disc).");
+            sprintf(text, "Game: Budokai Tenkaichi 3, or Team\nBT4's Budokai Tenkaichi 4 mod.");
         } else if (v == 4) {
             sprintf(text, "Unlock All (%s): every fighter and\nform, stage, song and item, and\n9,999,999 Zenni.", Port_Setting("unlock_all", 0) ? "ON" : "OFF");
         } else if (v == 5) {

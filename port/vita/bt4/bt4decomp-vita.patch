@@ -1339,7 +1339,7 @@ index c0c0ba1..91f869d 100644
      TM_RES(22);
      IconWin_Init(MPACK_AT(gTourMenu->res, 21), res);
 diff --git a/src/menu/menu_x_c.c b/src/menu/menu_x_c.c
-index d89aefe..9d91d2e 100644
+index d89aefe..8d563a1 100644
 --- a/src/menu/menu_x_c.c
 +++ b/src/menu/menu_x_c.c
 @@ -7,6 +7,10 @@
@@ -1353,7 +1353,21 @@ index d89aefe..9d91d2e 100644
  #ifdef PORT
  extern void Port_MenuPage(int screen); /* port/src/gs_marker.c: widescreen menus */
  extern void Port_MenuFill(int on);
-@@ -50,6 +54,13 @@ s32 Option_Init(s32 section) {
+@@ -17,6 +21,13 @@ extern s32 Bt4_BgmNormalize(s32 count,s32 *ids,s32 random);
+ Option *gOption = NULL; /* 0x3BC364 */
+ #ifdef PORT
+ #include "tag_team_hud_editor.inc"
++
++#ifdef PORT_VITA
++/* The top page's rows on the handheld: Vita Settings, Controls, Sound, Save/Load (the console's Save/Load, Screen,
++   Sound, Controller). The cursor still names the item (OPT_ITEM_*); its row, its plate and its caption follow these. */
++static const s8 kVitaTopRow[6] = {0, 4, 1, 3, 2, 5};  /* item -> row (plate mc_menu_plate_<row>) */
++static const s8 kVitaTopItem[6] = {0, 2, 4, 3, 1, 5}; /* row -> item */
++#endif
+ #endif
+ 
+ /*
+@@ -50,6 +61,13 @@ s32 Option_Init(s32 section) {
      memset(gOption, 0, sizeof(Option));
      gOption->pack = (u32 *)MPACK_AT(gMenuArc10, section);
      gOption->res = Sprite_Unpack(gOption->pack, NULL, NULL);
@@ -1367,7 +1381,7 @@ index d89aefe..9d91d2e 100644
      /*
       * The rest of the function sits in a block that the compiler sees as a loop (`do { } while (0)`, most likely
       * from a macro), and the counter of the loop at the end is cleared here, not in its `for`: the original
-@@ -166,7 +177,11 @@ s32 Option_Init(s32 section) {
+@@ -166,7 +184,11 @@ s32 Option_Init(s32 section) {
          gOption->msgText = MPACK_AT(gOption->res, 33);
          MsgWin_Init(MPACK_AT(gOption->res, 31), gOption->msgText, 0, (s32)gOption->unk1B0);
          MsgWin_Open();
@@ -1379,7 +1393,7 @@ index d89aefe..9d91d2e 100644
          gOption->state = OPT_ST_START;
          gOption->bgmVolume = gSaveData->bgmVolume;
          gOption->seVolume = gSaveData->seVolume;
-@@ -186,6 +201,9 @@ s32 Option_Init(s32 section) {
+@@ -186,6 +208,9 @@ s32 Option_Init(s32 section) {
              gOption->key[i][5] = 5;
              gOption->key[i][6] = 6;
              gOption->key[i][7] = 7;
@@ -1389,7 +1403,7 @@ index d89aefe..9d91d2e 100644
          }
      } while (0);
      return 1;
-@@ -211,9 +229,670 @@ s32 Option_Run(s32 section) {
+@@ -211,9 +236,664 @@ s32 Option_Run(s32 section) {
      return 0;
  }
  
@@ -1418,12 +1432,6 @@ index d89aefe..9d91d2e 100644
 +#endif
  #define OPT_PLATE(kind, label) Option_PlateGoto(0, kind, label)
  
-+#ifdef PORT_VITA
-+/* The top page's rows on the handheld: Vita Settings, Controls, Sound, Save/Load (the console's Save/Load, Screen,
-+   Sound, Controller). The cursor still names the item (OPT_ITEM_*); its row, its plate and its caption follow these. */
-+static const s8 kVitaTopRow[6] = {0, 4, 1, 3, 2, 5};  /* item -> row (plate mc_menu_plate_<row>) */
-+static const s8 kVitaTopItem[6] = {0, 2, 4, 3, 1, 5}; /* row -> item */
-+#endif
 +
 +#ifdef PORT_VITA
 +/* The control type page on the handheld. The console's page had a 1P / 2P row above Normal / Custom, and
@@ -2060,7 +2068,7 @@ index d89aefe..9d91d2e 100644
  /*
   * Pad 0, one state per frame; does nothing until the movie accepts input. Returns 0 when the screen is over
   * (faded out), else 1. Option.state:
-@@ -265,8 +944,13 @@ s32 Option_Input(void) {
+@@ -265,8 +945,13 @@ s32 Option_Input(void) {
      case OPT_ST_TOP:
          if (gOption->greeted == 0) {
              if (Voice_GetStat(0) == MVOICE_IDLE) {
@@ -2074,7 +2082,7 @@ index d89aefe..9d91d2e 100644
                  gOption->greeted = 1;
              }
          }
-@@ -276,10 +960,14 @@ s32 Option_Input(void) {
+@@ -276,10 +961,14 @@ s32 Option_Input(void) {
              } else {
                  OPT_PLATE(OPT_CLIP_ROW, "fl_off_start");
              }
@@ -2089,7 +2097,7 @@ index d89aefe..9d91d2e 100644
              if (gOption->cursor == OPT_ITEM_EXIT) {
                  OPT_PLATE(OPT_CLIP_BOTTOM, "fl_on_start");
              } else {
-@@ -295,10 +983,14 @@ s32 Option_Input(void) {
+@@ -295,10 +984,14 @@ s32 Option_Input(void) {
              } else {
                  OPT_PLATE(OPT_CLIP_ROW, "fl_off_start");
              }
@@ -2104,7 +2112,7 @@ index d89aefe..9d91d2e 100644
              if (gOption->cursor == OPT_ITEM_EXIT) {
                  OPT_PLATE(OPT_CLIP_BOTTOM, "fl_on_start");
              } else {
-@@ -328,6 +1020,11 @@ s32 Option_Input(void) {
+@@ -328,6 +1021,11 @@ s32 Option_Input(void) {
                  OPT_PLATE(OPT_CLIP_PICK, "fl_on_start");
                  gOption->picker = 0;
              } else if (gOption->state == OPT_ITEM_SCREEN) {
@@ -2116,7 +2124,7 @@ index d89aefe..9d91d2e 100644
                  Flash_GotoLabel(&gOption->flash[0], "fl_menu_change", 1);
                  OPT_PLATE(OPT_CLIP_ROW, "fl_off_start");
                  gOption->cursor = OPT_ITEM_TYPE;
-@@ -761,6 +1458,11 @@ s32 Option_Input(void) {
+@@ -761,6 +1459,11 @@ s32 Option_Input(void) {
                  OPT_PLATE(OPT_CLIP_ROW_CTRL, "fl_off_start");
              }
              gOption->cursor--;
@@ -2128,7 +2136,7 @@ index d89aefe..9d91d2e 100644
              if (gOption->cursor < OPT_ITEM_KEYS) {
                  gOption->cursor = OPT_ITEM_CTRL_RESET;
              }
-@@ -785,6 +1487,11 @@ s32 Option_Input(void) {
+@@ -785,6 +1488,11 @@ s32 Option_Input(void) {
                  OPT_PLATE(OPT_CLIP_ROW_CTRL, "fl_off_start");
              }
              gOption->cursor++;
@@ -2140,7 +2148,7 @@ index d89aefe..9d91d2e 100644
              if (gOption->cursor > OPT_ITEM_CTRL_RESET) {
                  gOption->cursor = OPT_ITEM_KEYS;
              }
-@@ -808,6 +1515,9 @@ s32 Option_Input(void) {
+@@ -808,6 +1516,9 @@ s32 Option_Input(void) {
              gOption->pad = 0;
              Option_DimPickers();
              if (gOption->state == OPT_ITEM_VIB) {
@@ -2150,7 +2158,7 @@ index d89aefe..9d91d2e 100644
                  OPT_PLATE(OPT_CLIP_ROW_CTRL, "fl_ok");
                  gOption->ctrlKind = 0;
                  gOption->picker = 2;
-@@ -815,15 +1525,22 @@ s32 Option_Input(void) {
+@@ -815,15 +1526,22 @@ s32 Option_Input(void) {
                  OPT_PLATE(OPT_CLIP_PICK, "fl_on_start");
                  OPT_PLATE(OPT_CLIP_VIB_OFF, "fl_ok");
                  Snd_PlaySe(1, 1);
@@ -2173,7 +2181,7 @@ index d89aefe..9d91d2e 100644
              } else {
                  OPT_PLATE(OPT_CLIP_BOTTOM, "fl_ok");
              }
-@@ -892,6 +1609,38 @@ s32 Option_Input(void) {
+@@ -892,6 +1610,38 @@ s32 Option_Input(void) {
          }
          break;
      case OPT_ST_KEYS_PAD:
@@ -2212,7 +2220,7 @@ index d89aefe..9d91d2e 100644
          if (((gPad[0].gamePressed & PADG_LEFT) || (gPad[0].gamePressed & PADG_RIGHT)) && gOption->keyEdit == 0) {
              OPT_PLATE(OPT_CLIP_KEY_OFF, "fl_off_start");
              gOption->value ^= 1;
-@@ -967,20 +1716,34 @@ s32 Option_Input(void) {
+@@ -967,20 +1717,34 @@ s32 Option_Input(void) {
              }
              Snd_PlaySe(1, 0);
          } else if ((gPad[0].gamePressed & PADG_UP) && gOption->keyOld < 0) {
@@ -2248,7 +2256,7 @@ index d89aefe..9d91d2e 100644
              /* original bug: address comparisons again, always true */
              if (gOption->key[0] != gSaveData->keyEdit[0] || gOption->key[1] != gSaveData->keyEdit[1]) {
                  gOption->dirty = 1;
-@@ -1025,13 +1788,20 @@ s32 Option_Input(void) {
+@@ -1025,13 +1789,20 @@ s32 Option_Input(void) {
                  gOption->keyOld = gSaveData->keyEdit[gOption->pad][gOption->keyRow];
              }
          }
@@ -2271,7 +2279,7 @@ index d89aefe..9d91d2e 100644
                  gSaveData->keyEdit[gOption->pad][gOption->keyRow] = 0;
              }
              Snd_PlaySe(1, 0);
-@@ -1054,6 +1824,10 @@ s32 Option_Input(void) {
+@@ -1054,6 +1825,10 @@ s32 Option_Input(void) {
          }
          break;
      case OPT_ITEM_VIB:
@@ -2282,7 +2290,7 @@ index d89aefe..9d91d2e 100644
          if ((gPad[0].gamePressed & PADG_LEFT) || (gPad[0].gamePressed & PADG_RIGHT)) {
              OPT_PLATE(OPT_CLIP_VIB_OFF, "fl_off_start");
              OPT_PLATE(OPT_CLIP_PICK, "fl_off_start");
-@@ -1319,6 +2093,111 @@ s32 Option_Input(void) {
+@@ -1319,6 +2094,111 @@ s32 Option_Input(void) {
                          Flash_ClipSetUv(flash, &ref, &uv); \
                      }
  
@@ -2394,7 +2402,7 @@ index d89aefe..9d91d2e 100644
  /* Per frame: sets up every clip of the movie from the screen's state and draws the screen. */
  void Option_Draw(void) {
      MFlashRef ref;
-@@ -1368,6 +2247,8 @@ void Option_Draw(void) {
+@@ -1368,6 +2248,8 @@ void Option_Draw(void) {
          IconWin_SetIcon(2);
      } else if (gOption->state == YOPT_BGM) {
          IconWin_SetIcon(3);
@@ -2403,7 +2411,7 @@ index d89aefe..9d91d2e 100644
      } else if (gOption->state == YOPT_CTRL || gOption->state >= YOPT_KEYS) {
          IconWin_SetIcon(4);
      } else {
-@@ -1375,6 +2256,13 @@ void Option_Draw(void) {
+@@ -1375,6 +2257,13 @@ void Option_Draw(void) {
      }
  
      TagHudScreen_Restore(flash);
@@ -2417,7 +2425,7 @@ index d89aefe..9d91d2e 100644
      switch (gOption->page) {
          case 0:
              rows4 = 4;
-@@ -1383,6 +2271,10 @@ void Option_Draw(void) {
+@@ -1383,6 +2272,10 @@ void Option_Draw(void) {
                  uv.y0 = i * 0x20;
                  uv.x1 = 0x200;
                  uv.y1 = i * 0x20 + 0x20;
@@ -2428,7 +2436,7 @@ index d89aefe..9d91d2e 100644
                  sprintf(name, "mc_menu_plate_%d", i + 1);
                  Option_SetMenuText(flash, &ref, name, uv);
              }
-@@ -1605,6 +2497,11 @@ void Option_Draw(void) {
+@@ -1605,6 +2498,11 @@ void Option_Draw(void) {
              sprintf(name, "mc_menu_plate_%d", 4);
              Flash_FindLabel(flash, NULL, name, &ref);
              Flash_ClipSetFlags(flash, &ref, 2, 0);
@@ -2440,7 +2448,7 @@ index d89aefe..9d91d2e 100644
              uv.y0 = 0x20;
              uv.x0 = 0;
              uv.x1 = 0x100;
-@@ -1768,6 +2665,9 @@ void Option_Draw(void) {
+@@ -1768,6 +2666,9 @@ void Option_Draw(void) {
              break;
      }
  
@@ -2450,7 +2458,7 @@ index d89aefe..9d91d2e 100644
      /* the two-way picker's captions */
      if (gOption->picker == 4 || gOption->picker == 2) {
          baseY = 0;
-@@ -1823,6 +2723,9 @@ void Option_Draw(void) {
+@@ -1823,6 +2724,9 @@ void Option_Draw(void) {
              Flash_ClipSetFlags(flash, &ref, 2, 0);
          }
      }
@@ -2460,7 +2468,7 @@ index d89aefe..9d91d2e 100644
  
      /* the volume window: ten numbered plates per volume */
      for (i = 0; i < 3; i++) {
-@@ -1989,7 +2892,8 @@ void Option_Draw(void) {
+@@ -1989,7 +2893,8 @@ void Option_Draw(void) {
      IconWin_Draw();
      if(gOption->page==1 && gOption->cursor==OPT_ITEM_TAG_HUD && gOption->state==OPT_ITEM_SCREEN)
          TagHudScreen_Description();
@@ -2470,7 +2478,7 @@ index d89aefe..9d91d2e 100644
      ColorFade_Draw();
      if (gOption->mcBusy) {
          gOption->mcBusy = McFlow_Update();
-@@ -2014,6 +2918,10 @@ void Option_PlateGoto(s32 unused, s32 clip, char *label) {
+@@ -2014,6 +2919,10 @@ void Option_PlateGoto(s32 unused, s32 clip, char *label) {
  
      switch (clip) {
          case OPT_CLIP_ROW:
@@ -2481,7 +2489,7 @@ index d89aefe..9d91d2e 100644
              sprintf(name, "mc_menu_plate_%d", gOption->cursor);
              break;
          case OPT_CLIP_ROW_SCREEN:
-@@ -2178,6 +3086,13 @@ void Option_UpdateReset(void) {
+@@ -2178,6 +3087,13 @@ void Option_UpdateReset(void) {
                  if (!(gSaveData->flags & 4)) {
                      gSaveData->flags |= 4;
                  }
@@ -2495,7 +2503,7 @@ index d89aefe..9d91d2e 100644
                  for (i = 0; i < 2; i++) {
                      gSaveData->keyEdit[i][0] = 2;
                      gSaveData->keyEdit[i][1] = 1;
-@@ -2187,6 +3102,10 @@ void Option_UpdateReset(void) {
+@@ -2187,6 +3103,10 @@ void Option_UpdateReset(void) {
                      gSaveData->keyEdit[i][5] = 5;
                      gSaveData->keyEdit[i][6] = 6;
                      gSaveData->keyEdit[i][7] = 7;
@@ -2506,7 +2514,7 @@ index d89aefe..9d91d2e 100644
                  }
              }
              gOption->resetStep = 3;
-@@ -2275,6 +3194,12 @@ void Option_OnSaved(void) {
+@@ -2275,6 +3195,12 @@ void Option_OnSaved(void) {
  /* Frees the screen. */
  void Option_Term(void) {
      s32 i;
