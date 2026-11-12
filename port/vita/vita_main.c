@@ -1525,9 +1525,6 @@ static void read_settings(void) {
         } else if (strcmp(line, "dpframe") == 0) { /* kept parts matched with FRAME's buffer as "the picture": 0 off, 1 on, 2 in the soak's B battles (gs_core.c dp_norm) */
             extern int gVitaDpFrame;
             gVitaDpFrame = atoi(eq);
-        } else if (strcmp(line, "dpsplit") == 0) { /* kept parts' stage strips grouped by their bank too: 0 off, 1 on, 2 in the soak's B battles (vita_vgl.c GsGpu_DpCapEnd) */
-            extern int gVitaDpSplit;
-            gVitaDpSplit = atoi(eq);
         } else if (strcmp(line, "exitafter") == 0) { /* the program ends itself after that many seconds, its log written (test runs) */
             gVitaExitAfter = atoi(eq);
         } else if (strcmp(line, "native") == 0) { /* the engine seam: the stage's meshes named by the game, kept for the stage's life: 0 off, 1 on, 2 in the soak's B battles (gs_marker.c, gs_core.c es_find) */
