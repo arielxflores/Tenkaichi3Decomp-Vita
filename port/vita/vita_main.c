@@ -1111,7 +1111,7 @@ void Vita_VBlank(unsigned vblanks) {
 
 /* exit(), from anywhere in the port or the game: keep the screen until it has been read. */
 void __wrap_exit(int code) {
-#ifndef BT3_BT4
+#ifdef PORT_VITA /* (BT3 and BT4) */
     {   /* (a multiplayer match: the other Vita is told at once, vita_net.c) */
         extern void Vita_NetExit(void);
         Vita_NetExit();
@@ -1515,7 +1515,7 @@ static void read_settings(void) {
             gVitaStartMode = atoi(eq);
         } else if (strcmp(line, "replay") == 0) {
             setenv("BT3_REPLAY", eq, 1);
-#ifndef BT3_BT4
+#ifdef PORT_VITA /* (BT3 and BT4) */
         } else if (strcmp(line, "nettest") == 0) { /* the one-Vita test of a multiplayer match, n seconds (vita_net.c) */
             extern int gVitaNetTest;
             gVitaNetTest = atoi(eq);
@@ -1567,6 +1567,12 @@ static void start_screen(void) {
     if (sMode < 0) {
         psvDebugScreenPrintf("\nCROSS: the game from its start\nCIRCLE: the demo fight (computer against computer)\nSTART: quit\n\n"
                              "Hold START + SELECT for two seconds to stop. The log is " HOME "/log" SFX ".\n");
+#ifdef BT3_BT4
+        {   /* (BT4 got going: its development screen is up. Left here by a test, it is not a start that failed) */
+            extern void Vita_Bt4Started(void);
+            Vita_Bt4Started();
+        }
+#endif
         switch (wait_buttons(SCE_CTRL_CROSS | SCE_CTRL_CIRCLE | SCE_CTRL_START)) {
             case SCE_CTRL_CROSS: sMode = 0; break;
             case SCE_CTRL_CIRCLE: sMode = 1; break;
@@ -1766,7 +1772,7 @@ static int game_thread(SceSize args, void *argp) {
         extern void Vita_PerfThreadStart(void);
         Vita_PerfThreadStart();
     }
-#ifndef BT3_BT4
+#ifdef PORT_VITA /* (BT3 and BT4) */
     {   /* (vita_warm.c: the game can be started again without the program ending, for a multiplayer match) */
         extern void Vita_WarmGame(void (*game)(void));
         Vita_WarmGame(game_run);
@@ -1858,7 +1864,7 @@ int __wrap_main(int argc, char **argv) {
 #endif
     find_disc();
     Vita_LoadGameData(gVitaDisc);
-#ifndef BT3_BT4
+#ifdef PORT_VITA /* (BT3 and BT4) */
     {   /* multiplayer (the start menu's choice, vita_net.c): the other Vita found and the match set up, before anything
            of the game is read that the match has as the game's own (no mods, the USA disc's text) */
         extern void Vita_NetConnect(void);

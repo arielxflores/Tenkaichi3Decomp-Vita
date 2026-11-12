@@ -335,7 +335,7 @@ static int mod_path(int ptid, uint32_t flid, const char *name, char *out, size_t
     if (!mods_on() || sModN == 0) {
         return 0;
     }
-#ifndef BT3_BT4
+#ifdef PORT_VITA /* (BT3 and BT4) */
     {   /* (a multiplayer match, begun at the start or from the versus menu: the disc's own files on both Vitas) */
         extern int Port_NetActive(void);
         if (Port_NetActive()) {
@@ -677,7 +677,7 @@ void ADXF_Close(void *h) {
     }
 }
 
-#ifndef BT3_BT4
+#ifdef PORT_VITA /* (BT3 and BT4) */
 /* (vita_warm.c) the game starts again inside the running program: the handles it held closed (its memory of them is
    gone), no archive loaded, as the program's start finds it (the game opens its archives again). */
 void Vita_FileWarm(void) {
@@ -798,7 +798,7 @@ int ADXF_ReadNw(void *h, int nsct, void *buf) {
     f->rdSct = nsct;
     f->rdHave = have;
     f->rdWant = want;
-#ifndef BT3_BT4
+#ifdef PORT_VITA /* (BT3 and BT4) */
     /* (a multiplayer match: the read is made now, so that the game finds it done at the same blank on both Vitas,
        however fast each one's memory card is: vita_net.c) */
     extern int Port_NetActive(void);

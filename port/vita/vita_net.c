@@ -552,7 +552,11 @@ static unsigned long long build_id(void) {
 
 static unsigned long long data_id(void) {
     extern char gVitaDisc[];
+#ifdef BT3_BT4
+    static const char *const kArc[3] = {"PZS4US0.AFS", "PZS4US1.AFS", "PZS4US2.AFS"};
+#else
     static const char *const kArc[3] = {"PZS3US0.AFS", "PZS3US1.AFS", "PZS3US2.AFS"};
+#endif
     unsigned long long h = 0xCBF29CE484222325ull;
     int k;
 
@@ -851,7 +855,11 @@ static void restart(void) {
     int r;
     Vita_Log("net: the game starts again\n");
     sceKernelDelayThread(100000);
+#ifdef BT3_BT4
+    r = sceAppMgrLoadExec("app0:bt4.bin", NULL, NULL);
+#else
     r = sceAppMgrLoadExec("app0:eboot.bin", NULL, NULL);
+#endif
     Vita_Log("net: the game could not be started again (%08x)\n", (unsigned)r);
     sceKernelExitProcess(0);
 }

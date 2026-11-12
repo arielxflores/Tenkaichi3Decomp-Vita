@@ -397,7 +397,7 @@ static void start(Player *p, const char *path) {
     }
 }
 
-#if defined(PORT_VITA) && !defined(BT3_BT4)
+#if defined(PORT_VITA)
 /* A multiplayer match (port/vita/vita_net.c): the game waits for voice lines and music to end (the fighters' intros
    and win lines, the menus' guides), and the moment a stream ends must be the same blank on both Vitas, not the moment
    each one's sound has played it (its reading and its sound thread's pace are its own). As the PC version does in its
@@ -505,7 +505,7 @@ void ADXT_StartFname(void *adxt, char *fname) {
 void ADXT_Stop(void *adxt) {
     if (adxt != NULL) {
         stop(adxt);
-#if defined(PORT_VITA) && !defined(BT3_BT4)
+#if defined(PORT_VITA)
         ((Player *)adxt)->vstat = ADXT_STAT_STOP;
 #endif
     }
@@ -517,7 +517,7 @@ void ADXT_Pause(void *adxt, int sw) {
     if (p == NULL) {
         return;
     }
-#if defined(PORT_VITA) && !defined(BT3_BT4)
+#if defined(PORT_VITA)
     p->vpaused = sw != 0;
 #endif
     if (getenv("BT3_SND_VERBOSE") != NULL && p->paused != (sw != 0)) {
@@ -572,7 +572,7 @@ void ADXT_SetOutputMono(int flag) {
 }
 
 int ADXT_GetStat(void *adxt) {
-#if defined(PORT_VITA) && !defined(BT3_BT4)
+#if defined(PORT_VITA)
     if (adxt != NULL && Port_NetActive()) {
         return ((Player *)adxt)->vstat; /* (counted in blanks: the same on both Vitas) */
     }

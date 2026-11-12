@@ -232,6 +232,8 @@ def port_sources():
             (V / "vita_vufast_wrap.c", "hard"), (V / "vita_tls.c", "hard"), (V / "vita_clib.c", "hard"),
             (V / "vita_crash.c", "hard"), (V / "vita_eu.c", "hard"), (V / "vita_read.c", "hard"), (V / "vita_start.c", "hard"), (V / "vita_pgo.c", "hard"),
             (V / "vita_iso.c", "hard")]
+    # multiplayer: a match against another Vita, ad hoc or over Wi-Fi (z3xox's lockstep design); BT4's too
+    out += [(V / "vita_net.c", "hard"), (V / "vita_warm.c", "hard")]
     if BT4:  # BT4's own services (port/vita/bt4) and the game-side rules of BT4decomp's platform layer
         out += [(V / "bt4/vita_bt4.c", "hard"), (V / "bt4/vita_bt4_shim.c", "hard")]
         out += [(GROOT / "port/src" / (n + ".c"), "bt4ee") for n in ("bt3_gameplay_rules", "bt3_bombardment", "bt3_zcounter2")]
@@ -239,8 +241,6 @@ def port_sources():
         out += [(S / (n + ".c"), "ee") for n in ("bt3_gameplay_rules", "bt3_bombardment", "bt3_zcounter2")]
         # stages and songs added from outside the disc, their names in the game's lettering, MP3 files made into songs
         out += [(V / (n + ".c"), "hard") for n in ("vita_extras", "vita_names", "vita_namefont", "vita_mp3")]
-        # multiplayer: a match against another Vita, ad hoc or over Wi-Fi (z3xox's lockstep design)
-        out += [(V / "vita_net.c", "hard"), (V / "vita_warm.c", "hard")]
     return out
 
 

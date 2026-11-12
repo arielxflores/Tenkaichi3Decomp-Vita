@@ -182,7 +182,7 @@ static void clash_square(int socket, unsigned *btn, unsigned char *lx, unsigned 
     if (!Port_ClashSquare()) {
         return;
     }
-#ifndef BT3_BT4
+#ifdef PORT_VITA /* (BT3 and BT4) */
     {   /* (a multiplayer match: this Vita's buttons are its own player's, the second for the one who joined) */
         extern int Vita_NetPadSide(int socket);
         socket = Vita_NetPadSide(socket);

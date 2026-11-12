@@ -45,7 +45,7 @@ static void load(void) {
 int Port_Setting(const char *name, int def) {
     int i, v = def;
 
-#if defined(PORT_VITA) && !defined(BT3_BT4)
+#if defined(PORT_VITA)
     {   /* a multiplayer match: the settings that change the game are the game's own on both Vitas (vita_net.c) */
         extern int Vita_NetSetting(const char *name, int def, int *value);
         if (Vita_NetSetting(name, def, &v)) {

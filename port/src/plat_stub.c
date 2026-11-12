@@ -71,7 +71,7 @@ void Port_VBlank(void) {
         vblank_wait();
     }
 #endif
-#if defined(PORT_VITA) && !defined(BT3_BT4)
+#if defined(PORT_VITA)
     {   /* (port/vita/vita_warm.c) asked to start again inside the running program: from here, between two frames */
         extern void Vita_WarmPoll(void);
         Vita_WarmPoll();
@@ -90,7 +90,7 @@ void Port_VBlank(void) {
         extern void Vita_VBlank(unsigned vblanks); /* port/vita/vita_main.c: status screen, timing */
         Vita_VBlank(gPortVBlanks);
     }
-#ifndef BT3_BT4
+#ifdef PORT_VITA /* (BT3 and BT4) */
     {   /* multiplayer (port/vita/vita_net.c): this player's buttons out, the other's for this blank in; the sound
            streams' lengths counted in blanks (snd_adx.c), the same on both Vitas */
         extern void Port_NetBeginTick(unsigned tick);
@@ -153,7 +153,7 @@ static int sPadFilesTried;
 int scePad2Read(int socket, unsigned char *data) {
     int i;
 
-#if defined(PORT_VITA) && !defined(BT3_BT4)
+#if defined(PORT_VITA)
     {   /* a multiplayer match (port/vita/vita_net.c): both pads come from the exchange with the other Vita */
         extern int Port_NetActive(void);
         extern void Port_NetInput(int player, unsigned char *data);

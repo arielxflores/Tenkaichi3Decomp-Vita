@@ -106,13 +106,11 @@ int Port_ModsCamZoom(int side) { (void)side; return 1000; }
 void Port_ModsCamera(int side, int objId, int pos, int rot, int paused) { (void)side; (void)objId; (void)pos; (void)rot; (void)paused; }
 void Port_NameFontSheets(int stage, int song, int songLit) { (void)stage; (void)song; (void)songLit; }
 void Port_NaturalFightCamera(int objId, int pos, int rot) { (void)objId; (void)pos; (void)rot; }
-int Port_NetActive(void) { return 0; }
+/* (Port_NetActive, Port_NetSession, Port_NetMe, Port_NetView, Port_NetLobbyOwnerSide, Port_NetLeave: the Vita's
+   multiplayer, vita_net.c) */
 int Port_NetDevRulesPad(int player, unsigned char *out) { (void)player; (void)out; return 0; }
 int Port_NetFixedStart(void) { return 0; }
 const char *Port_NetLanAddress(void) { return ""; }
-void Port_NetLeave(void) {  }
-int Port_NetLobbyOwnerSide(void) { return 0; }
-int Port_NetMe(void) { return 0; }
 void Port_NetMenuOpen(void) {  }
 const char *Port_NetName(int player) { (void)player; return ""; }
 const char *Port_NetNameGet(void) { return ""; }
@@ -120,7 +118,6 @@ void Port_NetNameSave(const char *name) { (void)name; }
 void Port_NetNameSet(const char *name) { (void)name; }
 void Port_NetOptions(int rollback, int delay) { (void)rollback; (void)delay; }
 void Port_NetRulesSet(int type, int dp, int time) { (void)type; (void)dp; (void)time; }
-int Port_NetSession(void) { return 0; }
 int Port_NetSessionsEnded(void) { return 0; }
 int Port_NetSideOptions(int *camera, int *shake) { (void)camera; (void)shake; return 0; }
 int Port_NetSpecStatus(int *out) { (void)out; return 0; }
@@ -128,7 +125,6 @@ int Port_NetSpecView(void) { return 0; }
 int Port_NetSpectating(void) { return 0; }
 void Port_NetSpeedSet(int percent) { (void)percent; }
 int Port_NetSpeedStandard(void) { return 0; }
-int Port_NetView(void) { return -1; } /* (no match: -1, "no view of its own"; 0 made a split-screen fight's one-view moments draw only player 1) */
 const char *Port_OnlineBlocked(void) { return "Online play is not available on the PS Vita."; }
 void Port_OnlineNicknameBegin(void) {  }
 int Port_OnlineNicknameSubmit(const char *name) { (void)name; return 0; }
