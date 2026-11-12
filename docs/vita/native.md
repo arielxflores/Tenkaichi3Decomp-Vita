@@ -32,6 +32,18 @@ group remembering its texture (never found the same), the sea of Kame House in a
 game thread, which has room: 35-40% busy). Next: textures bound by their names without GS memory's emulation in
 between (the ~30,000 texture lookups every two seconds), then the calls sent straight to the drawing thread.
 
+## Experiments (branch `native-next`, off, not yet run on a console)
+
+The four steps left after the first ones, written to be measured with `port/vita/tools/settings/native_next_ab.txt`
+(each with the value 2: the soak's B battles have them, its A battles not):
+
+| Setting | What | Where |
+|---|---|---|
+| `texbind` | Textures bound by their names: the lookups (~30,000 every two seconds) without the pages' numbers; a destination is unbound at another's write into its blocks (`bind_touch`), a texture remembers the destinations it lies in (`sBind1`), the renderer its texture by their names (`sBind2`); checked the long way every 64th time (the log's `wrong`) | `gs_core.c` `Gs_TexNames`, `vita_vgl.c` `texture_get_k` |
+| `esdirect` | The seam's call packets of the models' parts done as what they are, not code by code: the list reader's part of the calls sent straight on (what is left of it: the calls are already sent from their kept copies) | `gs_core.c` `es_direct` |
+| `seavtx` | The sea's corners tested and projected once a frame each (a mesh's corners numbered once: the same place, texture place and colour), not once for each of the up to six triangles that have them; the per-corner work of a vertex shader, on the game's thread, in the ordering table's order (a shader on the chip would draw the sea apart from the transparent effects the table puts among its triangles) | `src/battle/eft_c.c` `sea_tri` |
+| `dpjoin` | The kept groups of one state and the same constants whose indices follow one another as one draw, without the copying that made the merge before slower | `vita_vgl.c` `GsGpu_DpDraw` |
+
 ## What `native=1` does now: the engine seam
 
 The game names its static geometry to the renderer at the point where it hands it to VU1:

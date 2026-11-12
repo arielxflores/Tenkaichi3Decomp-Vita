@@ -8159,6 +8159,12 @@ static GLuint sDpIbo;             /* the groups' indices (16 bits), appended; em
 static uint32_t sDpIboUsed;
 static uint8_t *sDpIboShadow;     /* the same indices in memory the processor reads fast (draws merged: below) */
 unsigned gVitaDpMerge[2];         /* for the log: the stage's draws merged into the one before (same state, same constants), merged draws made */
+/* bt3.txt dpjoin: a kept group drawn with the one before it in one draw when they have the same state and the same
+   constants and their indices follow one another on the chip (a part's groups are kept one after the other): no
+   copying, unlike the merge above (safe=16777216), whose copying of the indices cost more than the draws it saved.
+   0 off (default), 1 on, 2 in the soak's B battles. */
+int gVitaDpJoin = 0;
+unsigned gVitaDpJoinN[2];         /* for the log: groups drawn with the one before, draws made of more than one */
 static int sDpOn, sDsOn;
 static uint32_t sDpUSize[2];      /* bytes of a uniform block: fighters, stage */
 int gDpCapture;                   /* a part is walked the long way to be kept (gs_core.c) */
@@ -9474,6 +9480,10 @@ static void dp_draw_items(DpItem *items, int n, int prof, unsigned frame) {
                     static int pend[64];
                     int np = 0, merge = mode != 1 && sDpIboShadow != NULL && (gVglSafe & 16777216); /* (on request: a test, the copying cost more than the draws) */
                     uint32_t pcount = 0;
+                    extern int gVitaAbSide;
+                    int join = !merge && (gVitaDpJoin == 2 ? gVitaAbSide == 1 : gVitaDpJoin != 0) && !VITA_RARE(gVitaBisList >= 0 || gVitaDrawLogTo >= 0);
+                    int jq = -1, jn = 0;
+                    uint32_t joff = 0, jcnt = 0;
                     for (q = bk[i].first;; q = items[q].next) {
                         const DpGroup *g = q >= 0 ? items[q].g : NULL;
                         if (g != NULL && g->icount == 0) {
@@ -9481,6 +9491,34 @@ static void dp_draw_items(DpItem *items, int n, int prof, unsigned frame) {
                         }
                         if (g != NULL && VITA_RARE(gVitaBisList >= 0 || gVitaDrawLogTo >= 0) &&
                             bis_draw(frame, mode == 1 ? 16 : 8, s, (int)g->icount, (int)g->ioff | g->layer << 24, NULL)) {
+                            continue;
+                        }
+                        if (join) { /* (dpjoin: the groups whose indices follow one another, with the same constants, as one draw) */
+                            if (g != NULL && g->iptr == NULL && jcnt != 0 && joff + jcnt == g->ioff && jcnt + g->icount <= 196608 &&
+                                (items[jq].u == items[q].u || memcmp(items[jq].u, items[q].u, usize) == 0)) {
+                                jcnt += g->icount;
+                                jn++;
+                                gVitaDpJoinN[0]++;
+                                continue;
+                            }
+                            if (jcnt != 0) {
+                                vglFastDraw(GL_UNSIGNED_SHORT, joff, jcnt, zl_u(items[jq].u, usize, s, mode), usize);
+                                gVitaDp[1]++;
+                                gVitaDpJoinN[1] += jn > 0;
+                                jcnt = 0;
+                                jn = 0;
+                            }
+                            if (g == NULL) {
+                                break;
+                            }
+                            if (g->iptr == NULL) {
+                                jq = q;
+                                joff = g->ioff;
+                                jcnt = g->icount;
+                            } else {
+                                vglFastDrawPtr(GL_UNSIGNED_SHORT, g->iptr, g->icount, zl_u(items[q].u, usize, s, mode), usize);
+                                gVitaDp[1]++;
+                            }
                             continue;
                         }
                         if (g != NULL && merge && g->iptr == NULL && np > 0 && np < 64 && pcount + g->icount <= 196608 &&
