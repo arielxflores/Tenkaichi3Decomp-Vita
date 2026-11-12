@@ -618,6 +618,8 @@ static void Option_VitaOpenScreen(void) {
 extern void Font_PrintAsciiAt(s32 x, s32 y, char *str);
 extern void Font_FlushAll(void);
 extern FontStyle gFontStyle;
+extern void Gfx_AddDefaultEnv(void);
+extern void Dma_AddFillRect(s32 x, s32 y, s32 w, s32 h, u32 rgba);
 static void Option_VitaPageNumber(void) {
     static char text[16];
     FontStyle saved;
@@ -627,15 +629,20 @@ static void Option_VitaPageNumber(void) {
     }
     item = sVitaSetLevel == 1 ? sVitaItem1 : sVitaSetItem;
     sprintf(text, "Page %d/%d", item / 4 + 1, (VITA_L1_ITEMS + 3) / 4);
+    /* its own small plate: a darker panel framed by a lighter one (sprites of 32 pixels: the GS's window at 0x700,
+       0x720), the text in its middle */
+    Gfx_AddDefaultEnv();
+    Dma_AddFillRect(0x700 + 0x196, 0x720 + 0x0A, 0x60, 0x24, 0x70D8B0E8);
+    Dma_AddFillRect(0x700 + 0x198, 0x720 + 0x0C, 0x5C, 0x20, 0x70402048);
     saved = gFontStyle;
-    gFontStyle.align = FONT_ALIGN_RIGHT;
+    gFontStyle.align = FONT_ALIGN_CENTER;
     gFontStyle.color = 0x80F0F0F0;
     gFontStyle.scale = 1.25f;
     gFontStyle.shadowMode = FONT_SHADOW_OUTLINE8;
     gFontStyle.shadowColor = 0x80301848;
     gFontStyle.shadowDx = 1;
     gFontStyle.shadowDy = 1;
-    Font_PrintAsciiAt(0x1F2, 0x14, text); /* (the menus are 512 x 448) */
+    Font_PrintAsciiAt(0x196 + 0x30, 0x10, text); /* (the menus are 512 x 448) */
     gFontStyle = saved;
     Font_FlushAll();
 }

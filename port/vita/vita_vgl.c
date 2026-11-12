@@ -1470,8 +1470,8 @@ static void frame_begin(void) {
     }
     target_set(0);
     {   /* a fight's picture in parts: decided before the picture's first scene is begun (by the clear) */
-        extern int Vita_InBattle(void);
-        vgl_bt3_split_on = Vita_InBattle() && !(gVglSafe2 & 1);
+        extern int Vita_RenderAsFight(void);
+        vgl_bt3_split_on = Vita_RenderAsFight() && !(gVglSafe2 & 1);
         sSplitN = 0;
         sSplitAt = vgl_bt3_split_on ? sceKernelGetProcessTimeWide() + SPLIT_MS * 1000ull : 0;
     }
@@ -7430,10 +7430,10 @@ unsigned gVglConstGen; /* counts the times the back end took new strip constants
    seconds, so that two models too large for the buffers together do not make it every picture. */
 #define DP_IBO_BYTES (4u << 20)
 int Vita_ChipResetDue(void) {
-    extern int Vita_InBattle(void);
+    extern int Vita_RenderAsFight(void);
     static int was;
     static unsigned lastFull;
-    int now = Vita_InBattle(), r = 0, full = 0;
+    int now = Vita_RenderAsFight(), r = 0, full = 0;
     if (now && (sFtUsed > FT_VERTS - FT_VERTS / 8 || sFtIdxUsed > FT_IDX - FT_IDX / 8 || sDpIboUsed > DP_IBO_BYTES - DP_IBO_BYTES / 8) &&
         (lastFull == 0 || gGsFrame - lastFull > 600)) {
         full = 1;
@@ -7521,7 +7521,8 @@ int Vita_ChipPlan(int which, int layer, const float *v, uint32_t count, const fl
     if (!stable || count < 3 || count > 1024 || Port_DmaInList((uint32_t)(uintptr_t)v) || Port_InSnap(v)) {
         return -1;
     }
-    if (which == 0 && layer <= 2 && sFtProg != 0 && Vita_InBattle() && !(gT116Fe & 4)) { /* (the fighters not on the chip; layer 2, the silhouettes, too) */
+    extern int Vita_RenderAsFight(void);
+    if (which == 0 && layer <= 2 && sFtProg != 0 && Vita_RenderAsFight() && !(gT116Fe & 4)) { /* (the fighters not on the chip; layer 2, the silhouettes, too) */
         h = ((uint32_t)(uintptr_t)v * 0x9E3779B1u ^ count) >> 19;
         for (k = 0; k < 8; k++, h = (h + 1) & 8191) {
             if (sFtCache[h].src == NULL || (sFtCache[h].src == v && sFtCache[h].count == count)) {

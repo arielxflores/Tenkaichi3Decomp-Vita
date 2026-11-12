@@ -105,6 +105,18 @@ int Vita_InFight(void) { return gBtlSeq != NULL && gBtlSeq->state == 3; }
 /* the battle from its stage intro to its end (states 0..6): the same stage and fighters the whole time, drawn the fast
    way (kept parts, fighters on the chip) and shown every two blanks */
 int Vita_InBattle(void) { return gBtlSeq != NULL && gBtlSeq->state >= 0 && gBtlSeq->state <= 6; }
+/* The renderer's ways of a fight (the fighters' and the stage's models kept on the graphics chip, the VU1 calls'
+   results replayed, the picture begun on the chip in parts) also for the dragon's screen (Shenron, gProgress->mode
+   70): its sky and its dragon are a fight's kind of 3D, about a thousand draws a picture the other way (13 pictures a
+   second where the game gives 30). bt3.txt shenfast=0: the dragon's screen drawn as the other menus. */
+int gVitaShenFast = 1;
+int Vita_RenderAsFight(void) {
+    extern void *gProgress;
+    if (Vita_InBattle()) {
+        return 1;
+    }
+    return gVitaShenFast && gProgress != NULL && *(const int *)((const char *)gProgress + 0x18) == 70;
+}
 /* bt3.txt filmstate=<n>: the film's pictures in that state of the fight (3, the fight, unless told: 0 the
    fighters' intros) */
 int gVitaFilmState = 3;
@@ -1265,7 +1277,7 @@ static void read_settings(void) {
         /* the released program: only the player's settings. The test runs leave theirs in the same file
            (mode=demo, film=...): a game started from its bubble goes to its title screen, not into a test fight */
         if (strcmp(line, "disc") != 0 && strcmp(line, "heap") != 0 && strcmp(line, "wide") != 0 && strcmp(line, "report") != 0 &&
-            strcmp(line, "fightres") != 0 && strcmp(line, "weather") != 0 && strcmp(line, "moveblur") != 0 && strcmp(line, "netwarm") != 0 && strcmp(line, "menuauto") != 0) {
+            strcmp(line, "fightres") != 0 && strcmp(line, "weather") != 0 && strcmp(line, "moveblur") != 0 && strcmp(line, "netwarm") != 0 && strcmp(line, "menuauto") != 0 && strcmp(line, "shenfast") != 0) {
             continue;
         }
 #endif
@@ -1305,6 +1317,8 @@ static void read_settings(void) {
         } else if (strcmp(line, "menuhi") == 0) { /* 0: the menus at 640 x 368 as the fights, as before */
             extern int gVitaMenuHi;
             gVitaMenuHi = atoi(eq) != 0;
+        } else if (strcmp(line, "shenfast") == 0) { /* 0: the dragon's screen drawn as the other menus (Vita_RenderAsFight) */
+            gVitaShenFast = atoi(eq) != 0;
         } else if (strcmp(line, "menuauto") == 0) { /* 0: a menu screen too slow at 960 x 544 is still drawn so (vita_vgl.c) */
             extern int gVitaMenuAuto;
             gVitaMenuAuto = atoi(eq) != 0;
