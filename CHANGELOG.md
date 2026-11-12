@@ -36,7 +36,9 @@ New
 - **Vita Settings on the Options screen**: its second row (where Screen was) opens Vita Settings at once, in BT3
   and in BT4; the PS2's Screen page is inside it (third page in BT3, second in BT4). The controller page no longer
   has the row. Captions longer than the plates (Quick Start, Quick Save, Tech Fixes, Unlock All, Bombardment) are
-  narrowed to fit inside them.
+  narrowed to fit inside them. BT4's options now show these labels too (Vita Settings, Game, Unlock All, Screen and
+  the rest): its disc's lettering is the mod's own, so it has its own set, made from that disc
+  (`port/vita/vita_optart_bt4.h`); before, BT4's Vita Settings plates showed the PS2's captions.
 - **Unlock All, a switch**: Vita Settings → Unlock All (second page; in BT4's options next to Game) turns on every
   character and transformation, stage, song and item (Evolution Z items, Potaras) and 9,999,999 Zenni, for the save
   in play and each one loaded while it is on. Your save is copied aside first, and turning it off gives the save

@@ -28,7 +28,11 @@
  */
 #include <stdint.h>
 #include <string.h>
+#ifdef BT3_BT4
+#include "vita_optart_bt4.h" /* (the BT4 B14 Rev2 disc's lettering is the mod's own: patches made from it) */
+#else
 #include "vita_optart.h"
+#endif
 
 extern void Vita_Log(const char *fmt, ...);
 

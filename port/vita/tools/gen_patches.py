@@ -1,10 +1,12 @@
 """Builds the art changes for the Vita (port/vita/vita_optart.h) from the USA disc's files:
 
-    python3 gen_patches.py <folder> <out.h>
+    python3 gen_patches.py <folder> <out.h> [bt4]
 
 <folder> holds tools/ (this folder) and what the changes apply to: opt_s1.bin (file 454, section 1 unpacked: the
 options screen), vs_s1.bin (file 449, section 1 unpacked: the versus menu) and boot.bin (file 5, the boot file:
-its member 8 holds the button icons of the game's text)."""
+its member 8 holds the button icons of the game's text). With bt4: the same files of the BT4 B14 Rev2 disc (the
+options screen is its pzs4us1.afs member 453, the versus menu member 448's first section), whose lettering is the
+mod's own: vita_optart_bt4.h, for the BT4 program; its sound page keeps Change Voice."""
 import sys, struct, numpy as np
 sys.path.insert(0, sys.argv[1] + '/tools')
 from bt3tex import *
@@ -14,6 +16,7 @@ import vita_pic
 import vita_icons
 
 base = sys.argv[1]
+BT4 = len(sys.argv) > 3 and sys.argv[3] == 'bt4'
 u = open(base + '/opt_s1.bin', 'rb').read()
 packs = {'opt': u, 'vs': open(base + '/vs_s1.bin', 'rb').read(), 'boot': open(base + '/boot.bin', 'rb').read()}
 
@@ -183,7 +186,7 @@ def emit(lines, out, macro, name):
 # the options screen. The controller page's second row: Vibration -> Vita Settings; the sound page's third row:
 # Change Voice -> Language (the text's language and the voices: Option_VitaLang) (normal and highlighted strips)
 for e in (1, 3):
-    label_job(16, e, [(128, 'Vita Settings', 4, 'left'), (64, 'Language', 4, 'left')], 128)
+    label_job(16, e, [(128, 'Vita Settings', 4, 'left')] + ([] if BT4 else [(64, 'Language', 4, 'left')]), 128)
 # the top page's second row: Screen -> Vita Settings (the Screen page is opened from Vita Settings' third page)
 for e in (0, 2):
     label_job(16, e, [(32, 'Vita Settings', 4, 'left')], 32)
