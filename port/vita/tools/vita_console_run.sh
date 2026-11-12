@@ -36,8 +36,8 @@ OUT="${OUT:-$ROOT/port/build/runs/$(date +%Y%m%d-%H%M%S)}"
 mkdir -p "$OUT"
 FTP="ftp://$IP:1337"
 cmd() { printf '%s\n' "$1" | nc -w 5 "$IP" 1338; }
-get() { curl -s --ftp-method nocwd -o "$2" "$FTP//$1"; }       # (the double slash: the Vita's path as it is)
-put() { curl -s --ftp-method nocwd -T "$1" "$FTP//$2"; }
+get() { curl -s -f -o "$2" "$FTP/$1"; }       # $1 like ux0:/data/bt3/bt3.txt (vitacompanion's README's form)
+put() { curl -s -f -T "$1" "$FTP/$2"; }
 
 cmd version > "$OUT/companion.txt" 2>&1 || true
 [ -s "$OUT/companion.txt" ] || { echo "vita_console_run: no answer from vitacompanion at $IP:1338"; exit 3; }
@@ -60,7 +60,7 @@ cmd "quit $TITLE" > /dev/null
 sleep 3
 get "ux0:/data/bt3/log-vgl.txt" "$OUT/log-all.txt" || true
 get "ux0:/data/bt3/hang-vgl.txt" "$OUT/hang.txt" || rm -f "$OUT/hang.txt"
-curl -s --ftp-method nocwd -l "$FTP//ux0:/data/" | grep -i "psp2core\|psp2dmp" > "$OUT/crash_dumps.txt" || true
+curl -s -f -l "$FTP/ux0:/data/" | grep -i "psp2core\|psp2dmp" > "$OUT/crash_dumps.txt" || true
 if [ "$SAVED" = 1 ]; then
   put "$OUT/bt3.console.txt" "ux0:/data/bt3/bt3.txt" || echo "vita_console_run: WARNING: the console's bt3.txt not put back (it is in $OUT)"
 fi

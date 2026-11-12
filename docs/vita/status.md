@@ -1,5 +1,7 @@
 # The renderer work in progress (handoff)
 
+The whole path for an agent, from a checkout to a change measured on the console: [CLAUDE.md](../../CLAUDE.md).
+
 Written 2026-11-12 so that another person or agent can take the work up without the conversation that produced it.
 Update it when the state changes; delete it once everything here has been run on a console and merged.
 

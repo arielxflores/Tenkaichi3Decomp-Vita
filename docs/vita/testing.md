@@ -112,7 +112,13 @@ of the same network sends a new program, starts it, stops it and fetches the log
 
 ### Once
 
-1. Copy `vitacompanion.suprx` and `vitacompanion_kernel.skprx` to `ur0:tai/` and add them to `ur0:tai/config.txt`:
+`port/vita/tools/vita_setup.sh` does it from the computer over FTP (VitaShell's FTP server at first, SELECT in
+VitaShell), with `VITA_IP` set; the developer restarts the console once. CLAUDE.md, section 4, has the steps:
+
+1. `vita_setup.sh check`: what the console has (FTP, vitacompanion, `config.txt`'s plugins, the shader compiler, the
+   disc files, the release and the development build).
+2. `vita_setup.sh companion vitacompanion.suprx vitacompanion_kernel.skprx` (from vitacompanion's release): both into
+   `ur0:tai/`, and into `ur0:tai/config.txt`
 
    ```
    *KERNEL
@@ -122,9 +128,15 @@ of the same network sends a new program, starts it, stops it and fetches the log
    ur0:tai/vitacompanion.suprx
    ```
 
-   then reboot. `echo version | nc VITA_IP 1338` answers when it works.
-2. Install the development package once with VitaShell (title BTTD00008, next to the release).
-3. Give the console a fixed address on the network, and keep it charging (a long soak).
+   (the console's copy kept first in `port/build/vita_backup/`). Then the developer restarts the console; from then on
+   `echo version | nc VITA_IP 1338` answers.
+3. `vita_setup.sh install-dev`: the development package unpacked, sent to `ux0:data/bt3_devpkg` and installed with
+   vitacompanion's `promote` (else the developer installs the `.vpk` with VitaShell once).
+4. A fixed address for the console on the network; the console charging for long soaks (vitacompanion keeps it from
+   sleeping).
+
+`vita_setup.sh capunlocker off|on` switches the fourth core's plugin (its line in `config.txt`) and reboots through
+vitacompanion, for the run without the fourth core.
 
 ### A run
 
