@@ -528,8 +528,8 @@ static void Option_VitaSetGuide(void) {
                       : b == 1 ? "This package has no Budokai\nTenkaichi 4 program."
                       : b == 2 ? "Not now: copy your BT4 B14 Rev2\ndisc's .iso to ux0:data/bt3/bt4/\nfirst (see the README)."
                       : sVitaCheatArmed == 3 ? "Budokai Tenkaichi 4 could not be\nstarted (see ux0:data/bt3/log.txt)."
-                      : sVitaCheatArmed ? "Press CROSS again: this game closes\nand BT4 starts. Options not saved\nyet are lost (Circle: no)."
-                                        : "Team BT4's Budokai Tenkaichi 4\n(B14 Rev2). It then starts each\ntime, until changed back. CROSS.");
+                      : sVitaCheatArmed ? "Budokai Tenkaichi 4. Game starts\neach time, until changed back.\nPress again to confirm."
+                                        : "Budokai Tenkaichi 4. Game starts\neach time, until changed back.");
         break;
     case 8:
         sprintf(text, v == 0 ? "ON: the game starts at its title\nscreen (no logos, opening film or\ncopyright page)."

@@ -1227,7 +1227,7 @@ index c0c0ba1..91f869d 100644
      TM_RES(22);
      IconWin_Init(MPACK_AT(gTourMenu->res, 21), res);
 diff --git a/src/menu/menu_x_c.c b/src/menu/menu_x_c.c
-index d89aefe..a9e4cbf 100644
+index d89aefe..2b7ff79 100644
 --- a/src/menu/menu_x_c.c
 +++ b/src/menu/menu_x_c.c
 @@ -7,6 +7,10 @@
@@ -1531,8 +1531,8 @@ index d89aefe..a9e4cbf 100644
 +    case 7:
 +        sprintf(text, v == 1 ? "Budokai Tenkaichi 4: the game you\nare playing now."
 +                      : sVitaGameArmed == 2 ? "Budokai Tenkaichi 3 could not be\nstarted (see the log)."
-+                      : sVitaGameArmed ? "Press CROSS again: this game closes\nand BT3 starts. Options not saved\nyet are lost (Circle: no)."
-+                                       : "Budokai Tenkaichi 3. It then starts\neach time, until changed back.\nCROSS.");
++                      : sVitaGameArmed ? "Budokai Tenkaichi 3. Game starts\neach time, until changed back.\nPress again to confirm."
++                                       : "Budokai Tenkaichi 3. Game starts\neach time, until changed back.");
 +        break;
 +    case 9: {
 +        s32 on = Port_Setting("unlock_all", 0);
