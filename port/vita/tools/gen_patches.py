@@ -195,6 +195,70 @@ for e in (0, 2):
 for e in (1, 3):
     label_job(14, e, [(0, 'L2', 128.5, 'center'), (32, 'R2', 128.5, 'center'), (128, 'L3', 128.5, 'center'),
                       (160, 'Rear', 128.5, 'center'), (192, 'Front', 128.5, 'center'), (224, 'R3', 128.5, 'center')], 64)
+def art_job(section, entry_i, y0, img):
+    """rows y0.. of a texture redrawn from an image (h x w x 4, PS2 alpha), in the texture's own colours"""
+    a, sec = sec_bytes(section)
+    t = texture(bytes(sec), entry_i)
+    idx, colors, srcmap = t['idx'].copy(), t['colors'], t['srcmap']
+    clear = int(np.argmin(colors[:, 3].astype(int) * 1000 + colors[:, :3].astype(int).sum(1)))
+    h = img.shape[0]
+    q = quantize(img, colors)
+    q[img[..., 3] < 1.0] = clear
+    idx[y0:y0 + h, :] = q
+    new = bytearray(sec)
+    for y in range(t['h']):
+        for x in range(t['w']):
+            off, shift = srcmap[y, x]
+            new[off] = int(idx[y, x])
+    previews.append(colors[idx])
+    patches.append((section, sec, new))
+
+if True:
+    # Controls: the top page's fourth row, Controller -> Controls; the controller page's first row, Control Type ->
+    # Controller Settings; the controller page's title, Controller -> Controls. Made of the disc's own letters
+    # (glyphart.py): the rows' from Controller, Screen, BGM Test (BT4: Screen Adjust), Vibration and Change Voice,
+    # the title's "Control" as it is and the s of the title Options
+    import glyphart as G
+    tex16 = bytes(sec_bytes(16)[1])
+    pt, ps = texture(tex16, 0)['rgba'], texture(tex16, 1)['rgba']  # (the letters' shapes: the plain strips')
+    cg = lambda r, cell: G.glyphs(r, cell, cell + 32)
+    ctrl, screen = cg(pt, 96), cg(pt, 32)
+    change, vib = cg(ps, 64), cg(ps, 128)
+    if BT4:  # (its BGM Select has no s: Screen Adjust's s and t)
+        adj = cg(pt, 192)
+        assert len(adj) == 12
+        s_, t_ = adj[10], adj[11]
+    else:
+        test = cg(ps, 32)
+        assert len(test) == 7
+        s_, t_ = test[5], test[6]
+    assert (len(ctrl), len(screen), len(change), len(vib)) == (10, 6, 11, 9)
+    m_top = G.compose(ctrl[:7] + [s_], 3, 8, ctrl[0][0], 32, pt.shape[1])
+    m_sub = G.compose(ctrl + [None, screen[0], screen[3], t_, t_, vib[1], screen[5], change[4], s_],
+                      3, 8, ctrl[0][0], 32, ps.shape[1])
+    for top, sub in ((0, 1), (2, 3)):  # (plain, highlighted)
+        rt, rs = texture(tex16, top)['rgba'], texture(tex16, sub)['rgba']
+        art_job(16, top, 96, G.paint(m_top, G.style_table(rt, range(0, 256, 32), 32, shape=pt)))
+        art_job(16, sub, 96, G.paint(m_sub, G.style_table(rs, range(0, 160, 32), 32, shape=ps)))
+    G.TITLE = True
+    tc = texture(bytes(sec_bytes(18)[1]), 5)['rgba'].astype(float)
+    to = texture(bytes(sec_bytes(18)[1]), 1)['rgba'].astype(float)
+    gc, go = G.glyphs(tc, 0, 64), G.glyphs(to, 0, 64)
+    assert len(gc) == 10 and len(go) == 7
+    m = np.zeros(tc.shape[:2], bool)
+    for _, _, mk in gc[:7]:
+        m |= mk
+    sx0, sx1, smk = go[-1]
+    at = gc[6][1] + 5  # (the s four columns after the l, as the l's before it)
+    m[:, at:at + sx1 - sx0 + 1] |= smk[:, sx0:sx1 + 1]
+    title = G.paint(m, G.style_table(tc, [0], 64))
+    cut = (gc[6][0] + gc[6][1]) // 2  # (Control as it is, to the middle of the l; the l's right and the s's left
+    title[:, :cut] = tc[:, :cut]      # drawn again; the rest of the s as Options has it)
+    for x in range(at + 2, tc.shape[1]):
+        title[:, x] = to[:, x - (at - sx0)] if x - (at - sx0) < tc.shape[1] else 0
+    art_job(18, 5, 0, title)
+    G.TITLE = False
+
 # the controller picture
 picture_job(21, 0, vita_pic.make())
 out = runs_of(patches)
@@ -343,7 +407,7 @@ open(sys.argv[2], 'w').write('\n'.join(lines) + '\n')
 
 # previews: decode the patched sections again
 vis = []
-for pack, o, shows in (('opt', out, {16: (1, 3), 14: (1, 3), 21: (0,)}), ('vs', out_vs, {8: (0, 1)}),
+for pack, o, shows in (('opt', out, {16: (0, 1, 2, 3), 14: (1, 3), 18: (5,), 21: (0,)}), ('vs', out_vs, {8: (0, 1)}),
                        ('boot', out_icons, {8: (16, 19, 26, 27)})):
     for section, runs in o:
         a, sec = sec_bytes(section, pack)

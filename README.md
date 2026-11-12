@@ -166,7 +166,7 @@ On a PS TV, or with a DualShock paired, the controller's own L2, R2, L3 and R3 b
   - **Screen**: the PS2's Screen page (camera type, screen shake, screen position), which Vita Settings took the place
     of on the Options screen; back from it leads to the Options screen. (In BT4: on the second page, with the tag
     team's HUD.)
-- **Options → Controller → Control Type → Custom** assigns the actions to other buttons, as on the PS2, and on the
+- **Options → Controls → Controller Settings → Custom** (the PS2's Controller → Control Type) assigns the actions to other buttons, as on the PS2, and on the
   Vita every one of the eight buttons can be changed, L1, L2, R1 and R2 too (Up / Down go round each column; the
   PS2's page reached only the face buttons), each to any of the eight actions: hold Cross and press Left / Right. So
   the shoulder buttons' actions can go on the face buttons and the other way round; the button that had the action

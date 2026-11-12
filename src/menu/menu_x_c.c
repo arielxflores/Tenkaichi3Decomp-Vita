@@ -208,7 +208,14 @@ s32 Option_Run(s32 section) {
    second controller, mods). Its guide lines (24, 39, 40) are spoken of vibration: their text is new (vita_optart.c),
    their voice is not played; nor that of line 18, the sound page's Language row (of the voices alone before). */
 extern void Voice_StopWithLip(void);
+/* The top page's fourth row reads Controls and the controller page's first row Controller Settings
+   (vita_optart.h): their guide lines, said and shown, trade places (4 "Change your controller settings." on the
+   page's row, 23 "Change the type of controls used to fight." on the top page's) */
+static s32 Option_VitaLine(s32 line) {
+    return line == 2 ? 24 : line == 4 ? 23 : line == 23 ? 4 : line;
+}
 static void Option_VoiceVita(s32 line) {
+    line = line == 4 || line == 23 ? Option_VitaLine(line) : line;
     if (line == 2 || line == 18 || line == 24 || line == 39 || line == 40) { /* (18: the Language row's, vita_optart.c;
                                                                                  2: the top page's Vita Settings row) */
         Voice_StopWithLip();
@@ -3088,7 +3095,7 @@ void Option_Draw(void) {
     }
     IconWin_Draw();
 #ifdef PORT_VITA
-    MsgWin_Draw(0, 0, gOption->voiceLine == 2 ? 24 : gOption->voiceLine); /* (the top page's second row is Vita Settings) */
+    MsgWin_Draw(0, 0, Option_VitaLine(gOption->voiceLine)); /* (the top page's second row is Vita Settings; Controls) */
     Option_VitaPageNumber();
 #else
     MsgWin_Draw(0, 0, gOption->voiceLine);

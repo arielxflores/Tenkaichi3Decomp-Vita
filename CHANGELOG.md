@@ -41,7 +41,10 @@ New
   (`port/vita/vita_optart_bt4.h`); before, BT4's Vita Settings plates showed the PS2's captions.
 - **Vita Settings' page number** ("Page 1/3") at the top right while it is open, on a plate of its own like the
   pickers', in BT3 and BT4.
-- **Control Type → Custom reaches L1, L2, R1 and R2**: the PS2's page let only the four face buttons be chosen to
+- **Controls**: the Options screen's Controller row and its page's title read Controls, the page's Control Type row
+  reads Controller Settings, in the disc's own lettering (BT3 and BT4), and Dende's lines for the two trade
+  places to match.
+- **Controller Settings → Custom reaches L1, L2, R1 and R2**: the PS2's page let only the four face buttons be chosen to
   change; now Up / Down go round each column, so every button can take any of the eight actions (the shoulder
   buttons' actions on the face buttons and the other way round), in BT3 and BT4. The default layout stays until
   changed.
