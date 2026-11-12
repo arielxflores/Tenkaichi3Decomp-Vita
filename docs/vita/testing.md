@@ -40,6 +40,22 @@ console's), the float unit's last bits (its rounding modes are applied different
 texture can show the old picture). Use it for "does it run, does it draw the same, do the counters look right"; settle
 speed and last-bit differences on the console.
 
+### What to expect of this port in Vita3K (not tried yet)
+
+Nobody has run this port in Vita3K yet. From what the port does and what the other ports report:
+
+- **Likely to work**: the program itself (ARM code, threads, files, the game heap), vitaGL (TwinsanityEvolved and
+  Celosia run on it in Vita3K), the runtime shader compiler (TwinsanityEvolved compiles its shaders in Vita3K with the
+  same `libshacccg.suprx` and gets the same bytes as the console: it ships the result as the console's cache), the
+  display buffers read as textures (Vita3K finds a colour surface again by its address).
+- **Likely to differ from the console**: what reads the **depth buffer as a texture** (`vglTexImageDepthBuffer`: the
+  fog byte and the table passes, the depth tint, and `fxlow`'s depth test). Vita3K keeps surfaces on the host's GPU
+  and its read-back of a picture into memory is empty (TwinsanityEvolved): a wrong picture there in Vita3K is not
+  proof of a bug on the console. The kept parts written straight into the chip's buffers should be seen (Vita3K reads
+  vertex memory at each draw), but that is to be checked.
+- **Not there**: the fourth core (the program sees no CapUnlocker and runs its fallbacks), the processor counters
+  (`perf=0` if libperf's calls fail), the console's speed.
+
 ### Once
 
 1. Build the emulator or take a build from [vita3k.org](https://vita3k.org); install the two firmware packages
