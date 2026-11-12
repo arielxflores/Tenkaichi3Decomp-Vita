@@ -1947,17 +1947,68 @@ static int tex_layer(uint64_t t0, uint64_t texa) {
 static GLuint texture_get_k(uint64_t t0raw, uint64_t texa);
 static GLuint texture_get_k_(uint64_t t0raw, uint64_t texa);
 unsigned gVitaKeyProf[2]; /* (upprof=1, the log) texture lookups by the drawing state, their microseconds */
+/* (bt3.txt texbind: gs_core.c Gs_TexNames) the texture found last by the names of what its destinations hold: its
+   place in the table, checked against what is there (the table is put together again when full) */
+static struct { uint64_t t0, texa; uint32_t nT, nC, gen; GLuint id; int ti; } sBind2[1024];
+/* TEX0 as texture_get_k_ takes it: CLD 0 and CBP 0, the palette of the GS's last CLUT load */
+static inline uint64_t tex_t0_now(uint64_t t0raw) {
+    extern volatile uint64_t gGsClutT0;
+    uint64_t t0 = t0raw & 0x1FFFFFFFFFFFFFFFull, ct = gGsClutT0;
+    if ((t0raw >> 61) == 0 && ((t0 >> 37) & 0x3FFF) == 0 && ct != 0 && Gs_PsmBits((t0 >> 20) & 0x3F) <= 8 && !(gVglSafe2 & 16)) {
+        t0 = (t0 & ~0x1FFFFFE000000000ull) | (ct & 0x1FFFFFE000000000ull);
+    }
+    return t0;
+}
 static GLuint texture_get_k(uint64_t t0raw, uint64_t texa) {
     extern int gVitaUpProf;
-    unsigned long long t;
+    extern int Gs_TexBindOn(void), Gs_TexNames(uint64_t t0, uint32_t *nT, uint32_t *nC);
+    extern unsigned gVitaBind[8];
+    static unsigned bindN;
+    unsigned long long t = gVitaUpProf ? sceKernelGetProcessTimeWide() : 0;
     GLuint r;
-    if (!gVitaUpProf) {
-        return texture_get_k_(t0raw, texa);
+    int bound = 0; /* 1: found the long way, its binding made after; 2: found by the names, checked the long way */
+    uint32_t nT = 0, nC = 0;
+    uint64_t t0s = 0;
+    __typeof__(&sBind2[0]) be = NULL;
+    if (gVitaBisect != 2 && Gs_TexBindOn()) {
+        t0s = tex_t0_now(t0raw);
+        if (Gs_TexNames(t0s, &nT, &nC)) {
+            uint64_t h = (t0s ^ t0s >> 29 ^ texa * 0x9E3779B97F4A7C15ull) ^ ((uint64_t)nT << 32 | nC) * 0xC2B2AE3D27D4EB4Full;
+            be = &sBind2[(uint32_t)(h >> 54)];
+            bound = 1;
+            if (be->t0 == t0s && be->texa == texa && be->nT == nT && be->nC == nC && be->ti < sTexCount) {
+                Tex *c = &sTex[be->ti];
+                if (c->tex0 == t0s && c->texa == texa && c->gen == be->gen && c->id == be->id) {
+                    if ((++bindN & 63) != 0) {
+                        c->last = gGsFrame;
+                        sLast = c;
+                        sSigGenCur = c->gen;
+                        gVitaBind[0]++;
+                        r = c->id;
+                        goto done;
+                    }
+                    bound = 2;
+                }
+            }
+        }
     }
-    t = sceKernelGetProcessTimeWide();
     r = texture_get_k_(t0raw, texa);
-    gVitaKeyProf[0]++;
-    gVitaKeyProf[1] += (unsigned)(sceKernelGetProcessTimeWide() - t);
+    if (bound != 0) {
+        if (bound == 2) {
+            gVitaBind[2]++;
+            gVitaBind[3] += r != be->id;
+        }
+        if (r != 0 && sLast != NULL && sLast->id == r && sLast->tex0 == t0s && sLast->texa == texa) {
+            be->t0 = t0s; be->texa = texa; be->nT = nT; be->nC = nC;
+            be->ti = (int)(sLast - sTex); be->gen = sLast->gen; be->id = r;
+            gVitaBind[1]++;
+        }
+    }
+done:
+    if (gVitaUpProf) {
+        gVitaKeyProf[0]++;
+        gVitaKeyProf[1] += (unsigned)(sceKernelGetProcessTimeWide() - t);
+    }
     return r;
 }
 static GLuint texture_get(int ctx) {

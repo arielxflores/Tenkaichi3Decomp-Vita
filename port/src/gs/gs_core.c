@@ -739,8 +739,24 @@ static inline int psm_planes(uint32_t psm) {
     default: return 7;
     }
 }
+/* ---- The uploads' destinations (bt3.txt updest; with Gs_DestRect below), declared here for the block writes: a block
+   written by another than the destination that left it there unbinds that destination (sDestBok) at the write
+   (bt3.txt texbind; Gs_TexNames below). ---- */
+typedef struct UpDest { uint32_t dk, pos, size, rect, pg0, pgN, sig; uint64_t name; uint8_t valid, lazy, nblk; uint16_t blk[8]; } UpDest; /* lazy: its blocks taken note of (ids from its number), not written; nblk: a small one's blocks (blk), checked by their writes (sPlaneGen) instead of by the pages */
+static UpDest sDest[1024];
+static UpDest *sDestPend;        /* (the destination of the upload being made: its pages' numbers taken at its end) */
+static uint8_t sDestBok[1024];   /* (texbind) 1: nothing but its own upload wrote its blocks since it was made */
+unsigned gVitaBind[8];           /* for the log (texbind): texture lookups by their names, bindings made, checked, wrong; -, destinations unbound by another's write, lookups with no destination, bindings found lost */
+static inline void bind_touch(uint32_t b) {
+    uint32_t o = sBlk[b].dest;
+    if (o != 0 && sDestBok[o - 1] && (sDestPend == NULL || o != (uint32_t)(sDestPend - sDest) + 1u)) {
+        sDestBok[o - 1] = 0;
+        gVitaBind[5]++;
+    }
+}
 static inline void plane_bump(uint32_t b, int planes) {
     b &= 0x3FFF;
+    bind_touch(b);
     sPlaneGen[b][0] += (uint32_t)(planes & 1);
     sPlaneGen[b][1] += (uint32_t)(planes >> 1 & 1);
     sPlaneGen[b][2] += (uint32_t)(planes >> 2 & 1);
@@ -935,10 +951,7 @@ int gVitaUpDest = 1;      /* 0 off, 1 on (default), 2 in the soak's B battles */
 int gVitaUpDestLog;       /* (bt3.txt updestlog=1: the destinations made and the lookups that found none, in the log) */
 unsigned gVitaDest[7];    /* for the log: uploads found the same by their destination, rectangles' numbers kept, worked out;
                              texture keys from a destination, checked, wrong; destinations found changed */
-typedef struct UpDest { uint32_t dk, pos, size, rect, pg0, pgN, sig; uint64_t name; uint8_t valid, lazy, nblk; uint16_t blk[8]; } UpDest; /* lazy: its blocks taken note of (ids from its number), not written; nblk: a small one's blocks (blk), checked by their writes (sPlaneGen) instead of by the pages */
-static UpDest sDest[1024];
 static struct { uint64_t name; uint32_t dk, pos, size, rect; } sRectMemo[4096];
-static UpDest *sDestPend;        /* (the destination of the upload being made: its pages' numbers taken at its end) */
 static int dest_on(void) {
     extern int gVitaAbSide;
     return gVitaUpDest == 2 ? gVitaAbSide == 1 : gVitaUpDest != 0;
@@ -1095,6 +1108,90 @@ int Gs_DestRect(uint32_t bp, uint32_t bw, uint32_t psm, uint32_t w, uint32_t h, 
         }
     }
     *rect = d->rect;
+    return 1;
+}
+/* ---- Textures bound by their names (bt3.txt texbind; native textures, step 3). A texture's key was made at every
+   drawing state that has it (~30,000 lookups every two seconds, each reading the numbers of its pages and those of
+   its palette's, and the destinations' after them: texture_get_k): the stage's materials go one after another to
+   one place, a fighter's palettes to one place for all of its pieces, and every upload there changed the pages'
+   numbers. Now a destination knows at the write whether anything but its own upload wrote its blocks since
+   (sDestBok, bind_touch), and the texture (TEX0 with its palette's place) remembers the destinations it lies in
+   (sBind1): the names of what they hold (their rectangles' numbers, rect) are the texture's, and the renderer finds
+   its texture by these names (vita_vgl.c texture_get_k, sBind2), checked the long way every 64th time. A texture
+   that lies in no destination, or one unbound, is found the long way as before. ---- */
+int gVitaTexBind = 0; /* 0 off (default), 1 on, 2 in the soak's B battles */
+int Gs_TexBindOn(void) {
+    extern int gVitaAbSide;
+    return dest_on() && (gVitaTexBind == 2 ? gVitaAbSide == 1 : gVitaTexBind != 0);
+}
+extern int Gs_PsmBits(uint32_t psm);
+typedef struct Bind1 { uint64_t key; unsigned epoch; uint16_t dT, dC; uint32_t dkT, posT, sizeT, dkC, posC, sizeC; uint8_t ok; } Bind1;
+static Bind1 sBind1[2048];
+/* the destination a texture (or a palette) lies in: one made for it, or the one that made its first block, whole */
+static UpDest *bind_dest(uint32_t bp, uint32_t bw, uint32_t psm, uint32_t w, uint32_t h) {
+    uint32_t dk, size = w | h << 16, b0, di;
+    UpDest *d, *c;
+    bw = bw ? bw : 1;
+    dk = (bp & 0x3FFF) | (bw & 0x3F) << 16 | (psm & 0x3F) << 24;
+    d = dest_slot(dk, 0, size);
+    if (d->valid && d->dk == dk && d->pos == 0 && d->size == size) {
+        return d;
+    }
+    b0 = vram_rw(bp, bw, psm, 0, 0, 2, 0) & 0x3FFF;
+    di = sBlk[b0].dest;
+    c = di != 0 ? &sDest[di - 1] : NULL;
+    if (c != NULL && c->valid && c->name != 0 && dest_contains(c, dk, w, h)) {
+        return c;
+    }
+    return NULL;
+}
+static inline int bind_ok(const UpDest *d, uint32_t dk, uint32_t pos, uint32_t size) {
+    return d->valid && sDestBok[d - sDest] && d->dk == dk && d->pos == pos && d->size == size && d->rect < 0xFFFFFFFEu;
+}
+/* (vita_vgl.c texture_get_k) the names of what the texture of TEX0 t0 (its palette's place in it as the renderer
+   takes it) and its palette lie in: 1 and *nT, *nC; 0: none (found the long way) */
+int Gs_TexNames(uint64_t t0, uint32_t *nT, uint32_t *nC) {
+    uint32_t tbp = (uint32_t)(t0 & 0x3FFF), tbw = (uint32_t)((t0 >> 14) & 0x3F), psm = (uint32_t)((t0 >> 20) & 0x3F);
+    uint32_t tw = 1u << ((t0 >> 26) & 15), th = 1u << ((t0 >> 30) & 15), bits = (uint32_t)Gs_PsmBits(psm);
+    uint32_t cbp = (uint32_t)((t0 >> 37) & 0x3FFF), cpsm = (uint32_t)((t0 >> 51) & 15);
+    uint64_t key = (t0 & 0x3FFFFFFFFull) | (bits <= 8 ? (t0 & 0x7FFFE000000000ull) : 0);
+    Bind1 *e = &sBind1[(uint32_t)(((key ^ key >> 31) * 0x9E3779B97F4A7C15ull) >> 53)];
+    const UpDest *dt, *dc;
+    if (tw > 512) {
+        tw = 512; /* (as the renderer cuts them) */
+    }
+    if (th > 512) {
+        th = 512;
+    }
+    if (e->key != key || !e->ok) {
+        UpDest *a, *b = NULL;
+        if (e->key == key && e->epoch == gGsEpoch) {
+            return 0; /* (looked for in this state of GS memory: none) */
+        }
+        e->key = key;
+        e->ok = 0;
+        e->epoch = gGsEpoch;
+        a = bind_dest(tbp, tbw, psm, tw, th);
+        if (a == NULL || (bits <= 8 && (b = bind_dest(cbp, 1, cpsm, bits == 8 ? 16 : 8, bits == 8 ? 16 : 2)) == NULL)) {
+            gVitaBind[6]++;
+            return 0;
+        }
+        e->dT = (uint16_t)(a - sDest); e->dkT = a->dk; e->posT = a->pos; e->sizeT = a->size;
+        if (b != NULL) {
+            e->dC = (uint16_t)(b - sDest); e->dkC = b->dk; e->posC = b->pos; e->sizeC = b->size;
+        }
+        e->ok = 1;
+    }
+    dt = &sDest[e->dT];
+    dc = bits <= 8 ? &sDest[e->dC] : NULL;
+    if (!bind_ok(dt, e->dkT, e->posT, e->sizeT) || (dc != NULL && !bind_ok(dc, e->dkC, e->posC, e->sizeC))) {
+        e->ok = 0; /* (looked for again once GS memory changed) */
+        e->epoch = gGsEpoch;
+        gVitaBind[7]++;
+        return 0;
+    }
+    *nT = dt->rect;
+    *nC = dc != NULL ? dc->rect ^ 0x5BD1E995u : 0;
     return 1;
 }
 #endif
@@ -1736,6 +1833,16 @@ static void vertex(uint32_t x, uint32_t y, uint32_t z, int kick) {
                 gGsEpoch++; /* (the renderer's keys and states remembered by the epoch) */
                 { extern unsigned gT121Ep[8]; gT121Ep[0]++; }
                 { extern unsigned gVitaPaints; gVitaPaints++; }
+                {   /* (texbind: the destinations of the two pages' blocks unbound, however the sprite is written) */
+                    uint32_t b;
+                    for (b = fb * 32; b < fb * 32 + 64; b++) {
+                        uint32_t o = sBlk[b & 0x3FFF].dest;
+                        if (o != 0 && sDestBok[o - 1]) {
+                            sDestBok[o - 1] = 0;
+                            gVitaBind[5]++;
+                        }
+                    }
+                }
 #endif
             } else if (kick) {
                 if (sGpu) { GsGpu_Draw(6, ctx, gs.vtx); } else { draw_sprite(sf, ctx, &gs.vtx[0], &gs.vtx[1]); }
@@ -1816,10 +1923,10 @@ static void up_piece(uint32_t bp, uint32_t bw, uint32_t psm, int bits, uint32_t 
                     k->stride = (uint16_t)stride;
                     k->bits = (uint8_t)bits;
                     k->dirty = 0;
+                    plane_bump((uint32_t)(k - sBlk), 7); /* (before the block is the new destination's: bind_touch) */
 #ifdef PORT_VITA
                     k->dest = sDestPend != NULL ? (uint16_t)(sDestPend - sDest + 1) : 0;
 #endif
-                    plane_bump((uint32_t)(k - sBlk), 7);
                 }
             }
             gVitaUp[2] += w * h;
@@ -1834,10 +1941,10 @@ static void up_piece(uint32_t bp, uint32_t bw, uint32_t psm, int bits, uint32_t 
             uint32_t b = vram_rw(bp, bw, psm, x0 + bx, y0 + by, 2, 0);
             sBlk[b].up = 0; /* (whatever waited for this block is overwritten whole) */
             sBlk[b].dirty = 1;
+            plane_bump(b, 7); /* (before the block is the new destination's: bind_touch) */
 #ifdef PORT_VITA
             sBlk[b].dest = sDestPend != NULL ? (uint16_t)(sDestPend - sDest + 1) : 0;
 #endif
-            plane_bump(b, 7);
             block_write(b, bits, src + by * stride + bx * (uint32_t)bits / 8, stride);
         }
     }
@@ -2193,6 +2300,7 @@ static void transfer_data(const uint8_t *p, uint32_t bytes) {
                     sDestPend->sig = dest_check(sDestPend);
                     sDestPend->lazy = 2; /* (its blocks as they were: taken note of or written, not known here) */
                     sDestPend->valid = 1;
+                    sDestBok[sDestPend - sDest] = 1;
                     sDestPend = NULL;
                 }
                 return;
@@ -2316,6 +2424,7 @@ static void transfer_data(const uint8_t *p, uint32_t bytes) {
             }
             d->sig = dest_check(d);
             d->valid = 1;
+            sDestBok[d - sDest] = 1;
             {
                 static unsigned lines;
                 if (gVitaUpDestLog && lines < 60) {
@@ -3762,6 +3871,9 @@ static void dp_cap_end(uint32_t serial) {
 /* One run of VIF data (32-bit words): GIF data (DIRECT) goes to the GS, everything else to VU1 (gs_vu1.c).
    A command's data may continue in the next run (the command word often sits in the DMA tag, its data behind):
    DIRECT data is passed on as it comes, the data of the other commands is collected first. */
+#ifdef PORT_VITA
+static int sVifIdle = 1; /* (esdirect) no command's data still to come after the last run */
+#endif
 __attribute__((hot)) static void vif(const uint32_t *w, uint32_t count) {
     static uint32_t direct;                    /* quadwords of GIF data still to come */
     static uint32_t pend, need, have, buf[2048]; /* a command waiting for `need` words of data */
@@ -3883,6 +3995,9 @@ __attribute__((hot)) static void vif(const uint32_t *w, uint32_t count) {
             break;
         }
     }
+#ifdef PORT_VITA
+    sVifIdle = direct == 0 && need == 0;
+#endif
 }
 
 /* ------------------------------------------------------------------------------------------------ DMA and frames */
@@ -5228,6 +5343,44 @@ static void frame_tail(void) {
     sMissingTex = 0;
 }
 
+#ifdef PORT_VITA
+/* ---- bt3.txt esdirect (the calls of the seam the direct way): the call packet of a model's part named at the seam
+   (src/sys/vu1_packet.c Vu1Pkt_CallProg0..2: in the DMA tag FLUSHE and UNPACK V4-32 of n quadwords at 0, then the n
+   quadwords, MSCALF, BASE, OFFSET and the seam's MARK) is done as what it is: its constants copied into VU memory, the
+   program's call and its double buffer's registers set, the MARK taken, instead of the VIF codes read one by one. The
+   call itself then goes the seam's way (es_find: sent from its kept copy) as before. 0 off (default), 1 on, 2 in the
+   soak's B battles. ---- */
+int gVitaEsDirect = 0;
+unsigned gVitaEsDirectN[2];     /* for the log: call packets the direct way; -  */
+static int es_direct_on(void) {
+    extern int gVitaAbSide;
+    return gVitaEsDirect == 2 ? gVitaAbSide == 1 : gVitaEsDirect != 0;
+}
+static int es_direct(const uint32_t *tag, const uint32_t *data, uint32_t qwc) {
+    uint32_t n = (tag[3] >> 16) & 0xFF, m;
+    const uint32_t *c;
+    if (tag[2] != 0x10000000u || (tag[3] & 0xFF00FFFFu) != 0x6C000000u || n == 0 || qwc != n + 1) {
+        return 0; /* (FLUSHE; UNPACK V4-32 of n quadwords at 0, as the packet's tag words) */
+    }
+    c = data + n * 4;
+    m = c[3];
+    if ((c[0] & 0xFFFF0000u) != 0x15000000u || (c[1] & 0xFFFF0000u) != 0x03000000u || (c[2] & 0xFFFF0000u) != 0x02000000u ||
+        (m & 0xFFFFC000u) != 0x0700C000u) {
+        return 0; /* (MSCALF, BASE, OFFSET, and a model part's MARK of the seam) */
+    }
+    if (gVitaGsSkipF) {
+        return 0; /* (a list read but not drawn: the VIF's own way, which leaves out what is not needed) */
+    }
+    GsVu1_Unpack(0x6C, n, 0, data);
+    GsVu1_Call((int)(c[0] & 0xFFFF));
+    GsVu1_SetBase(c[1] & 0xFFFF);
+    GsVu1_SetOffset(c[2] & 0xFFFF);
+    sEsMark = 0x10000u | (m & 0xFFFF);
+    sStat[1] += 6;
+    gVitaEsDirectN[0]++;
+    return 1;
+}
+#endif
 /* Executes one frame's list: the DMA chain at `tadr` on VIF1, then the end-of-frame work of the back end. */
 static void run_chain(uint32_t tadr, int tte) {
     uint32_t stack[2], sp = 0;
@@ -5290,10 +5443,18 @@ static void run_chain(uint32_t tadr, int tte) {
             fprintf(stderr, "  dma tag at %08x: id %u qwc %u addr %08x | %08x %08x (depth %u)\n", (unsigned)(uintptr_t)tag, id, qwc, addr, tag[2], tag[3], sp);
         }
         sStat[0]++;
-        if (tte) {
-            vif(tag + 2, 2);
+#ifdef PORT_VITA
+        if (id == 5 && tte && sVifIdle && gVitaEsDirect && es_direct_on() && es_direct(tag, data, qwc)) {
+            /* (the call packet of a model's part named at the seam: its constants put in VU memory and its program's
+               registers set without the VIF codes read one by one) */
+        } else
+#endif
+        {
+            if (tte) {
+                vif(tag + 2, 2);
+            }
+            vif(data, qwc * 4);
         }
-        vif(data, qwc * 4);
 #ifdef PORT_VITA
         GZM2(20);
         sFeTexMark = 0;
