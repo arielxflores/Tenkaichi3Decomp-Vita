@@ -693,7 +693,7 @@ void Vita_VBlank(unsigned vblanks) {
                                   " given up | model calls: %u sent from copies, %u read the long way and recorded, %u kept, %u dropped (changed)\n",
                                   cen[0], cen[5], cen[1], cen[2], cen[3], cen[4], gVitaCcNoRoom, gVitaCcEvicted, gVitaCc[0], gVitaCc[1], gVitaCc[2], gVitaCc[3]);
                             gVitaCcEvicted = 0;
-                            { extern unsigned gVitaEs[6], gVitaEsGens[2]; if (gVitaEs[0] | gVitaEs[1] | gVitaEs[3] | gVitaEs[4]) { logf_("vita:   engine seam (native): %u calls sent from their copies, %u read the long way, %u kept, %u to the cache (table full), %u of an old generation, %u places taken over; generations %u of the stage, %u of the models\n", gVitaEs[0], gVitaEs[1], gVitaEs[2], gVitaEs[3], gVitaEs[4], gVitaEs[5], gVitaEsGens[0], gVitaEsGens[1]); memset(gVitaEs, 0, sizeof(gVitaEs)); } } /* (here, not with the processor counters: printed without libperf) */
+                            { extern unsigned gVitaEs[6], gVitaEsGens[2]; if (gVitaEs[0] | gVitaEs[1] | gVitaEs[3] | gVitaEs[4]) { logf_("vita:   engine seam (native): %u calls sent from their copies, %u read the long way, %u kept, %u to the cache (table full), %u of an old generation, %u places taken over; generations %u of the stage, %u of the models\n", gVitaEs[0], gVitaEs[1], gVitaEs[2], gVitaEs[3], gVitaEs[4], gVitaEs[5], gVitaEsGens[0], gVitaEsGens[1]); memset(gVitaEs, 0, sizeof(gVitaEs)); } } /* (and with the processor counters below, when libperf is there) */
                             logf_("vita:   kept parts: %u drawn directly, %u walked (%u kept now, %u refused, %u found in another state), %u not recorded"
                                   " (their place another part's) | calls not kept: %u too big (largest %u KB), %u wrapped, %u empty, %u strips copied,"
                                   " %u strips not planned, %u other constants, %u other records, %u writing the constants\n",
@@ -1074,6 +1074,7 @@ void Vita_VBlank(unsigned vblanks) {
                                         }
                                     }
                                 }
+                                { extern unsigned gVitaEs[6], gVitaEsGens[2]; if (gVitaEs[0] | gVitaEs[1] | gVitaEs[3] | gVitaEs[4]) { logf_("vita:   engine seam (native): %u calls sent from their copies, %u read the long way, %u kept, %u to the cache (table full), %u of an old generation, %u places taken over; generations %u of the stage, %u of the models\n", gVitaEs[0], gVitaEs[1], gVitaEs[2], gVitaEs[3], gVitaEs[4], gVitaEs[5], gVitaEsGens[0], gVitaEsGens[1]); memset(gVitaEs, 0, sizeof(gVitaEs)); } } /* (the seam's line with the counters: printed above without libperf) */
                                 {
                                     extern unsigned long long gVitaWall[6];
                                     logf_("vita:   drawing thread, wall ms in this stretch: swap %u, buffer maps %u, draw calls %u, new textures %u, asleep waiting for work %u; fighter glDrawElements alone %u\n",
