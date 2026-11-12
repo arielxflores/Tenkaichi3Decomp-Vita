@@ -41,6 +41,7 @@ New
   (`port/vita/vita_optart_bt4.h`); before, BT4's Vita Settings plates showed the PS2's captions.
 - **Vita Settings' page number** ("Page 1/3") at the top right while it is open, on a plate of its own like the
   pickers', in BT3 and BT4.
+- **The Options screen's rows** are Vita Settings, Controls, Sound, Save/Load (BT3 and BT4).
 - **Controls**: the Options screen's Controller row and its page's title read Controls, the page's Control Type row
   reads Controller Settings, in the disc's own lettering (BT3 and BT4), and Dende's lines for the two trade
   places to match.
@@ -76,6 +77,8 @@ Sound
 
 Fixed
 
+- A crash in fights (seen in BT4, the same code in BT3): a ki blast's hit read its fighter before it was known (the
+  game's code passes it and fills it in the same call, in an order the PS2's compiler kept and the Vita's does not).
 - BT4: the fight camera stood still (it kept the fight's first picture's pose, so it did not follow the fighters and
   the right stick could not move it).
 - The dragon's screen (Shenron): the dragon balls' white outlines no longer lag behind or sit apart from the balls.

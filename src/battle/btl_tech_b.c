@@ -569,7 +569,17 @@ s32 BtlKiBlast_GetGuardDamageOf(BtlTechBChr *chr, u32 kind) {
 s32 BtlKiBlast_GetKiCost(BtlTechBChr *chr) {
     s32 kind;
 
+#ifdef PORT
+    /* (PORT: the record fetched first, in its own statement: as an argument beside `chr` / `kind`, which it sets, the
+       order is the compiler's; the Vita's read them first, unset, and a ki blast's hit read a null fighter) */
+    {
+        BtlKiBlastData *rec = BtlKiBlast_GetCurrent(chr, &kind);
+
+        return BtlKiBlast_ScaleKiByAbility(chr, rec->ki, kind);
+    }
+#else
     return BtlKiBlast_ScaleKiByAbility(chr, BtlKiBlast_GetCurrent(chr, &kind)->ki, kind);
+#endif
 }
 
 /* The same for a hit record (an absorber gains three times this). */
@@ -577,7 +587,17 @@ s32 BtlKiBlast_GetKiCostOfHit(BtlTechBHit *hit) {
     BtlTechBChr *chr;
     s32 kind;
 
+#ifdef PORT
+    /* (PORT: the record fetched first, in its own statement: as an argument beside `chr` / `kind`, which it sets, the
+       order is the compiler's; the Vita's read them first, unset, and a ki blast's hit read a null fighter) */
+    {
+        BtlKiBlastData *rec = BtlKiBlast_GetOfHit(hit, &chr, &kind);
+
+        return BtlKiBlast_ScaleKiByAbility(chr, rec->ki, kind);
+    }
+#else
     return BtlKiBlast_ScaleKiByAbility(chr, BtlKiBlast_GetOfHit(hit, &chr, &kind)->ki, kind);
+#endif
 }
 
 /* The same for a kind. */
@@ -589,7 +609,17 @@ s32 BtlKiBlast_GetKiCostOf(BtlTechBChr *chr, u32 kind) {
 f32 BtlKiBlast_GetSpeed(BtlTechBChr *chr) {
     s32 kind;
 
+#ifdef PORT
+    /* (PORT: the record fetched first, in its own statement: as an argument beside `chr` / `kind`, which it sets, the
+       order is the compiler's; the Vita's read them first, unset, and a ki blast's hit read a null fighter) */
+    {
+        BtlKiBlastData *rec = BtlKiBlast_GetCurrent(chr, &kind);
+
+        return BtlKiBlast_ScaleSpeedByAbility(chr, kind, rec->speed * 10.0f * BTL_KMH_PER_FRAME);
+    }
+#else
     return BtlKiBlast_ScaleSpeedByAbility(chr, kind, BtlKiBlast_GetCurrent(chr, &kind)->speed * 10.0f * BTL_KMH_PER_FRAME);
+#endif
 }
 
 /* The same for a hit record. */
@@ -597,7 +627,17 @@ f32 BtlKiBlast_GetSpeedOfHit(BtlTechBHit *hit) {
     BtlTechBChr *chr;
     s32 kind;
 
+#ifdef PORT
+    /* (PORT: the record fetched first, in its own statement: as an argument beside `chr` / `kind`, which it sets, the
+       order is the compiler's; the Vita's read them first, unset, and a ki blast's hit read a null fighter) */
+    {
+        BtlKiBlastData *rec = BtlKiBlast_GetOfHit(hit, &chr, &kind);
+
+        return BtlKiBlast_ScaleSpeedByAbility(chr, kind, rec->speed * 10.0f * BTL_KMH_PER_FRAME);
+    }
+#else
     return BtlKiBlast_ScaleSpeedByAbility(chr, kind, BtlKiBlast_GetOfHit(hit, &chr, &kind)->speed * 10.0f * BTL_KMH_PER_FRAME);
+#endif
 }
 
 /* The same for a kind. */
@@ -654,7 +694,17 @@ s32 BtlKiBlast_GetUnk31Of(BtlTechBChr *chr, u32 kind) {
 s32 BtlKiBlast_GetReact(BtlTechBChr *chr) {
     s32 kind;
 
+#ifdef PORT
+    /* (PORT: the record fetched first, in its own statement: as an argument beside `chr` / `kind`, which it sets, the
+       order is the compiler's; the Vita's read them first, unset, and a ki blast's hit read a null fighter) */
+    {
+        BtlKiBlastData *rec = BtlKiBlast_GetCurrent(chr, &kind);
+
+        return BtlKiBlast_MapReact(chr, rec->react, kind);
+    }
+#else
     return BtlKiBlast_MapReact(chr, BtlKiBlast_GetCurrent(chr, &kind)->react, kind);
+#endif
 }
 
 /* The same for a hit record. */
@@ -662,7 +712,17 @@ s32 BtlKiBlast_GetReactOfHit(BtlTechBHit *hit) {
     BtlTechBChr *chr;
     s32 kind;
 
+#ifdef PORT
+    /* (PORT: the record fetched first, in its own statement: as an argument beside `chr` / `kind`, which it sets, the
+       order is the compiler's; the Vita's read them first, unset, and a ki blast's hit read a null fighter) */
+    {
+        BtlKiBlastData *rec = BtlKiBlast_GetOfHit(hit, &chr, &kind);
+
+        return BtlKiBlast_MapReact(chr, rec->react, kind);
+    }
+#else
     return BtlKiBlast_MapReact(chr, BtlKiBlast_GetOfHit(hit, &chr, &kind)->react, kind);
+#endif
 }
 
 /* The same for a kind. */

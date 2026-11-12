@@ -192,6 +192,118 @@ index 731528f..f64302d 100644
                      y += 0x1C;
                      Font_SetColor2RGBA(0x80, 0x80, 0x80, 0x80);
                      if (work->unk10 == 1) {
+diff --git a/src/battle/btl_tech_b.c b/src/battle/btl_tech_b.c
+index 44df8ff..818d18b 100644
+--- a/src/battle/btl_tech_b.c
++++ b/src/battle/btl_tech_b.c
+@@ -569,7 +569,17 @@ s32 BtlKiBlast_GetGuardDamageOf(BtlTechBChr *chr, u32 kind) {
+ s32 BtlKiBlast_GetKiCost(BtlTechBChr *chr) {
+     s32 kind;
+ 
++#ifdef PORT
++    /* (PORT: the record fetched first, in its own statement: as an argument beside `chr` / `kind`, which it sets, the
++       order is the compiler's; the Vita's read them first, unset, and a ki blast's hit read a null fighter) */
++    {
++        BtlKiBlastData *rec = BtlKiBlast_GetCurrent(chr, &kind);
++
++        return BtlKiBlast_ScaleKiByAbility(chr, rec->ki, kind);
++    }
++#else
+     return BtlKiBlast_ScaleKiByAbility(chr, BtlKiBlast_GetCurrent(chr, &kind)->ki, kind);
++#endif
+ }
+ 
+ /* The same for a hit record (an absorber gains three times this). */
+@@ -577,7 +587,17 @@ s32 BtlKiBlast_GetKiCostOfHit(BtlTechBHit *hit) {
+     BtlTechBChr *chr;
+     s32 kind;
+ 
++#ifdef PORT
++    /* (PORT: the record fetched first, in its own statement: as an argument beside `chr` / `kind`, which it sets, the
++       order is the compiler's; the Vita's read them first, unset, and a ki blast's hit read a null fighter) */
++    {
++        BtlKiBlastData *rec = BtlKiBlast_GetOfHit(hit, &chr, &kind);
++
++        return BtlKiBlast_ScaleKiByAbility(chr, rec->ki, kind);
++    }
++#else
+     return BtlKiBlast_ScaleKiByAbility(chr, BtlKiBlast_GetOfHit(hit, &chr, &kind)->ki, kind);
++#endif
+ }
+ 
+ /* The same for a kind. */
+@@ -589,7 +609,17 @@ s32 BtlKiBlast_GetKiCostOf(BtlTechBChr *chr, u32 kind) {
+ f32 BtlKiBlast_GetSpeed(BtlTechBChr *chr) {
+     s32 kind;
+ 
++#ifdef PORT
++    /* (PORT: the record fetched first, in its own statement: as an argument beside `chr` / `kind`, which it sets, the
++       order is the compiler's; the Vita's read them first, unset, and a ki blast's hit read a null fighter) */
++    {
++        BtlKiBlastData *rec = BtlKiBlast_GetCurrent(chr, &kind);
++
++        return BtlKiBlast_ScaleSpeedByAbility(chr, kind, rec->speed * 10.0f * BTL_KMH_PER_FRAME);
++    }
++#else
+     return BtlKiBlast_ScaleSpeedByAbility(chr, kind, BtlKiBlast_GetCurrent(chr, &kind)->speed * 10.0f * BTL_KMH_PER_FRAME);
++#endif
+ }
+ 
+ /* The same for a hit record. */
+@@ -597,7 +627,17 @@ f32 BtlKiBlast_GetSpeedOfHit(BtlTechBHit *hit) {
+     BtlTechBChr *chr;
+     s32 kind;
+ 
++#ifdef PORT
++    /* (PORT: the record fetched first, in its own statement: as an argument beside `chr` / `kind`, which it sets, the
++       order is the compiler's; the Vita's read them first, unset, and a ki blast's hit read a null fighter) */
++    {
++        BtlKiBlastData *rec = BtlKiBlast_GetOfHit(hit, &chr, &kind);
++
++        return BtlKiBlast_ScaleSpeedByAbility(chr, kind, rec->speed * 10.0f * BTL_KMH_PER_FRAME);
++    }
++#else
+     return BtlKiBlast_ScaleSpeedByAbility(chr, kind, BtlKiBlast_GetOfHit(hit, &chr, &kind)->speed * 10.0f * BTL_KMH_PER_FRAME);
++#endif
+ }
+ 
+ /* The same for a kind. */
+@@ -654,7 +694,17 @@ s32 BtlKiBlast_GetUnk31Of(BtlTechBChr *chr, u32 kind) {
+ s32 BtlKiBlast_GetReact(BtlTechBChr *chr) {
+     s32 kind;
+ 
++#ifdef PORT
++    /* (PORT: the record fetched first, in its own statement: as an argument beside `chr` / `kind`, which it sets, the
++       order is the compiler's; the Vita's read them first, unset, and a ki blast's hit read a null fighter) */
++    {
++        BtlKiBlastData *rec = BtlKiBlast_GetCurrent(chr, &kind);
++
++        return BtlKiBlast_MapReact(chr, rec->react, kind);
++    }
++#else
+     return BtlKiBlast_MapReact(chr, BtlKiBlast_GetCurrent(chr, &kind)->react, kind);
++#endif
+ }
+ 
+ /* The same for a hit record. */
+@@ -662,7 +712,17 @@ s32 BtlKiBlast_GetReactOfHit(BtlTechBHit *hit) {
+     BtlTechBChr *chr;
+     s32 kind;
+ 
++#ifdef PORT
++    /* (PORT: the record fetched first, in its own statement: as an argument beside `chr` / `kind`, which it sets, the
++       order is the compiler's; the Vita's read them first, unset, and a ki blast's hit read a null fighter) */
++    {
++        BtlKiBlastData *rec = BtlKiBlast_GetOfHit(hit, &chr, &kind);
++
++        return BtlKiBlast_MapReact(chr, rec->react, kind);
++    }
++#else
+     return BtlKiBlast_MapReact(chr, BtlKiBlast_GetOfHit(hit, &chr, &kind)->react, kind);
++#endif
+ }
+ 
+ /* The same for a kind. */
 diff --git a/src/battle/col_c.c b/src/battle/col_c.c
 index 8220a15..eab4baf 100644
 --- a/src/battle/col_c.c
@@ -1227,7 +1339,7 @@ index c0c0ba1..91f869d 100644
      TM_RES(22);
      IconWin_Init(MPACK_AT(gTourMenu->res, 21), res);
 diff --git a/src/menu/menu_x_c.c b/src/menu/menu_x_c.c
-index d89aefe..2b7ff79 100644
+index d89aefe..9d91d2e 100644
 --- a/src/menu/menu_x_c.c
 +++ b/src/menu/menu_x_c.c
 @@ -7,6 +7,10 @@
@@ -1255,7 +1367,19 @@ index d89aefe..2b7ff79 100644
      /*
       * The rest of the function sits in a block that the compiler sees as a loop (`do { } while (0)`, most likely
       * from a macro), and the counter of the loop at the end is cleared here, not in its `for`: the original
-@@ -186,6 +197,9 @@ s32 Option_Init(s32 section) {
+@@ -166,7 +177,11 @@ s32 Option_Init(s32 section) {
+         gOption->msgText = MPACK_AT(gOption->res, 33);
+         MsgWin_Init(MPACK_AT(gOption->res, 31), gOption->msgText, 0, (s32)gOption->unk1B0);
+         MsgWin_Open();
++#ifdef PORT_VITA
++        gOption->cursor = kVitaTopItem[1]; /* (the first row: Vita Settings) */
++#else
+         gOption->cursor = OPT_ITEM_SAVE;
++#endif
+         gOption->state = OPT_ST_START;
+         gOption->bgmVolume = gSaveData->bgmVolume;
+         gOption->seVolume = gSaveData->seVolume;
+@@ -186,6 +201,9 @@ s32 Option_Init(s32 section) {
              gOption->key[i][5] = 5;
              gOption->key[i][6] = 6;
              gOption->key[i][7] = 7;
@@ -1265,7 +1389,7 @@ index d89aefe..2b7ff79 100644
          }
      } while (0);
      return 1;
-@@ -211,9 +225,663 @@ s32 Option_Run(s32 section) {
+@@ -211,9 +229,670 @@ s32 Option_Run(s32 section) {
      return 0;
  }
  
@@ -1294,6 +1418,13 @@ index d89aefe..2b7ff79 100644
 +#endif
  #define OPT_PLATE(kind, label) Option_PlateGoto(0, kind, label)
  
++#ifdef PORT_VITA
++/* The top page's rows on the handheld: Vita Settings, Controls, Sound, Save/Load (the console's Save/Load, Screen,
++   Sound, Controller). The cursor still names the item (OPT_ITEM_*); its row, its plate and its caption follow these. */
++static const s8 kVitaTopRow[6] = {0, 4, 1, 3, 2, 5};  /* item -> row (plate mc_menu_plate_<row>) */
++static const s8 kVitaTopItem[6] = {0, 2, 4, 3, 1, 5}; /* row -> item */
++#endif
++
 +#ifdef PORT_VITA
 +/* The control type page on the handheld. The console's page had a 1P / 2P row above Normal / Custom, and
 +   from Normal / Custom only Up went back (Triangle did nothing there: the page seemed stuck). Here the page opens
@@ -1929,7 +2060,51 @@ index d89aefe..2b7ff79 100644
  /*
   * Pad 0, one state per frame; does nothing until the movie accepts input. Returns 0 when the screen is over
   * (faded out), else 1. Option.state:
-@@ -328,6 +996,11 @@ s32 Option_Input(void) {
+@@ -265,8 +944,13 @@ s32 Option_Input(void) {
+     case OPT_ST_TOP:
+         if (gOption->greeted == 0) {
+             if (Voice_GetStat(0) == MVOICE_IDLE) {
++#ifdef PORT_VITA
++                gOption->voiceLine = gOption->cursor; /* (the first row's line: it is no longer Save/Load) */
++                OPT_VOICE(gOption->cursor);
++#else
+                 gOption->voiceLine = 1;
+                 OPT_VOICE(1);
++#endif
+                 gOption->greeted = 1;
+             }
+         }
+@@ -276,10 +960,14 @@ s32 Option_Input(void) {
+             } else {
+                 OPT_PLATE(OPT_CLIP_ROW, "fl_off_start");
+             }
++#ifdef PORT_VITA
++            gOption->cursor = kVitaTopItem[kVitaTopRow[gOption->cursor] <= 1 ? 5 : kVitaTopRow[gOption->cursor] - 1];
++#else
+             gOption->cursor--;
+             if (gOption->cursor <= 0) {
+                 gOption->cursor = OPT_ITEM_EXIT;
+             }
++#endif
+             if (gOption->cursor == OPT_ITEM_EXIT) {
+                 OPT_PLATE(OPT_CLIP_BOTTOM, "fl_on_start");
+             } else {
+@@ -295,10 +983,14 @@ s32 Option_Input(void) {
+             } else {
+                 OPT_PLATE(OPT_CLIP_ROW, "fl_off_start");
+             }
++#ifdef PORT_VITA
++            gOption->cursor = kVitaTopItem[kVitaTopRow[gOption->cursor] >= 5 ? 1 : kVitaTopRow[gOption->cursor] + 1];
++#else
+             gOption->cursor++;
+             if (gOption->cursor > OPT_ITEM_EXIT) {
+                 gOption->cursor = OPT_ITEM_SAVE;
+             }
++#endif
+             if (gOption->cursor == OPT_ITEM_EXIT) {
+                 OPT_PLATE(OPT_CLIP_BOTTOM, "fl_on_start");
+             } else {
+@@ -328,6 +1020,11 @@ s32 Option_Input(void) {
                  OPT_PLATE(OPT_CLIP_PICK, "fl_on_start");
                  gOption->picker = 0;
              } else if (gOption->state == OPT_ITEM_SCREEN) {
@@ -1941,7 +2116,7 @@ index d89aefe..2b7ff79 100644
                  Flash_GotoLabel(&gOption->flash[0], "fl_menu_change", 1);
                  OPT_PLATE(OPT_CLIP_ROW, "fl_off_start");
                  gOption->cursor = OPT_ITEM_TYPE;
-@@ -761,6 +1434,11 @@ s32 Option_Input(void) {
+@@ -761,6 +1458,11 @@ s32 Option_Input(void) {
                  OPT_PLATE(OPT_CLIP_ROW_CTRL, "fl_off_start");
              }
              gOption->cursor--;
@@ -1953,7 +2128,7 @@ index d89aefe..2b7ff79 100644
              if (gOption->cursor < OPT_ITEM_KEYS) {
                  gOption->cursor = OPT_ITEM_CTRL_RESET;
              }
-@@ -785,6 +1463,11 @@ s32 Option_Input(void) {
+@@ -785,6 +1487,11 @@ s32 Option_Input(void) {
                  OPT_PLATE(OPT_CLIP_ROW_CTRL, "fl_off_start");
              }
              gOption->cursor++;
@@ -1965,7 +2140,7 @@ index d89aefe..2b7ff79 100644
              if (gOption->cursor > OPT_ITEM_CTRL_RESET) {
                  gOption->cursor = OPT_ITEM_KEYS;
              }
-@@ -808,6 +1491,9 @@ s32 Option_Input(void) {
+@@ -808,6 +1515,9 @@ s32 Option_Input(void) {
              gOption->pad = 0;
              Option_DimPickers();
              if (gOption->state == OPT_ITEM_VIB) {
@@ -1975,7 +2150,7 @@ index d89aefe..2b7ff79 100644
                  OPT_PLATE(OPT_CLIP_ROW_CTRL, "fl_ok");
                  gOption->ctrlKind = 0;
                  gOption->picker = 2;
-@@ -815,15 +1501,22 @@ s32 Option_Input(void) {
+@@ -815,15 +1525,22 @@ s32 Option_Input(void) {
                  OPT_PLATE(OPT_CLIP_PICK, "fl_on_start");
                  OPT_PLATE(OPT_CLIP_VIB_OFF, "fl_ok");
                  Snd_PlaySe(1, 1);
@@ -1998,7 +2173,7 @@ index d89aefe..2b7ff79 100644
              } else {
                  OPT_PLATE(OPT_CLIP_BOTTOM, "fl_ok");
              }
-@@ -892,6 +1585,38 @@ s32 Option_Input(void) {
+@@ -892,6 +1609,38 @@ s32 Option_Input(void) {
          }
          break;
      case OPT_ST_KEYS_PAD:
@@ -2037,7 +2212,7 @@ index d89aefe..2b7ff79 100644
          if (((gPad[0].gamePressed & PADG_LEFT) || (gPad[0].gamePressed & PADG_RIGHT)) && gOption->keyEdit == 0) {
              OPT_PLATE(OPT_CLIP_KEY_OFF, "fl_off_start");
              gOption->value ^= 1;
-@@ -967,20 +1692,34 @@ s32 Option_Input(void) {
+@@ -967,20 +1716,34 @@ s32 Option_Input(void) {
              }
              Snd_PlaySe(1, 0);
          } else if ((gPad[0].gamePressed & PADG_UP) && gOption->keyOld < 0) {
@@ -2073,7 +2248,7 @@ index d89aefe..2b7ff79 100644
              /* original bug: address comparisons again, always true */
              if (gOption->key[0] != gSaveData->keyEdit[0] || gOption->key[1] != gSaveData->keyEdit[1]) {
                  gOption->dirty = 1;
-@@ -1025,13 +1764,20 @@ s32 Option_Input(void) {
+@@ -1025,13 +1788,20 @@ s32 Option_Input(void) {
                  gOption->keyOld = gSaveData->keyEdit[gOption->pad][gOption->keyRow];
              }
          }
@@ -2096,7 +2271,7 @@ index d89aefe..2b7ff79 100644
                  gSaveData->keyEdit[gOption->pad][gOption->keyRow] = 0;
              }
              Snd_PlaySe(1, 0);
-@@ -1054,6 +1800,10 @@ s32 Option_Input(void) {
+@@ -1054,6 +1824,10 @@ s32 Option_Input(void) {
          }
          break;
      case OPT_ITEM_VIB:
@@ -2107,7 +2282,7 @@ index d89aefe..2b7ff79 100644
          if ((gPad[0].gamePressed & PADG_LEFT) || (gPad[0].gamePressed & PADG_RIGHT)) {
              OPT_PLATE(OPT_CLIP_VIB_OFF, "fl_off_start");
              OPT_PLATE(OPT_CLIP_PICK, "fl_off_start");
-@@ -1319,6 +2069,111 @@ s32 Option_Input(void) {
+@@ -1319,6 +2093,111 @@ s32 Option_Input(void) {
                          Flash_ClipSetUv(flash, &ref, &uv); \
                      }
  
@@ -2219,7 +2394,7 @@ index d89aefe..2b7ff79 100644
  /* Per frame: sets up every clip of the movie from the screen's state and draws the screen. */
  void Option_Draw(void) {
      MFlashRef ref;
-@@ -1368,6 +2223,8 @@ void Option_Draw(void) {
+@@ -1368,6 +2247,8 @@ void Option_Draw(void) {
          IconWin_SetIcon(2);
      } else if (gOption->state == YOPT_BGM) {
          IconWin_SetIcon(3);
@@ -2228,7 +2403,7 @@ index d89aefe..2b7ff79 100644
      } else if (gOption->state == YOPT_CTRL || gOption->state >= YOPT_KEYS) {
          IconWin_SetIcon(4);
      } else {
-@@ -1375,6 +2232,13 @@ void Option_Draw(void) {
+@@ -1375,6 +2256,13 @@ void Option_Draw(void) {
      }
  
      TagHudScreen_Restore(flash);
@@ -2242,7 +2417,18 @@ index d89aefe..2b7ff79 100644
      switch (gOption->page) {
          case 0:
              rows4 = 4;
-@@ -1605,6 +2469,11 @@ void Option_Draw(void) {
+@@ -1383,6 +2271,10 @@ void Option_Draw(void) {
+                 uv.y0 = i * 0x20;
+                 uv.x1 = 0x200;
+                 uv.y1 = i * 0x20 + 0x20;
++#ifdef PORT_VITA
++                uv.y0 = (kVitaTopItem[i + 1] - 1) * 0x20; /* (row i + 1 shows its item's caption) */
++                uv.y1 = uv.y0 + 0x20;
++#endif
+                 sprintf(name, "mc_menu_plate_%d", i + 1);
+                 Option_SetMenuText(flash, &ref, name, uv);
+             }
+@@ -1605,6 +2497,11 @@ void Option_Draw(void) {
              sprintf(name, "mc_menu_plate_%d", 4);
              Flash_FindLabel(flash, NULL, name, &ref);
              Flash_ClipSetFlags(flash, &ref, 2, 0);
@@ -2254,7 +2440,7 @@ index d89aefe..2b7ff79 100644
              uv.y0 = 0x20;
              uv.x0 = 0;
              uv.x1 = 0x100;
-@@ -1768,6 +2637,9 @@ void Option_Draw(void) {
+@@ -1768,6 +2665,9 @@ void Option_Draw(void) {
              break;
      }
  
@@ -2264,7 +2450,7 @@ index d89aefe..2b7ff79 100644
      /* the two-way picker's captions */
      if (gOption->picker == 4 || gOption->picker == 2) {
          baseY = 0;
-@@ -1823,6 +2695,9 @@ void Option_Draw(void) {
+@@ -1823,6 +2723,9 @@ void Option_Draw(void) {
              Flash_ClipSetFlags(flash, &ref, 2, 0);
          }
      }
@@ -2274,7 +2460,7 @@ index d89aefe..2b7ff79 100644
  
      /* the volume window: ten numbered plates per volume */
      for (i = 0; i < 3; i++) {
-@@ -1989,7 +2864,8 @@ void Option_Draw(void) {
+@@ -1989,7 +2892,8 @@ void Option_Draw(void) {
      IconWin_Draw();
      if(gOption->page==1 && gOption->cursor==OPT_ITEM_TAG_HUD && gOption->state==OPT_ITEM_SCREEN)
          TagHudScreen_Description();
@@ -2284,7 +2470,18 @@ index d89aefe..2b7ff79 100644
      ColorFade_Draw();
      if (gOption->mcBusy) {
          gOption->mcBusy = McFlow_Update();
-@@ -2178,6 +3054,13 @@ void Option_UpdateReset(void) {
+@@ -2014,6 +2918,10 @@ void Option_PlateGoto(s32 unused, s32 clip, char *label) {
+ 
+     switch (clip) {
+         case OPT_CLIP_ROW:
++#ifdef PORT_VITA
++            sprintf(name, "mc_menu_plate_%d", gOption->cursor >= 1 && gOption->cursor <= 5 ? kVitaTopRow[gOption->cursor] : gOption->cursor);
++            break;
++#endif
+             sprintf(name, "mc_menu_plate_%d", gOption->cursor);
+             break;
+         case OPT_CLIP_ROW_SCREEN:
+@@ -2178,6 +3086,13 @@ void Option_UpdateReset(void) {
                  if (!(gSaveData->flags & 4)) {
                      gSaveData->flags |= 4;
                  }
@@ -2298,7 +2495,7 @@ index d89aefe..2b7ff79 100644
                  for (i = 0; i < 2; i++) {
                      gSaveData->keyEdit[i][0] = 2;
                      gSaveData->keyEdit[i][1] = 1;
-@@ -2187,6 +3070,10 @@ void Option_UpdateReset(void) {
+@@ -2187,6 +3102,10 @@ void Option_UpdateReset(void) {
                      gSaveData->keyEdit[i][5] = 5;
                      gSaveData->keyEdit[i][6] = 6;
                      gSaveData->keyEdit[i][7] = 7;
@@ -2309,7 +2506,7 @@ index d89aefe..2b7ff79 100644
                  }
              }
              gOption->resetStep = 3;
-@@ -2275,6 +3162,12 @@ void Option_OnSaved(void) {
+@@ -2275,6 +3194,12 @@ void Option_OnSaved(void) {
  /* Frees the screen. */
  void Option_Term(void) {
      s32 i;

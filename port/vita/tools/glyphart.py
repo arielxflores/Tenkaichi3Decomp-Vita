@@ -109,3 +109,50 @@ def compose(pieces, gap, space, x, h, w):
         out[:, cx:cx + cols.shape[1]] |= cols
         cx += cols.shape[1] + gap
     return out
+
+
+def pieces(rgba, y0, y1, shape=None):
+    """glyphs() with what each letter looked like: (x0, x1, mask, cell, word) with cell the rows y0..y1 of `rgba`
+    (the colours: a highlighted strip's) and word all the letters' bodies (from `shape`, the plain strip, if given)"""
+    src = rgba if shape is None else shape
+    word = fill_mask(src, y0, y1)
+    cell = rgba[y0:y1].astype(float)
+    return [(x0, x1, mk, cell, word) for x0, x1, mk in glyphs(src, y0, y1)]
+
+
+def compose_copy(ps, gap, space, x, h, w, table, dmax=12):
+    """The word set from pieces() at the disc's spacing, each pixel copied from the letter nearest to it as the
+    disc drew it (its edges smooth), where that pixel was that letter's own in its word (nearer to it than to its
+    neighbours); the others, between letters that were not neighbours on the disc, from the table (paint)"""
+    placed = []
+    cx = x
+    for p in ps:
+        if p is None:
+            cx += space
+            continue
+        x0, x1, mk, cell, word = p
+        if cx + (x1 - x0 + 1) > w:
+            raise ValueError('the word does not fit')
+        placed.append((cx - x0, mk, cell, word))
+        cx += x1 - x0 + 1 + gap
+    mask = np.zeros((h, w), bool)
+    dist = []
+    for sh, mk, cell, word in placed:
+        m = np.zeros((h, w), bool)
+        cols = mk[:, max(0, -sh):min(mk.shape[1], w - sh)]
+        m[:, max(0, sh):max(0, sh) + cols.shape[1]] = cols
+        mask |= m
+        dist.append(ndimage.distance_transform_edt(~m))
+    out = paint(mask, table, dmax)
+    owner = np.argmin(np.stack(dist), 0)
+    for k, (sh, mk, cell, word) in enumerate(placed):
+        own = ndimage.distance_transform_edt(~mk)
+        other = ndimage.distance_transform_edt(~(word & ~mk)) if (word & ~mk).any() else np.full(mk.shape, 1e9)
+        clean = own < other
+        ys, xs = np.where(owner == k)
+        sx = xs - sh
+        ok = (sx >= 0) & (sx < cell.shape[1])
+        ys, xs, sx = ys[ok], xs[ok], sx[ok]
+        ok = clean[ys, sx] & (own[ys, sx] <= dmax)
+        out[ys[ok], xs[ok]] = cell[ys[ok], sx[ok]]
+    return out

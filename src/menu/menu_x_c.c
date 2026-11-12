@@ -156,7 +156,11 @@ s32 Option_Init(s32 section) {
         gOption->msgText = MPACK_AT(gOption->res, 33);
         MsgWin_Init(MPACK_AT(gOption->res, 31), gOption->msgText, 0, (s32)gOption->unk1B0);
         MsgWin_Open();
+#ifdef PORT_VITA
+        gOption->cursor = kVitaTopItem[1]; /* (the first row: Vita Settings) */
+#else
         gOption->cursor = OPT_ITEM_SAVE;
+#endif
         gOption->state = OPT_ST_START;
         gOption->bgmVolume = gSaveData->bgmVolume;
         gOption->seVolume = gSaveData->seVolume;
@@ -228,6 +232,13 @@ static void Option_VoiceVita(s32 line) {
 #define OPT_VOICE(line) Voice_PlayWithSubtitle(gOption->subtitles, OPTION_VOICE_BASE, line)
 #endif
 #define OPT_PLATE(kind, label) Option_PlateGoto(0, kind, label)
+
+#ifdef PORT_VITA
+/* The top page's rows on the handheld: Vita Settings, Controls, Sound, Save/Load (the console's Save/Load, Screen,
+   Sound, Controller). The cursor still names the item (OPT_ITEM_*); its row, its plate and its caption follow these. */
+static const s8 kVitaTopRow[6] = {0, 4, 1, 3, 2, 5};  /* item -> row (plate mc_menu_plate_<row>) */
+static const s8 kVitaTopItem[6] = {0, 2, 4, 3, 1, 5}; /* row -> item */
+#endif
 
 #ifdef PORT_VITA
 /* The control type page on the handheld. The console's page had a 1P / 2P row above Normal / Custom, and
@@ -1151,8 +1162,13 @@ s32 Option_Input(void) {
     case OPT_ST_TOP:
         if (gOption->greeted == 0) {
             if (Voice_GetStat(0) == MVOICE_IDLE) {
+#ifdef PORT_VITA
+                gOption->voiceLine = gOption->cursor; /* (the first row's line: it is no longer Save/Load) */
+                OPT_VOICE(gOption->cursor);
+#else
                 gOption->voiceLine = 1;
                 OPT_VOICE(1);
+#endif
                 gOption->greeted = 1;
             }
         }
@@ -1162,10 +1178,14 @@ s32 Option_Input(void) {
             } else {
                 OPT_PLATE(OPT_CLIP_ROW, "fl_off_start");
             }
+#ifdef PORT_VITA
+            gOption->cursor = kVitaTopItem[kVitaTopRow[gOption->cursor] <= 1 ? 5 : kVitaTopRow[gOption->cursor] - 1];
+#else
             gOption->cursor--;
             if (gOption->cursor <= 0) {
                 gOption->cursor = OPT_ITEM_EXIT;
             }
+#endif
             if (gOption->cursor == OPT_ITEM_EXIT) {
                 OPT_PLATE(OPT_CLIP_BOTTOM, "fl_on_start");
             } else {
@@ -1181,10 +1201,14 @@ s32 Option_Input(void) {
             } else {
                 OPT_PLATE(OPT_CLIP_ROW, "fl_off_start");
             }
+#ifdef PORT_VITA
+            gOption->cursor = kVitaTopItem[kVitaTopRow[gOption->cursor] >= 5 ? 1 : kVitaTopRow[gOption->cursor] + 1];
+#else
             gOption->cursor++;
             if (gOption->cursor > OPT_ITEM_EXIT) {
                 gOption->cursor = OPT_ITEM_SAVE;
             }
+#endif
             if (gOption->cursor == OPT_ITEM_EXIT) {
                 OPT_PLATE(OPT_CLIP_BOTTOM, "fl_on_start");
             } else {
@@ -2491,6 +2515,10 @@ void Option_Draw(void) {
                 uv.y0 = i * 0x20;
                 uv.x1 = 0x200;
                 uv.y1 = i * 0x20 + 0x20;
+#ifdef PORT_VITA
+                uv.y0 = (kVitaTopItem[i + 1] - 1) * 0x20; /* (row i + 1 shows its item's caption) */
+                uv.y1 = uv.y0 + 0x20;
+#endif
                 sprintf(name, "mc_menu_plate_%d", i + 1);
                 Option_SetMenuText(flash, &ref, name, uv);
             }
@@ -3119,6 +3147,10 @@ void Option_PlateGoto(s32 unused, s32 clip, char *label) {
 
     switch (clip) {
         case OPT_CLIP_ROW:
+#ifdef PORT_VITA
+            sprintf(name, "mc_menu_plate_%d", gOption->cursor >= 1 && gOption->cursor <= 5 ? kVitaTopRow[gOption->cursor] : gOption->cursor);
+            break;
+#endif
             sprintf(name, "mc_menu_plate_%d", gOption->cursor);
             break;
         case OPT_CLIP_ROW_SCREEN:

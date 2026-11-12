@@ -221,25 +221,25 @@ if True:
     import glyphart as G
     tex16 = bytes(sec_bytes(16)[1])
     pt, ps = texture(tex16, 0)['rgba'], texture(tex16, 1)['rgba']  # (the letters' shapes: the plain strips')
-    cg = lambda r, cell: G.glyphs(r, cell, cell + 32)
-    ctrl, screen = cg(pt, 96), cg(pt, 32)
-    change, vib = cg(ps, 64), cg(ps, 128)
-    if BT4:  # (its BGM Select has no s: Screen Adjust's s and t)
-        adj = cg(pt, 192)
-        assert len(adj) == 12
-        s_, t_ = adj[10], adj[11]
-    else:
-        test = cg(ps, 32)
-        assert len(test) == 7
-        s_, t_ = test[5], test[6]
-    assert (len(ctrl), len(screen), len(change), len(vib)) == (10, 6, 11, 9)
-    m_top = G.compose(ctrl[:7] + [s_], 3, 8, ctrl[0][0], 32, pt.shape[1])
-    m_sub = G.compose(ctrl + [None, screen[0], screen[3], t_, t_, vib[1], screen[5], change[4], s_],
-                      3, 8, ctrl[0][0], 32, ps.shape[1])
-    for top, sub in ((0, 1), (2, 3)):  # (plain, highlighted)
+    for top, sub in ((0, 1), (2, 3)):  # (plain, highlighted: the letters' pixels each from its own strip)
         rt, rs = texture(tex16, top)['rgba'], texture(tex16, sub)['rgba']
-        art_job(16, top, 96, G.paint(m_top, G.style_table(rt, range(0, 256, 32), 32, shape=pt)))
-        art_job(16, sub, 96, G.paint(m_sub, G.style_table(rs, range(0, 160, 32), 32, shape=ps)))
+        cg = lambda r, shape, cell: G.pieces(r, cell, cell + 32, shape=shape)
+        ctrl, screen = cg(rt, pt, 96), cg(rt, pt, 32)
+        change, vib = cg(rs, ps, 64), cg(rs, ps, 128)
+        if BT4:  # (its BGM Select has no s: Screen Adjust's s and t)
+            adj = cg(rt, pt, 192)
+            assert len(adj) == 12
+            s_, t_ = adj[10], adj[11]
+        else:
+            test = cg(rs, ps, 32)
+            assert len(test) == 7
+            s_, t_ = test[5], test[6]
+        assert (len(ctrl), len(screen), len(change), len(vib)) == (10, 6, 11, 9)
+        tab_t = G.style_table(rt, range(0, 256, 32), 32, shape=pt)
+        tab_s = G.style_table(rs, range(0, 160, 32), 32, shape=ps)
+        art_job(16, top, 96, G.compose_copy(ctrl[:7] + [s_], 3, 8, ctrl[0][0], 32, rt.shape[1], tab_t))
+        art_job(16, sub, 96, G.compose_copy(ctrl + [None, screen[0], screen[3], t_, t_, vib[1], screen[5], change[4], s_],
+                                            3, 8, ctrl[0][0], 32, rs.shape[1], tab_s))
     G.TITLE = True
     tc = texture(bytes(sec_bytes(18)[1]), 5)['rgba'].astype(float)
     to = texture(bytes(sec_bytes(18)[1]), 1)['rgba'].astype(float)
