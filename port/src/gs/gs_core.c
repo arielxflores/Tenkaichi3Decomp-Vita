@@ -3229,7 +3229,9 @@ static void dp_cap_end(uint32_t serial) {
             gVitaDpBadWhy[2]++;
         }
         if (sDpBad == 0) {
+            extern unsigned gVitaDpEndWhy[8];
             gVitaDpBadWhy[3]++;
+            gVitaDpEndWhy[7] += sGifLoops != 0;
         }
         s->refused = 1;
         gVitaDp[4]++;
