@@ -5,8 +5,10 @@ is, the rules, building, setting up the console and the emulator (an agent on th
 it over the network), testing, comparing the old way against the new, and where the work stands. The details are in
 the documents it points to.
 
-**Talk to the developer in Italian.** The repository's documents, comments and commit messages are in English, in the
-plain style of the existing ones.
+**ALWAYS ANSWER THE DEVELOPER IN ITALIAN**: every message, question, summary and report, in every session, whatever
+language the files, the tools' output or the developer's pasted text are in. This is the developer's standing
+instruction. The repository's documents, comments and commit messages stay in English, in the plain style of the
+existing ones.
 
 ## 1. What this is
 
@@ -68,31 +70,48 @@ the host's clang against the SDK's and vitaGL's headers, up to syntax and types 
 
 ## 4. The console, set up over the network (once)
 
-The console runs HENkaku/Ensō; the developer plays the release on it, so `ur0:data/libshacccg.suprx` (the shader
-compiler), the game files and usually CapUnlocker are there already. The agent sets up the rest over FTP with
-`port/vita/tools/vita_setup.sh` (`VITA_IP` = the console's address); the developer is needed twice, for a few seconds.
+The developer's console: a **PS Vita 1000** (PCH-1000) on HENkaku/Ensō, on which they play the release, so
+`ur0:data/libshacccg.suprx` (the shader compiler), the game files and usually CapUnlocker are there already. **Ask the
+developer its firmware** (Settings > System > System Information) before choosing a way to drive it. Two ways, which
+cannot be installed together:
 
-1. **The developer**: give the console a fixed address on the network, start VitaShell, press SELECT (its FTP
-   server, port 1337), say the address.
-2. `VITA_IP=... port/vita/tools/vita_setup.sh check`: what is there (the FTP server, vitacompanion, `config.txt`'s
-   plugins, the shader compiler, the disc files, BTTD00010 / BTTD00008).
-3. **vitacompanion** (https://github.com/devnoname120/vitacompanion: FTP on 1337 and commands on 1338: `launch`,
-   `quit`, `reboot`, `promote`, synthetic buttons): download its release's `vitacompanion.suprx` and
-   `vitacompanion_kernel.skprx`, then `vita_setup.sh companion vitacompanion.suprx vitacompanion_kernel.skprx`: both
-   into `ur0:tai/`, their two lines into `ur0:tai/config.txt` (the console's copy kept in `port/build/vita_backup/`).
-4. **The developer**: restart the console once (vitacompanion is not running yet to do it). From now on nobody needs
-   to touch it: `vita_setup.sh check` shows vitacompanion answering.
-5. **The development build**: build it (section 3), then `vita_setup.sh install-dev`: the package unpacked on the
-   computer, sent to `ux0:data/bt3_devpkg` and installed with vitacompanion's `promote` (if that fails: the `.vpk`
-   installed with VitaShell by the developer, once). Later builds need only the program: the runners send
-   `eboot.bin` (`--eboot`).
-6. **CapUnlocker** (the fourth core; https://github.com/GrapheneCt/CapUnlocker): `vita_setup.sh capunlocker off|on`
-   comments or uncomments its line in `config.txt` and reboots through vitacompanion, then waits for it to answer.
-   Only for the run "without the fourth core"; leave it on otherwise.
+| | vita-agent-use (preferred) | vitacompanion (fallback) |
+|---|---|---|
+| What | https://github.com/shoui520/vita-agent-use: made for AI agents; JSON CLI; TLS with pairing | https://github.com/devnoname120/vitacompanion: FTP on 1337, commands on 1338 |
+| Firmware | **3.65** (its README) | any with taiHEN |
+| Gives | install, launch, close, upload / download with hashes, **real screenshots**, input, CPU / FPS / memory samples, crash dumps and error dialogs pushed as they happen, "runs" (deploy, launch, wait for a log line, collect, clean up) | upload / download, launch, quit, reboot, promote, synthetic input |
+| Its rules | its own `AGENTS.md` is the law (read it first): `serve` running for the whole session; a person approves the pairing and any change of `tai/` on the console; `config.txt` changed only by its `config plan` / `config apply` (which wants VitaShell 2.02 at `uma0:app/VITASHELL/` as the recovery copy); each overwritten file leaves a hidden full copy no command can free (send `eboot.bin` only when it changed) | ours: `vita_setup.sh` keeps a copy of `config.txt` before each change |
+| Our runner | `port/vita/tools/vita_agent_run.py` | `port/vita/tools/vita_console_run.sh` |
 
-If after a reboot vitacompanion does not answer within four minutes, stop and tell the developer: the old
-`config.txt` is in `port/build/vita_backup/` (`config.first.txt` is the console's own, from before any change), and
-the console may need VitaShell (or starting without plugins, see the HENkaku / Ensō guides) to put it back.
+The steps (`VITA_IP` = the console's address; `port/vita/tools/vita_setup.sh` works over FTP: VitaShell's server at
+first, vitacompanion's after; the developer is needed for a few seconds at the marked steps):
+
+1. **The developer**: a fixed address for the console on the network; VitaShell open, SELECT pressed (its FTP server,
+   port 1337); tell the agent the address and the firmware.
+2. `VITA_IP=... port/vita/tools/vita_setup.sh check`: what is there (the FTP server, vitacompanion, the plugins in
+   `config.txt`, the shader compiler, the disc files, BTTD00010 / BTTD00008).
+3. **On 3.65, vita-agent-use**: build its plugin (its README: VitaSDK, CMake, the Mbed TLS 3.6.7 source), then
+   `vita_setup.sh agentuse vita_agent_kernel.skprx vita_agent_loader.suprx vita_agent_shell.suprx` (the three into
+   `ur0:tai/`, its two lines into `config.txt`, vitacompanion's lines taken out). **The developer** restarts the
+   console, runs `python3 client/vita_agent.py bootstrap` (a terminal wizard: it asks the address and a folder for its
+   config) and `session pair`, and taps OK on the console. Then `export VITA_AGENT_CONFIG_DIR=...` (bootstrap prints
+   it), `VITA_AGENT=<vita-agent-use checkout>/vita-agent`, and `vita-agent serve` in a long-lived background process
+   (`server status`: `connected`). Recommended there too: the NoSleep and NoLockScreen plugins.
+   **Otherwise, vitacompanion**: download its release's `vitacompanion.suprx` and `vitacompanion_kernel.skprx`, then
+   `vita_setup.sh companion vitacompanion.suprx vitacompanion_kernel.skprx`; **the developer** restarts the console
+   once; from then on `vita_setup.sh check` shows it answering.
+4. **The development build** (section 3) installed: with vita-agent-use, upload the `.vpk` and `app install` it (its
+   AGENTS.md); with vitacompanion, `vita_setup.sh install-dev` (its `promote`; else the developer installs the `.vpk`
+   with VitaShell once). Later builds need only the program: the runners send `eboot.bin` (`--eboot`).
+5. **CapUnlocker** (the fourth core; https://github.com/GrapheneCt/CapUnlocker), for the run "without the fourth
+   core" only: with vitacompanion, `vita_setup.sh capunlocker off|on` (its line in `config.txt`, then a reboot through
+   vitacompanion); with vita-agent-use, through its guarded `config plan` / `config apply` and the developer's
+   approval. Leave it on otherwise.
+
+Tell the developer before every reboot and every change of `config.txt`. If after a reboot the console does not answer
+within four minutes, stop and tell the developer: the old `config.txt` is in `port/build/vita_backup/`
+(`config.first.txt` is the console's own, from before any change), and the console may need VitaShell (or starting
+without plugins, see the HENkaku / Ensō guides) to put it back.
 
 ## 5. Vita3K (on the computer, once)
 
@@ -115,8 +134,9 @@ The four levels (the syntax check, Vita3K, the console over the network, by hand
 | Script | What it does |
 |---|---|
 | `port/vita/tools/vita_console_run.sh --settings F --seconds N [--eboot]` | One run on the console: the program and the settings sent, the game launched, waited for, closed; the log, `hang.txt`, the crash dumps' list fetched into `port/build/runs/<date>/`; `perfsum.py` over it |
+| `port/vita/tools/vita_agent_run.py --settings F --seconds N [--eboot] [--shots K]` | The same through vita-agent-use, as one of its runs ending at the game's own `exitafter` line; with screenshots (`shots/`), the console's CPU / FPS / memory samples and crash events (`events.jsonl`) |
 | `port/vita/tools/vita3k_run.sh --settings F --seconds N` | The same in Vita3K |
-| `port/vita/tools/ab_run.sh --switch S [--where vita3k\|console]` | A (S=0) and B (S=1) on the same fixed fight, then `runcmp.py`; verdict OK / LOOK / BAD |
+| `port/vita/tools/ab_run.sh --switch S [--where vita3k\|console\|agent]` | A (S=0) and B (S=1) on the same fixed fight, then `runcmp.py`; verdict OK / LOOK / BAD |
 | `port/vita/tools/runcmp.py A/log.txt B/log.txt` | Two logs side by side: health, the report's counters, the draws (`drawlog=`) |
 | `port/vita/tools/perfsum.py [--ab\|--parts] log.txt` | The speed by stage; B against A; where the drawing thread's time goes |
 | `port/vita/tools/filmpics.py [--pair A B] ...` | The `film=` pictures of a console's log as images, or A's beside B's |
@@ -133,6 +153,23 @@ Ready-made settings: `port/vita/tools/settings/fight_ab.txt` (one fixed fight wi
    then `filmpics.py --pair`), looked at by the developer or by reading the images.
 3. A line in `docs/vita/status.md`'s Results table (date, commit, where, setting, stage, verdict or figures, run
    folder). A setting goes on by default, or into the pull request, only after stage 2 on the console.
+
+**Profiling** (where the time goes, beyond `perfsum.py --parts`):
+
+- **CPU, per thread**: the port already reads the Cortex-A9's counters through
+  [libperf](https://github.com/shoui520/libperf) (`port/vita/vita_perf.c`: cycles, instructions, cache misses per
+  thread in the report) when its kernel plugin `libperf.skprx` is in `config.txt`'s `*KERNEL` and its user module
+  `libperf.suprx` is in the app's folder (`ux0:app/BTTD00008/libperf.suprx`; it is not in the package). Retail 3.65.
+- **GPU**: [psp2-cex-gpues4-prof](https://github.com/shoui520/psp2-cex-gpues4-prof): experimental GPU profiling on a
+  retail console, per pass, draw and shader, with a vitaGL adapter; a kernel plugin `psp2_gpuprof.skprx` and a
+  library linked into the game, started before `vglInit`. Not in the port yet: the next step for questions like
+  "is Kame House slow on the processor or on the graphics chip" (a development-build option, off by default).
+- **The whole system, Razor**: [psp2-tooling](https://github.com/Grarak/psp2-tooling) (Grarak): Sony's DevKit tools
+  on a retail console over USB: DTrace and whole-system CPU sampling with call stacks, Razor GPU metrics and frame
+  captures, hardware breakpoints. It needs **decrypted DevKit 3.65 modules that the developer must provide** (the
+  agent never looks for or downloads Sony's modules), was tested only on a PCH-2000 on 3.65 (not on a PCH-1000), and
+  puts the console in development mode (its USB becomes the debug port). The heavy option: only if the lighter ones do
+  not answer the question, and only with the developer's go-ahead.
 
 When something breaks: the console's crash dump `ux0:data/psp2core-*.psp2dmp` with
 https://github.com/xyzz/vita-parse-core and `port/build/vita_dev/bt3.unstripped.elf`; the port's watchdog
@@ -164,7 +201,7 @@ table. In short:
 | `docs/vita/development.md` | The development build, every `bt3.txt` setting, the log, a map of the files |
 | `docs/vita/status.md` | The work in progress, its state, the Results table, the rules |
 | `docs/vita/native.md` | The native renderer: the engine seam, what is named, the next steps |
-| `docs/vita/testing.md` | The levels of testing, Vita3K and the console set up and run |
+| `docs/vita/testing.md` | The levels of testing, Vita3K and the console set up and run, profiling |
 | `docs/vita/compare.md` | The old way against the new: the three stages, what to expect |
 | `docs/port/README.md` | The PC port's notes (rules for `src/`) |
 | `docs/systems/*.md`, `docs/README.md` | What the game's code does, system by system |

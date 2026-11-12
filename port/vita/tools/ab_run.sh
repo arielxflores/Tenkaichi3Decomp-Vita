@@ -5,8 +5,9 @@
 #   port/vita/tools/ab_run.sh --switch native [--where vita3k|console] [--base FILE] [--seconds N] [--a 0] [--b 1]
 #
 #   --switch   the bt3.txt setting under test (native, fxlow, gxmcache, ...)
-#   --where    vita3k (default; vita3k_run.sh, env VITA3K / VITA3K_PREF) or console (vita_console_run.sh, env VITA_IP;
-#              sends port/build/vita_dev/eboot.bin first)
+#   --where    vita3k (default; vita3k_run.sh, env VITA3K / VITA3K_PREF), console (vita_console_run.sh through
+#              vitacompanion, env VITA_IP) or agent (vita_agent_run.py through vita-agent-use, env VITA_AGENT_CONFIG_DIR;
+#              with screenshots); on the console port/build/vita_dev/eboot.bin is sent before side A
 #   --base     the settings both runs share (default port/vita/tools/settings/fight_ab.txt: one fixed fight, drawlog)
 #   --seconds  each run's length (default 240)
 #   --a, --b   the setting's two values (default 0 and 1)
@@ -41,6 +42,9 @@ for side in A B; do
   if [ "$WHERE" = console ]; then
     extra=(); [ $first = 1 ] && extra=(--eboot)
     "$ROOT/port/vita/tools/vita_console_run.sh" --settings "$DIR/settings_$side.txt" --seconds "$SECS" --out "$DIR/$side" "${extra[@]}"
+  elif [ "$WHERE" = agent ]; then
+    extra=(); [ $first = 1 ] && extra=(--eboot)
+    python3 "$ROOT/port/vita/tools/vita_agent_run.py" --settings "$DIR/settings_$side.txt" --seconds "$SECS" --out "$DIR/$side" "${extra[@]}"
   else
     extra=(); [ -n "$VPK" ] && extra=(--vpk "$VPK")
     "$ROOT/port/vita/tools/vita3k_run.sh" --settings "$DIR/settings_$side.txt" --seconds "$SECS" --out "$DIR/$side" "${extra[@]}"

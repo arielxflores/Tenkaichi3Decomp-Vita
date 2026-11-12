@@ -9,7 +9,7 @@ as many of them as the place it is made in allows; what was run is said in the c
 |---|---|---|---|---|
 | 1. Syntax check | The code compiles for the Vita (names, types) | clang, git | yes | yes |
 | 2. Vita3K | The program starts, runs a test fight, draws; the log's counters; no crash | VitaSDK, Vita3K, the game files | no | yes |
-| 3. The console by network | All of it, at the console's speed, with the fourth core | A Vita on the same network with vitacompanion | no | yes |
+| 3. The console by network | All of it, at the console's speed, with the fourth core | A Vita on the same network with vita-agent-use (3.65) or vitacompanion | no | yes |
 | 4. The console by hand | What a person sees and feels: pictures, controls | A Vita | no | (asks the person) |
 
 A cloud session has neither the toolchain (VitaSDK's releases are not reachable) nor the game files (never in the
@@ -149,6 +149,27 @@ no new package needed), puts `test.txt` in `ux0:data/bt3/bt3.txt` (the console's
 game, waits, closes it, and fetches into `port/build/runs/<date>/`: this run's part of `log-vgl.txt` (`log.txt`),
 `hang.txt` if any, the list of crash dumps in `ux0:data`, and `perfsum.txt` / `perfsum_ab.txt` (with `soakab=1`).
 
+### Through vita-agent-use instead (firmware 3.65)
+
+[vita-agent-use](https://github.com/shoui520/vita-agent-use) is made for an AI agent driving a Vita: a JSON
+command-line tool, a TLS link paired once on the console, and "runs" that deploy, launch, wait for a log line,
+collect and clean up. Over vitacompanion it adds **real screenshots** (the framebuffer as a JPEG, up to 960 x 544:
+what `film=` gives only small), the console's CPU / FPS / memory samples, and crash dumps and error dialogs pushed as
+they happen. Its README asks for firmware 3.65; it cannot be installed together with vitacompanion. Its own
+`AGENTS.md` sets the rules (`serve` running for the whole session, a person approving the pairing and any change of
+`tai/`, `config.txt` changed only through its guarded plan / apply). Setting it up: CLAUDE.md, section 4. A run:
+
+```sh
+VITA_AGENT=<checkout>/vita-agent VITA_AGENT_CONFIG_DIR=<bootstrap's folder> \
+  python3 port/vita/tools/vita_agent_run.py --settings test.txt --seconds 600 --shots 8 [--eboot]
+```
+
+It adds `exitafter=<seconds>` to the settings (the game ends itself and writes `vita: exitafter: ...`, the line the
+run waits for), and leaves in `port/build/runs/agent-<date>/`: `log.txt`, `shots/*.jpg`, `events.jsonl` (the
+performance samples and crash events of the run), `run.json` / `run_status.json`, `hang.txt` if any, `perfsum.txt`.
+`ab_run.sh --where agent` runs A and B this way. Runs over an hour (its limit for a run) are launched and watched
+without a run.
+
 ### When it crashes
 
 The console writes a core dump to `ux0:data/psp2core-*.psp2dmp` and shows error C2-12828-1. The build keeps the
@@ -156,6 +177,13 @@ program with its symbols (`port/build/vita_dev/bt3.unstripped.elf`):
 [vita-parse-core](https://github.com/xyzz/vita-parse-core) turns the dump into the place of the fault and the call
 stack (`python main.py core.psp2dmp bt3.unstripped.elf`; an old Python 2 tool, check its README). The port's own
 watchdog writes `ux0:data/bt3/hang-vgl.txt` when no picture has been made for three seconds.
+
+## Profiling
+
+Where the time goes, beyond the report and `perfsum.py --parts`: the CPU per thread through libperf (the port reads
+it already when its plugin is installed), the GPU through psp2-cex-gpues4-prof (retail, experimental, not in the port
+yet), the whole system through psp2-tooling's Razor and DTrace (needs DevKit modules the developer provides; tested on
+a PCH-2000 only). Details and cautions: CLAUDE.md, section 6.
 
 ## Test settings (`bt3.txt`)
 
@@ -169,6 +197,7 @@ soakduel=1         # duels only: the same work on every stage
 soakstages=0-24    # the stages in turn
 soakab=1           # each battle twice: the settings of value 2 off (side A), then on (side B)
 fxlow=2            # (for example) the setting under test, on in the B battles only
+exitafter=3600     # the program ends itself after that many seconds (vita_agent_run.py adds it)
 ```
 
 A run of all 25 stages with `soakab=1` takes about 50 battles: give it the time (`--seconds`). A short check that the
@@ -176,8 +205,6 @@ program starts, fights and draws: `mode=demo` and `report=1`, 120 seconds.
 
 ## What this port does not have yet
 
-- **An end of the run from inside**: a setting such as `exitafter=<seconds>` (the program closes itself, its log
-  written), so that a run ends cleanly instead of being stopped from outside.
 - **A hash of the draws** per picture in the log (TwinsanityEvolved's `TE_GFX_DRAWHASH`): with it two runs of the
   same fight compare picture by picture, in Vita3K, without looking at them. Whether two runs of the soak fight the
   same fight frame for frame (the computer's moves, the game's random numbers) is not known yet: to be checked first. `film=` (small pictures in the log) is what there is now.

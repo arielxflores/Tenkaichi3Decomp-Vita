@@ -50,6 +50,7 @@ char gVitaDisc[256] = HOME "/disc";
 static FILE *sLog;
 static int sHeapCdram, sFloatChoice = -1; /* -1: ask */
 static unsigned long long sStart, sBattleStart, sLastDraw;
+static int gVitaExitAfter; /* bt3.txt exitafter=<s> (development build): the program ends itself after that many seconds */
 static unsigned sBattleStartVb, sLastVb, sLastState = 0xFFFFFFFFu;
 static volatile int sEnded;
 static int sMode = -1; /* 0 the menus (play), 1 the demo fight; -1: ask */
@@ -619,6 +620,14 @@ void Vita_VBlank(unsigned vblanks) {
     if (t - sLastDraw < 500000) {
         return;
     }
+#ifndef PORT_VITA_RELEASE
+    if (gVitaExitAfter > 0 && t - sStart >= (unsigned long long)gVitaExitAfter * 1000000ull) {
+        /* a test run's end from inside (bt3.txt exitafter=<s>): its log written whole, and a line the runners wait for
+           (port/vita/tools: vita_agent_run.sh's completion) */
+        logf_("vita: exitafter: the test run ends after %d s\n", gVitaExitAfter);
+        quit();
+    }
+#endif
     sceKernelPowerTick(SCE_KERNEL_POWER_TICK_DISABLE_AUTO_SUSPEND);
     static int sClockFix;
     if (sClockFix < 8 && (scePowerGetGpuClockFrequency() < 222 || scePowerGetArmClockFrequency() < 444 || scePowerGetBusClockFrequency() < 222)) {
@@ -1504,6 +1513,8 @@ static void read_settings(void) {
         } else if (strcmp(line, "dpframe") == 0) { /* kept parts matched with FRAME's buffer as "the picture": 0 off, 1 on, 2 in the soak's B battles (gs_core.c dp_norm) */
             extern int gVitaDpFrame;
             gVitaDpFrame = atoi(eq);
+        } else if (strcmp(line, "exitafter") == 0) { /* the program ends itself after that many seconds, its log written (test runs) */
+            gVitaExitAfter = atoi(eq);
         } else if (strcmp(line, "native") == 0) { /* the engine seam: the stage's meshes named by the game, kept for the stage's life: 0 off, 1 on, 2 in the soak's B battles (gs_marker.c, gs_core.c es_find) */
             extern int gVitaNative;
             gVitaNative = atoi(eq);

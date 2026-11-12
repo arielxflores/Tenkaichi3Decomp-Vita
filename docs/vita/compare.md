@@ -73,7 +73,9 @@ VITA_IP=... port/vita/tools/ab_run.sh --switch fxlow --where console --base /tmp
 python3 port/vita/tools/filmpics.py --pair port/build/runs/ab-fxlow-<date>/A/log.txt port/build/runs/ab-fxlow-<date>/B/log.txt /tmp/pics
 ```
 
-`/tmp/pics/ab_<k>.png`: A's k-th picture on the left, B's on the right. The fights need not go the same way frame for
+`/tmp/pics/ab_<k>.png`: A's k-th picture on the left, B's on the right. Through vita-agent-use (`--where agent`)
+the console's own screenshots at full size come with each side instead (`A/shots/*.jpg`, `B/shots/*.jpg`, taken at
+the same seconds of each run), and `film=` is not needed. The fights need not go the same way frame for
 frame: look at how things are drawn (for `fxlow`: an aura or a beam in front of a fighter and behind one, its edge
 along the fighter; for `native`: the stage and the fighters whole, nothing missing or out of place), not at where
 the fighters stand. A person looks at them, or an agent that can read images.

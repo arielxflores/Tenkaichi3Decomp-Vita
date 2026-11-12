@@ -5,6 +5,9 @@
 #
 #   port/vita/tools/vita_setup.sh check                       what is on the console (read only)
 #   port/vita/tools/vita_setup.sh companion SUPRX SKPRX       vitacompanion into ur0:tai and its two lines into config.txt
+#   port/vita/tools/vita_setup.sh agentuse KERNEL LOADER SHELL vita-agent-use's three files into ur0:tai, two lines into
+#                                                             config.txt (vitacompanion's taken out: the two cannot run together)
+#   port/vita/tools/vita_setup.sh uncompanion                 vitacompanion's lines taken out of config.txt
 #   port/vita/tools/vita_setup.sh install-dev [VPK]           the development package installed (vitacompanion's promote)
 #   port/vita/tools/vita_setup.sh capunlocker on|off          CapUnlocker's line in config.txt (un)commented, then a reboot
 #   port/vita/tools/vita_setup.sh reboot                      a reboot, and a wait for vitacompanion to answer again
@@ -37,7 +40,10 @@ check() {
   v="$(cmd version)"; if [ -n "$v" ]; then echo "  answers: $(echo "$v" | head -2 | tr '\n' ' ')"; else echo "  not running (step: companion)"; fi
   echo "== ur0:tai/config.txt"
   if get "ur0:/tai/config.txt" "$BK/config.now.txt"; then
-    grep -in "vitacompanion\|capunlocker" "$BK/config.now.txt" | sed 's/^/  /' || echo "  neither vitacompanion nor CapUnlocker named"
+    grep -in "vitacompanion\|capunlocker\|vita_agent\|libperf\|gpuprof" "$BK/config.now.txt" | sed 's/^/  /' || echo "  none of vitacompanion, vita-agent-use, CapUnlocker, libperf named"
+    if grep -v "^#" "$BK/config.now.txt" | grep -qi "vitacompanion" && grep -v "^#" "$BK/config.now.txt" | grep -qi "vita_agent"; then
+      echo "  WARNING: vitacompanion and vita-agent-use are both on: they cannot run together (step: uncompanion)"
+    fi
   else echo "  not read"; fi
   echo "== ur0:data/libshacccg.suprx (the shader compiler)"
   lst "ur0:/data/" 2>/dev/null | grep -qi "^libshacccg.suprx" && echo "  there" || echo "  NOT THERE: the game cannot compile its shaders (README: Installation)"
@@ -76,6 +82,11 @@ def ensure(sec, path):
 if how == "companion":
     ensure("*KERNEL", "ur0:tai/vitacompanion_kernel.skprx")
     ensure("*main", "ur0:tai/vitacompanion.suprx")
+elif how in ("agentuse", "uncompanion"):
+    lines = [l for l in lines if "vitacompanion" not in l.lower() or l.strip().startswith("#")]
+    if how == "agentuse":
+        ensure("*KERNEL", "ur0:tai/vita_agent_kernel.skprx")
+        ensure("*main", "ur0:tai/vita_agent_loader.suprx")
 elif how in ("cap-on", "cap-off"):
     hits = [i for i, l in enumerate(lines) if "capunlocker" in l.lower()]
     if not hits:
@@ -118,6 +129,14 @@ case "${1:-}" in
     edit_config companion || exit 3
     echo "vita_setup: now the console must be restarted once by hand (vitacompanion is not running yet to do it)"
     ;;
+  agentuse)
+    [ -f "${2:-}" ] && [ -f "${3:-}" ] && [ -f "${4:-}" ] || { echo "usage: vita_setup.sh agentuse vita_agent_kernel.skprx vita_agent_loader.suprx vita_agent_shell.suprx"; exit 2; }
+    put "$2" "ur0:/tai/vita_agent_kernel.skprx" && put "$3" "ur0:/tai/vita_agent_loader.suprx" && put "$4" "ur0:/tai/vita_agent_shell.suprx" || { echo "vita_setup: the plugin's files not sent"; exit 3; }
+    edit_config agentuse || exit 3
+    echo "vita_setup: now the console must be restarted (by hand, or: VITA_IP=... echo reboot | nc \$VITA_IP 1338 while vitacompanion still runs);"
+    echo "            then the developer runs vita-agent-use's bootstrap and session pair (and taps OK on the console)"
+    ;;
+  uncompanion) edit_config uncompanion ;;
   install-dev)
     VPK="${2:-$ROOT/port/build/vita_dev/Tenkaichi3Decomp-Vita-dev.vpk}"
     [ -f "$VPK" ] || { echo "vita_setup: $VPK not found (BT3_VITA_DEV=1 python3 port/vita/build.py)"; exit 2; }
