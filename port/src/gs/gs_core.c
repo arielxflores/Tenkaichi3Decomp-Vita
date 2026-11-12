@@ -183,7 +183,7 @@ unsigned gVitaUp[5];     /* pixels written one by one, written by the block, not
    written first (blk_real). A block written pixel by pixel takes its id from its content when asked (dirty).
    gGsEpoch counts every change, so that a key need not be made twice for the same state. ---- */
 typedef struct Up { uint64_t hash; uint32_t len, seen; uint8_t *data; } Up;
-typedef struct Blk { uint32_t id, off; uint16_t up, stride; uint8_t bits, dirty; } Blk;
+typedef struct Blk { uint32_t id, off; uint16_t up, stride; uint8_t bits, dirty; uint16_t dest; } Blk; /* dest: the upload's destination (sDest + 1), 0 none */
 #ifndef UP_MAX
 #define UP_MAX 3072
 #define UP_BYTES_MAX (16u << 20)
@@ -918,6 +918,186 @@ static uint32_t up_rect_id(uint32_t bp, uint32_t bw, uint32_t psm, uint32_t x0, 
     }
     return g;
 }
+#ifdef PORT_VITA
+/* ---- Where each upload went, and what it left there (bt3.txt updest; native textures, step 2). The stage's
+   materials go one after another to one place (0x2A00 and its palette at 0x32C0) and a fighter's palettes to one
+   place for all of its pieces: each upload there was taken apart block by block again (the number of the rectangle
+   after it, up_rect_id: 40 us an upload, 5,700 every two seconds), and each drawing state after it made its texture's
+   key again from the 64 blocks of the texture (Gs_RectId: ~30,000 lookups every two seconds, a quarter of the
+   drawing thread with the uploads). A destination (place, width, format, rectangle) now remembers the last upload's
+   number (its bytes'), the rectangle's number it left, and the numbers of the 8 KB pages it covers (gGsPageSig,
+   which every write into GS memory changes): while those are the same, GS memory there holds what it left. The
+   rectangle's number for a given upload and destination is always the same (the blocks' ids are made from the
+   upload's number and their place, up_piece), so it is worked out once and kept (sRectMemo). The renderer's
+   texture key then takes the rectangle's number from the destination whose rectangle is the texture (or its
+   palette) instead of from its blocks; every 16th time from the blocks too, compared. ---- */
+int gVitaUpDest = 0;      /* 0 off, 1 on, 2 in the soak's B battles */
+int gVitaUpDestLog;       /* (bt3.txt updestlog=1: the destinations made and the lookups that found none, in the log) */
+unsigned gVitaDest[7];    /* for the log: uploads found the same by their destination, rectangles' numbers kept, worked out;
+                             texture keys from a destination, checked, wrong; destinations found changed */
+typedef struct UpDest { uint32_t dk, pos, size, rect, pg0, pgN, sig; uint64_t name; uint8_t valid, lazy, nblk; uint16_t blk[8]; } UpDest; /* lazy: its blocks taken note of (ids from its number), not written; nblk: a small one's blocks (blk), checked by their writes (sPlaneGen) instead of by the pages */
+static UpDest sDest[1024];
+static struct { uint64_t name; uint32_t dk, pos, size, rect; } sRectMemo[4096];
+static UpDest *sDestPend;        /* (the destination of the upload being made: its pages' numbers taken at its end) */
+static int dest_on(void) {
+    extern int gVitaAbSide;
+    return gVitaUpDest == 2 ? gVitaAbSide == 1 : gVitaUpDest != 0;
+}
+static inline uint32_t dest_key(uint64_t bb) { /* DBP, DBW (0 is 1, as for the GS), DPSM */
+    uint32_t dk = (uint32_t)(bb >> 32) & 0x3F3F3FFFu;
+    return (dk & 0x3F0000u) != 0 ? dk : dk | 0x10000u;
+}
+static inline UpDest *dest_slot(uint32_t dk, uint32_t pos, uint32_t size) {
+    return &sDest[((dk * 0x9E3779B1u) ^ (pos * 0x85EBCA6Bu) ^ (size * 0xC2B2AE35u)) >> 22];
+}
+static uint32_t dest_sig(uint32_t pg0, uint32_t n) {
+    uint32_t k, sig = 0x811C9DC5u;
+    for (k = 0; k < n; k++) {
+        sig = (sig ^ gGsPageSig[(pg0 + k) & 511]) * 16777619u;
+    }
+    return sig;
+}
+/* a small destination's blocks' writes (a fighter's palettes lie many to a page: every one written changed the
+   numbers of the page of all the others) */
+static uint32_t dest_bsig(const UpDest *d) {
+    uint32_t k, sig = 0x811C9DC5u;
+    for (k = 0; k < d->nblk; k++) {
+        const uint32_t *g = sPlaneGen[d->blk[k]];
+        sig = (sig ^ g[0] ^ g[1] << 10 ^ g[2] << 20) * 16777619u;
+    }
+    return sig;
+}
+static inline uint32_t dest_check(const UpDest *d) {
+    return d->nblk != 0 ? dest_bsig(d) : dest_sig(d->pg0, d->pgN);
+}
+static void dest_pages(uint32_t dbp, uint32_t dbw, uint32_t bits, uint32_t ty, uint32_t th, uint32_t *pg0, uint32_t *pgN) {
+    uint32_t rowbytes = (dbw ? dbw : 1) * 64 * bits / 8, first = dbp / 32 + (ty * rowbytes) / 8192;
+    uint32_t last = dbp / 32 + ((ty + th) * rowbytes + 8191) / 8192;
+    *pg0 = first;
+    *pgN = last - first + 1;
+}
+/* the rectangle's number an upload with number `name` leaves at a destination: kept, or worked out */
+static uint32_t dest_rect(uint64_t name, uint32_t dk, uint32_t pos, uint32_t size, uint32_t dbp, uint32_t dbw, uint32_t dpsm) {
+    uint32_t h = (uint32_t)((name ^ name >> 32) * 0x9E3779B1u ^ dk * 0x85EBCA6Bu ^ pos ^ size * 31u) >> 20;
+    __typeof__(&sRectMemo[0]) r = &sRectMemo[h];
+    if (r->name == name && r->dk == dk && r->pos == pos && r->size == size) {
+        gVitaDest[1]++;
+        return r->rect;
+    }
+    r->name = name; r->dk = dk; r->pos = pos; r->size = size;
+    r->rect = up_rect_id(dbp, dbw, dpsm, pos & 0xFFFF, pos >> 16, size & 0xFFFF, size >> 16);
+    gVitaDest[2]++;
+    return r->rect;
+}
+/* (vita_vgl.c, the texture key) the number of the rectangle (0, 0, w, h) of buffer (bp, bw, psm), if an upload made
+   it whole and nothing wrote there since: 1, and *rect; else 0 (Gs_RectId then) */
+/* (a texture whose shape is not its upload's: an 8- or 4-bit texture sent as 32-bit pixels, the usual way) whether
+   every block of the texture is one of the destination's: worked out once for each pair of shapes */
+static struct { uint32_t ddk, dpos, dsize, tdk, tsize; uint8_t res; } sDestPair[1024];
+static uint32_t sDestMark[16384], sDestMarkN;
+static int dest_contains(const UpDest *d, uint32_t tdk, uint32_t tw, uint32_t th) {
+    uint32_t tsize = tw | th << 16, h = (d->dk * 0x9E3779B1u ^ d->pos * 31u ^ d->size * 0x85EBCA6Bu ^ tdk * 0xC2B2AE35u ^ tsize) >> 22;
+    __typeof__(&sDestPair[0]) e = &sDestPair[h];
+    uint32_t gw, gh, x, y, x0, y0, w, hh;
+    int ok = 1;
+    if (e->res != 0 && e->ddk == d->dk && e->dpos == d->pos && e->dsize == d->size && e->tdk == tdk && e->tsize == tsize) {
+        return e->res == 1;
+    }
+    if (++sDestMarkN == 0) {
+        memset(sDestMark, 0, sizeof(sDestMark));
+        sDestMarkN = 1;
+    }
+    x0 = d->pos & 0xFFFF; y0 = d->pos >> 16; w = d->size & 0xFFFF; hh = d->size >> 16;
+    psm_block(d->dk >> 24, &gw, &gh);
+    for (y = y0 & ~(gh - 1); y < y0 + hh; y += gh) {
+        for (x = x0 & ~(gw - 1); x < x0 + w; x += gw) {
+            sDestMark[vram_rw(d->dk & 0x3FFF, (d->dk >> 16) & 0x3F, d->dk >> 24, x, y, 2, 0) & 0x3FFF] = sDestMarkN;
+        }
+    }
+    psm_block(tdk >> 24, &gw, &gh);
+    for (y = 0; y < th && ok; y += gh) {
+        for (x = 0; x < tw; x += gw) {
+            if (sDestMark[vram_rw(tdk & 0x3FFF, (tdk >> 16) & 0x3F, tdk >> 24, x, y, 2, 0) & 0x3FFF] != sDestMarkN) {
+                ok = 0;
+                break;
+            }
+        }
+    }
+    e->ddk = d->dk; e->dpos = d->pos; e->dsize = d->size; e->tdk = tdk; e->tsize = tsize;
+    e->res = ok ? 1 : 2;
+    return ok;
+}
+/* the rectangle's number of a texture lying inside a destination, by the destination's upload (its number) */
+static struct { uint64_t name; uint32_t ddk, dpos, dsize, tdk, tsize, gi; uint8_t lazy, valid; } sDestKey[4096];
+int Gs_DestRect(uint32_t bp, uint32_t bw, uint32_t psm, uint32_t w, uint32_t h, uint32_t *rect) {
+    static unsigned n;
+    uint32_t dk, size = w | h << 16;
+    UpDest *d;
+    if (!dest_on()) {
+        return 0;
+    }
+    bw = bw ? bw : 1;
+    dk = (bp & 0x3FFF) | (bw & 0x3F) << 16 | (psm & 0x3F) << 24;
+    d = dest_slot(dk, 0, size);
+    if (d->valid && d->name != 0 && (d->dk != dk || d->pos != 0 || d->size != size)) {
+        d = NULL;
+    }
+    if (d == NULL || !d->valid || d->dk != dk || d->pos != 0 || d->size != size) {
+        /* the destination of the upload that made the texture's first block, if the texture lies inside it */
+        uint32_t b0 = vram_rw(bp, bw, psm, 0, 0, 2, 0) & 0x3FFF, di = sBlk[b0].dest, kh;
+        __typeof__(&sDestKey[0]) k;
+        UpDest *c = di != 0 ? &sDest[di - 1] : NULL;
+        if (c != NULL && c->valid && c->name != 0 && c->sig == dest_check(c) && dest_contains(c, dk, w, h)) {
+            kh = (uint32_t)((c->name ^ c->name >> 32) * 0x9E3779B1u ^ c->dk * 0x85EBCA6Bu ^ c->pos ^ c->size * 31u ^ dk * 0xC2B2AE35u ^ size * 131u ^ c->lazy) >> 20;
+            k = &sDestKey[kh];
+            if (k->valid && k->name == c->name && k->ddk == c->dk && k->dpos == c->pos && k->dsize == c->size && k->tdk == dk && k->tsize == size && k->lazy == c->lazy) {
+                gVitaDest[3]++;
+                if ((++n & 15) == 0) {
+                    uint32_t g = Gs_RectId(bp, bw, psm, 0, 0, w, h);
+                    gVitaDest[4]++;
+                    if (g != k->gi) {
+                        gVitaDest[5]++;
+                        k->gi = g;
+                    }
+                }
+                *rect = k->gi;
+                return 1;
+            }
+            k->name = c->name; k->ddk = c->dk; k->dpos = c->pos; k->dsize = c->size; k->tdk = dk; k->tsize = size; k->lazy = c->lazy;
+            k->gi = Gs_RectId(bp, bw, psm, 0, 0, w, h);
+            k->valid = 1;
+            gVitaDest[2]++;
+            *rect = k->gi;
+            return 1;
+        }
+        static unsigned lines;
+        if (gVitaUpDestLog && lines < 60) {
+            extern void Vita_Log(const char *fmt, ...);
+            lines++;
+            Vita_Log("gs: dest lookup missed: bp %04x bw %u psm %02x %u x %u (first block's destination %u)\n", bp, bw, psm, w, h, (unsigned)sBlk[vram_rw(bp, bw, psm, 0, 0, 2, 0) & 0x3FFF].dest);
+        }
+        return 0;
+    }
+    if (d->sig != dest_check(d)) {
+        d->valid = 0;
+        gVitaDest[6]++;
+        return 0;
+    }
+    gVitaDest[3]++;
+    if ((++n & 15) == 0) {
+        uint32_t g = Gs_RectId(bp, bw, psm, 0, 0, w, h);
+        gVitaDest[4]++;
+        if (g != d->rect) {
+            gVitaDest[5]++;
+            d->valid = 0;
+            *rect = g;
+            return 1;
+        }
+    }
+    *rect = d->rect;
+    return 1;
+}
+#endif
 /* the large uploads written pixel by pixel: format, size, place, and why they were written */
 static struct { uint32_t key, n, px, why[4]; } sUpTop[16];
 static void up_top_add(uint32_t psm, uint32_t tx, uint32_t ty, uint32_t tw, uint32_t th, int why) {
@@ -1612,6 +1792,9 @@ static void transfer_begin(void) {
 #define UP_LAZY_MIN 2048 /* bytes: a palette or a single small block is written faster than it is kept account of */
 #endif
 /* Whole block rows of an upload: the rectangle (x0, y0, w, h) of the buffer, made of whole blocks, from `src`. */
+#ifdef PORT_VITA
+static int sUpLazyAll; /* (the upload being made: all of its blocks taken note of, none written: up_piece) */
+#endif
 static void up_piece(uint32_t bp, uint32_t bw, uint32_t psm, int bits, uint32_t gw, uint32_t gh, uint32_t x0, uint32_t y0,
                      uint32_t w, uint32_t h, const uint8_t *src) {
     uint32_t stride = w * (uint32_t)bits / 8, bx, by;
@@ -1633,6 +1816,9 @@ static void up_piece(uint32_t bp, uint32_t bw, uint32_t psm, int bits, uint32_t 
                     k->stride = (uint16_t)stride;
                     k->bits = (uint8_t)bits;
                     k->dirty = 0;
+#ifdef PORT_VITA
+                    k->dest = sDestPend != NULL ? (uint16_t)(sDestPend - sDest + 1) : 0;
+#endif
                     plane_bump((uint32_t)(k - sBlk), 7);
                 }
             }
@@ -1640,11 +1826,17 @@ static void up_piece(uint32_t bp, uint32_t bw, uint32_t psm, int bits, uint32_t 
             return;
         }
     }
+#ifdef PORT_VITA
+    sUpLazyAll = 0;
+#endif
     for (by = 0; by < h; by += gh) {
         for (bx = 0; bx < w; bx += gw) {
             uint32_t b = vram_rw(bp, bw, psm, x0 + bx, y0 + by, 2, 0);
             sBlk[b].up = 0; /* (whatever waited for this block is overwritten whole) */
             sBlk[b].dirty = 1;
+#ifdef PORT_VITA
+            sBlk[b].dest = sDestPend != NULL ? (uint16_t)(sDestPend - sDest + 1) : 0;
+#endif
             plane_bump(b, 7);
             block_write(b, bits, src + by * stride + bx * (uint32_t)bits / 8, stride);
         }
@@ -1757,9 +1949,27 @@ static void up_pixels(uint32_t dbp, uint32_t dbw, uint32_t dpsm, uint32_t bits, 
 extern volatile int gVitaZoneOn; /* (vita_vgl.c: the zones of a measured list) */
 extern void Vita_Z(int z);
 static void transfer_data_(const uint8_t *p, uint32_t bytes);
+/* bt3.txt upprof=1 (a measuring run): every upload timed, by the way it went (sUpCat): 0 small, found the same;
+   1 small, written; 2 large, found the same; 3 large, taken note of by the block; 4 large, written not by the block;
+   5 left out (a frame not drawn); 6 the film's; 7 another (a piece, a size between) */
+int gVitaUpProf;
+unsigned gVitaUpCat[8][2]; /* for the log: count, microseconds */
+static int sUpCat;
 static void transfer_data(const uint8_t *p, uint32_t bytes) {
     unsigned long long t;
 
+    if (gVitaUpProf) {
+        t = sceKernelGetProcessTimeWide();
+        sUpCat = 7;
+        transfer_data_(p, bytes);
+        t = sceKernelGetProcessTimeWide() - t;
+        gVitaUpCat[sUpCat][0]++;
+        gVitaUpCat[sUpCat][1] += (unsigned)t;
+        if (bytes >= 2048) {
+            gVitaUsUpload += (unsigned)t;
+        }
+        return;
+    }
     if (bytes < 2048) { /* (palettes, the film's blocks: reading the clock would cost as much as they do) */
         transfer_data_(p, bytes);
         return;
@@ -1782,6 +1992,7 @@ static void transfer_data(const uint8_t *p, uint32_t bytes) {
         return;
     }
 #ifdef PORT_VITA
+    sDestPend = NULL;
     if (gVitaUpCheck && gs.tpos == 0 && bytes >= 64) { /* an upload read in place whose bytes are not what they were the last time */
         extern int Port_InGr(const void *p);
         extern void Vita_Log(const char *fmt, ...);
@@ -1825,6 +2036,7 @@ static void transfer_data(const uint8_t *p, uint32_t bytes) {
                 uint32_t n = bytes / 4;
                 gs.tpos = n < total - gs.tpos ? gs.tpos + n : total;
                 gVitaUp[4]++;
+                sUpCat = 6;
                 return;
             }
         }
@@ -1855,6 +2067,7 @@ static void transfer_data(const uint8_t *p, uint32_t bytes) {
                 if (gVitaGsSkip && sFrame - e->frame <= 8) {
                     gs.tpos = total;
                     gVitaUpSkipped++;
+                    sUpCat = 5;
                     return;
                 }
             } else {
@@ -1889,6 +2102,7 @@ static void transfer_data(const uint8_t *p, uint32_t bytes) {
                 for (pg = first; pg <= last; pg++) { /* (as the large uploads found unchanged: the page holds uploaded data again) */
                     gGsPageGen[pg & 511]++;
                 }
+                sUpCat = 0;
                 return;
             }
             { extern unsigned gT121Sm[4]; gT121Sm[!m->valid ? 0 : (m->bb != gs.bitbltbuf || m->pos != pos || m->size != size || m->bytes != bytes) ? 1 : memcmp(m->data, p, bytes) != 0 ? 2 : 3]++; }
@@ -1897,6 +2111,15 @@ static void transfer_data(const uint8_t *p, uint32_t bytes) {
                for its rectangle (2,500 cycles an upload, and none of them ever found unchanged) */
             m->miss = m->bb == gs.bitbltbuf && m->pos == pos && m->size == size && m->bytes == bytes ? m->miss + 1 : 0;
             m->valid = 0; /* (until written: its rectangle's number is taken after) */
+            sUpCat = 1;
+            if (dest_on() && psm_planes(dpsm) == 7) {
+                UpDest *d = dest_slot(dest_key(gs.bitbltbuf), pos, size);
+                d->valid = 0;
+                d->dk = dest_key(gs.bitbltbuf); d->pos = pos; d->size = size; d->name = 0; d->rect = 0xFFFFFFFFu;
+                d->nblk = 0;
+                dest_pages(dbp, dbw, bits, gs.ty, gs.th, &d->pg0, &d->pgN);
+                sDestPend = d;
+            }
             m->bb = gs.bitbltbuf; m->pos = pos; m->size = size; m->bytes = bytes;
             if (m->miss < 4 || (m->miss & 7) == 0) {
                 memcpy(m->data, p, bytes);
@@ -1928,6 +2151,26 @@ static void transfer_data(const uint8_t *p, uint32_t bytes) {
             hash = up_hash_quick(p, (total * bits + 7) / 8);
             if (gVitaZoneOn) { Vita_Z(16); } /* (the upload's bytes looked at) */
 
+            if (dest_on() && byBlock && psm_planes(dpsm) == 7) {
+                uint32_t pos = gs.tx | gs.ty << 16, size = gs.tw | gs.th << 16, dk = dest_key(gs.bitbltbuf);
+                UpDest *d = dest_slot(dk, pos, size);
+                if (d->valid && d->dk == dk && d->pos == pos && d->size == size && d->name == hash && d->sig == dest_check(d)) {
+                    uint32_t pg;
+                    gs.tpos = total;
+                    gVitaUp[2] += total;
+                    for (pg = d->pg0; pg < d->pg0 + d->pgN; pg++) { /* (as below: the page holds uploaded data again) */
+                        gGsPageGen[pg & 511]++;
+                    }
+                    gVitaDest[0]++;
+                    sUpCat = 2;
+                    return;
+                }
+                d->valid = 0;
+                d->dk = dk; d->pos = pos; d->size = size; d->name = hash; d->rect = 0xFFFFFFFEu; /* (its rectangle's number: below, once written by the block) */
+                d->nblk = 0;
+                dest_pages(dbp, dbw, bits, gs.ty, gs.th, &d->pg0, &d->pgN);
+                sDestPend = d;
+            }
             m = (void *)&memo[(uint32_t)((hash ^ gs.bitbltbuf >> 32 ^ gs.tx * 31u ^ gs.ty * 131u) * 0x9E3779B1u) >> 24];
             memoWhy = !m->valid ? 0 : (m->bb != gs.bitbltbuf || m->x != gs.tx || m->y != gs.ty || m->w != gs.tw || m->h != gs.th) ? 2 : m->hash != hash ? 1 : 3;
             if (memoWhy == 3 && up_rect_id(dbp, dbw, dpsm, gs.tx, gs.ty, gs.tw, gs.th) == m->rect) {
@@ -1944,13 +2187,23 @@ static void transfer_data(const uint8_t *p, uint32_t bytes) {
                     }
                 }
                 if (gVitaZoneOn) { Vita_Z(12); } /* (its place in GS memory found holding it still) */
+                sUpCat = 2;
+                if (sDestPend != NULL) {
+                    sDestPend->rect = m->rect;
+                    sDestPend->sig = dest_check(sDestPend);
+                    sDestPend->lazy = 2; /* (its blocks as they were: taken note of or written, not known here) */
+                    sDestPend->valid = 1;
+                    sDestPend = NULL;
+                }
                 return;
             }
             m->bb = gs.bitbltbuf; m->hash = hash; m->x = gs.tx; m->y = gs.ty; m->w = gs.tw; m->h = gs.th;
             m->valid = 0; /* (until written: its rectangle's number is taken after) */
             mm = (void *)m;
+            sUpCat = byBlock ? 3 : 4;
         }
         if (gVitaZoneOn) { Vita_Z(45); } /* (the large ones' memory looked at) */
+        sUpLazyAll = 1;
         if (mm != NULL && !byBlock) {
             struct { uint64_t bb, hash; uint32_t x, y, w, h, rect; int valid; } *m = (void *)mm;
             up_top_add(dpsm, gs.tx, gs.ty, gs.tw, gs.th, memoWhy);
@@ -1997,7 +2250,16 @@ static void transfer_data(const uint8_t *p, uint32_t bytes) {
         { extern unsigned gT121Ep[8]; gT121Ep[bytes < 2048 ? 2 : 3]++; if (bytes < 2048 && sm == NULL) { gT121Ep[gs.tpos != 0 || n != total ? 4 : bytes < 16 ? 5 : 6]++; } }
         if (mm != NULL) {
             struct { uint64_t bb, hash; uint32_t x, y, w, h, rect; int valid; } *m = (void *)mm;
-            m->rect = up_rect_id(dbp, dbw, dpsm, gs.tx, gs.ty, gs.tw, gs.th);
+            if (sDestPend != NULL && sDestPend->rect == 0xFFFFFFFEu && done == n && sUpLazyAll) {
+                /* (taken note of by the block, whole: the blocks' ids are the upload's number's, the rectangle's number always the same) */
+                sDestPend->rect = dest_rect(m->hash, sDestPend->dk, sDestPend->pos, sDestPend->size, dbp, dbw, dpsm);
+                m->rect = sDestPend->rect;
+            } else {
+                m->rect = up_rect_id(dbp, dbw, dpsm, gs.tx, gs.ty, gs.tw, gs.th);
+                if (sDestPend != NULL && sDestPend->rect == 0xFFFFFFFEu) {
+                    sDestPend->rect = m->rect;
+                }
+            }
             m->valid = 1;
         }
     }
@@ -2030,6 +2292,40 @@ static void transfer_data(const uint8_t *p, uint32_t bytes) {
         struct { uint64_t bb; uint32_t pos, size, bytes, rect; int valid; uint32_t miss; uint8_t data[1024]; } *m = sm;
         m->rect = up_rect_id(dbp, dbw, dpsm, gs.tx, gs.ty, gs.tw, gs.th);
         m->valid = 1;
+    }
+    if (sDestPend != NULL) { /* (an upload's destination: its pages' numbers now, after the upload's own) */
+        UpDest *d = sDestPend;
+        sDestPend = NULL;
+        if (gs.tpos >= total) {
+            if (d->rect == 0xFFFFFFFFu) { /* (a small one: its rectangle's number, one or two blocks) */
+                uint32_t gw2, gh2, x2, y2, nb = 0;
+                d->rect = up_rect_id(dbp, dbw, dpsm, gs.tx, gs.ty, gs.tw, gs.th);
+                d->lazy = 0;
+                psm_block(dpsm, &gw2, &gh2);
+                for (y2 = gs.ty & ~(gh2 - 1); y2 < gs.ty + gs.th && nb <= 8; y2 += gh2) {
+                    for (x2 = gs.tx & ~(gw2 - 1); x2 < gs.tx + gs.tw && nb <= 8; x2 += gw2) {
+                        if (nb < 8) {
+                            d->blk[nb] = (uint16_t)(vram_rw(dbp, dbw, dpsm, x2, y2, 2, 0) & 0x3FFF);
+                        }
+                        nb++;
+                    }
+                }
+                d->nblk = nb <= 8 ? (uint8_t)nb : 0; /* (more than eight: by the pages) */
+            } else {
+                d->lazy = (uint8_t)sUpLazyAll;
+            }
+            d->sig = dest_check(d);
+            d->valid = 1;
+            {
+                static unsigned lines;
+                if (gVitaUpDestLog && lines < 60) {
+                    extern void Vita_Log(const char *fmt, ...);
+                    lines++;
+                    Vita_Log("gs: dest made: bp %04x bw %u psm %02x at %u,%u %u x %u (%u bytes)\n", d->dk & 0x3FFF, (d->dk >> 16) & 0x3F, d->dk >> 24, d->pos & 0xFFFF, d->pos >> 16,
+                             d->size & 0xFFFF, d->size >> 16, bytes);
+                }
+            }
+        }
     }
     if (gVitaZoneOn) { Vita_Z(smallUp ? 42 : 46); } /* (written; 216: a small one's rectangle's number, 42) */
 #endif

@@ -1945,13 +1945,28 @@ static int tex_layer(uint64_t t0, uint64_t texa) {
     return r;
 }
 static GLuint texture_get_k(uint64_t t0raw, uint64_t texa);
+static GLuint texture_get_k_(uint64_t t0raw, uint64_t texa);
+unsigned gVitaKeyProf[2]; /* (upprof=1, the log) texture lookups by the drawing state, their microseconds */
+static GLuint texture_get_k(uint64_t t0raw, uint64_t texa) {
+    extern int gVitaUpProf;
+    unsigned long long t;
+    GLuint r;
+    if (!gVitaUpProf) {
+        return texture_get_k_(t0raw, texa);
+    }
+    t = sceKernelGetProcessTimeWide();
+    r = texture_get_k_(t0raw, texa);
+    gVitaKeyProf[0]++;
+    gVitaKeyProf[1] += (unsigned)(sceKernelGetProcessTimeWide() - t);
+    return r;
+}
 static GLuint texture_get(int ctx) {
     return texture_get_k(gGs.tex0[ctx], gGs.texa);
 }
 /* the texture of TEX0 `t0raw` and TEXA `texa` as GS memory holds it now */
 unsigned gVitaClutSub; /* for the log: textures made with the palette of the GS's last CLUT load (their CLD 0, CBP 0) */
 unsigned gVitaKeyPart[3]; /* texture keys whose texture's number was kept (its pages as they were), checked, found otherwise */
-static GLuint texture_get_k(uint64_t t0raw, uint64_t texa) {
+static GLuint texture_get_k_(uint64_t t0raw, uint64_t texa) {
     static uint32_t px[1024 * 1024 / 4]; /* up to 512 x 512; larger textures are cut */
     uint64_t t0 = t0raw & 0x1FFFFFFFFFFFFFFFull;
     {   /* CLD 0 and CBP 0: the palette is the GS's CLUT buffer, as last loaded (gs_core.c) */
@@ -1991,7 +2006,10 @@ static GLuint texture_get_k(uint64_t t0raw, uint64_t texa) {
             gi = ke->gi;
             gVitaKeyPart[0]++;
         } else {
-            gi = Gs_RectId(tbp, tbw, psm, 0, 0, tw, th);
+            extern int Gs_DestRect(uint32_t bp, uint32_t bw, uint32_t psm, uint32_t w, uint32_t h, uint32_t *rect);
+            if (!Gs_DestRect(tbp, tbw, psm, tw, th, &gi)) { /* (an upload's destination: gs_core.c, bt3.txt updest) */
+                gi = Gs_RectId(tbp, tbw, psm, 0, 0, tw, th);
+            }
             if (gVitaBisect != 2 && ke->valid && ke->t0 == t0 && ke->texa == texa && ke->tsig == tsig) {
                 gVitaKeyPart[1]++;
                 gVitaKeyPart[2] += gi != ke->gi;
@@ -2001,7 +2019,12 @@ static GLuint texture_get_k(uint64_t t0raw, uint64_t texa) {
         ke->gi = gi;
         ke->tsig = tsig;
         if (bits <= 8) {
-            gen = (gen ^ Gs_RectId(cbp, 1, cpsm, 0, 0, bits == 8 ? 16 : 8, bits == 8 ? 16 : 2)) * 16777619u + cbp;
+            extern int Gs_DestRect(uint32_t bp, uint32_t bw, uint32_t psm, uint32_t w, uint32_t h, uint32_t *rect);
+            uint32_t cr;
+            if (!Gs_DestRect(cbp, 1, cpsm, bits == 8 ? 16 : 8, bits == 8 ? 16 : 2, &cr)) {
+                cr = Gs_RectId(cbp, 1, cpsm, 0, 0, bits == 8 ? 16 : 8, bits == 8 ? 16 : 2);
+            }
+            gen = (gen ^ cr) * 16777619u + cbp;
         }
         if (sigSame) {
             gVitaSigCheck[0]++;

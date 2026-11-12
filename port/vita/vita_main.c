@@ -709,6 +709,8 @@ void Vita_VBlank(unsigned vblanks) {
                                 extern unsigned gVitaFeHelp[4], vgl_bt3_gxm_skipped[2];
                                 logf_("vita:   GXM state calls: %u left out (they changed nothing), %u made\n", vgl_bt3_gxm_skipped[0], vgl_bt3_gxm_skipped[1]);
                                 vgl_bt3_gxm_skipped[0] = vgl_bt3_gxm_skipped[1] = 0;
+                                { extern int gVitaUpProf; extern unsigned gVitaUpCat[8][2], gVitaKeyProf[2]; if (gVitaUpProf) { logf_("vita:   uploads by the way they went (count / us): small same %u/%u, small written %u/%u, large same %u/%u, large by the block %u/%u, large not by the block %u/%u, left out %u/%u, film %u/%u, other %u/%u | texture lookups %u/%u\n", gVitaUpCat[0][0], gVitaUpCat[0][1], gVitaUpCat[1][0], gVitaUpCat[1][1], gVitaUpCat[2][0], gVitaUpCat[2][1], gVitaUpCat[3][0], gVitaUpCat[3][1], gVitaUpCat[4][0], gVitaUpCat[4][1], gVitaUpCat[5][0], gVitaUpCat[5][1], gVitaUpCat[6][0], gVitaUpCat[6][1], gVitaUpCat[7][0], gVitaUpCat[7][1], gVitaKeyProf[0], gVitaKeyProf[1]); memset(gVitaUpCat, 0, sizeof(gVitaUpCat)); memset(gVitaKeyProf, 0, sizeof(gVitaKeyProf)); } }
+                                { extern unsigned gVitaDest[7]; if (gVitaDest[0] | gVitaDest[2] | gVitaDest[3]) { logf_("vita:   uploads' destinations (updest): %u uploads found the same there, rectangles' numbers %u kept, %u worked out; texture keys %u from a destination, %u checked, %u wrong; %u destinations found changed\n", gVitaDest[0], gVitaDest[1], gVitaDest[2], gVitaDest[3], gVitaDest[4], gVitaDest[5], gVitaDest[6]); memset(gVitaDest, 0, sizeof(gVitaDest)); } }
                                 { extern unsigned gVitaTexId[5]; if (gVitaTexId[0] | gVitaTexId[3] | gVitaTexId[4]) { logf_("vita:   textures named by the game (nativetex): %u uploads' numbers from their names, %u checked by their bytes, %u found changed, %u named first or anew, %u read by their bytes (found changed before)\n", gVitaTexId[0], gVitaTexId[1], gVitaTexId[2], gVitaTexId[3], gVitaTexId[4]); memset(gVitaTexId, 0, sizeof(gVitaTexId)); } }
                                 logf_("vita:   uploads' numbers on the fourth core: %u worked out (%u ms), %u left to the drawing thread (too many waiting), %u dropped (late)\n",
                                       gVitaFeHelp[0], gVitaFeHelp[1] / 1000, gVitaFeHelp[2], gVitaFeHelp[3]);
@@ -1531,6 +1533,15 @@ static void read_settings(void) {
         } else if (strcmp(line, "native") == 0) { /* the engine seam: the stage's meshes named by the game, kept for the stage's life: 0 off, 1 on, 2 in the soak's B battles (gs_marker.c, gs_core.c es_find) */
             extern int gVitaNative;
             gVitaNative = atoi(eq);
+        } else if (strcmp(line, "updest") == 0) { /* native textures, step 2: each upload's destination remembers what it left there; the texture keys take the rectangle's number from it: 0 off (default), 1 on, 2 in the soak's B battles (gs_core.c Gs_DestRect) */
+            extern int gVitaUpDest;
+            gVitaUpDest = atoi(eq);
+        } else if (strcmp(line, "updestlog") == 0) {
+            extern int gVitaUpDestLog;
+            gVitaUpDestLog = atoi(eq);
+        } else if (strcmp(line, "upprof") == 0) { /* a measuring run: every upload timed by the way it went, and the texture lookups (gs_core.c transfer_data) */
+            extern int gVitaUpProf;
+            gVitaUpProf = atoi(eq);
         } else if (strcmp(line, "nativetex") == 0) { /* the stage's and the fighters' textures named by the game: their uploads' numbers not worked out from their bytes each time: 0 off (default), 1 on, 2 in the soak's B battles (gs_marker.c, gs_core.c texid_hash) */
             extern int gVitaNativeTex;
             gVitaNativeTex = atoi(eq);
