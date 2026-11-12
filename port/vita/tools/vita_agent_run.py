@@ -62,6 +62,15 @@ def last(objs):
     return finals[-1] if finals else (objs[-1] if objs else {})
 
 
+def upload(src, dest, out, overwrite=False):
+    """fs upload with a transfer state of its own: vita-agent-use keeps one per source and destination by default and
+    takes a finished one with the same bytes as done again, without sending them (a file removed since stays gone)."""
+    state = out / ("xfer-%d.json" % time.monotonic_ns())
+    args = ["fs", "upload", src, dest, "--transfer-state", state] + (["--overwrite", "--yes"] if overwrite else [])
+    rc, objs = agent(*args, check=True)
+    return rc, objs
+
+
 def exists(path):
     rc, objs = agent("fs", "stat", path)
     return rc == 0 and last(objs).get("status") == "ok"
@@ -93,8 +102,10 @@ def main():
         agent("fs", "download", SETTINGS, out / "bt3.console.txt", check=True)
     run_settings = out / "bt3.run.txt"
     run_settings.write_text(o.settings.read_text() + "\nexitafter=%d\n" % o.seconds)
-    up = ["fs", "upload", run_settings, SETTINGS] + (["--overwrite", "--yes"] if had else [])
-    agent(*up, check=True)
+    upload(run_settings, SETTINGS, out, overwrite=had)
+    if not exists(SETTINGS):
+        note("the settings did not reach", SETTINGS)
+        return 3
 
     eboot = ROOT / "port/build/vita_dev/eboot.bin"
     if o.eboot and not eboot.is_file():
@@ -116,7 +127,7 @@ def main():
         note("run", run_id, "for about", o.seconds, "s")
     else:
         if o.eboot:
-            agent("fs", "upload", eboot, "ux0:app/%s/eboot.bin" % o.title, "--overwrite", "--yes", check=True)
+            upload(eboot, "ux0:app/%s/eboot.bin" % o.title, out, overwrite=True)
         agent("server", "performance-start", "--seconds", 3600, "--interval-ms", 2000)
         agent("app", "launch", o.title, check=True)
         run_id = None
@@ -168,7 +179,7 @@ def main():
     if exists("ux0:data/bt3/hang-vgl.txt"):
         agent("fs", "download", "ux0:data/bt3/hang-vgl.txt", out / "hang.txt")
     if had:
-        agent("fs", "upload", out / "bt3.console.txt", SETTINGS, "--overwrite", "--yes")
+        upload(out / "bt3.console.txt", SETTINGS, out, overwrite=True)
     else:
         agent("fs", "trash", SETTINGS, "--yes")
     if (out / "log-all.txt").is_file():
