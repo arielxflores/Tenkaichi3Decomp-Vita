@@ -1,6 +1,7 @@
 # Testing the Vita build: what an agent (or a person) can run, and where
 
-Four levels, from what runs anywhere to what needs the console in the hand. Each change of the renderer goes through
+Four levels, from what runs anywhere to what needs the console in the hand. To set a setting's old way against its
+new one with them: [compare.md](compare.md). Each change of the renderer goes through
 as many of them as the place it is made in allows; what was run is said in the commit message and in
 [status.md](status.md).
 

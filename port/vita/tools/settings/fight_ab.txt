@@ -1,0 +1,10 @@
+# One fixed test fight, for two runs set side by side (docs/vita/compare.md): the same pairing and stage every run, no
+# sweep to the next pairing, the report every two seconds, and every draw of lists 1800..1802 (about a minute in) in the log. ab_run.sh adds
+# the setting under test (native=0 / native=1, fxlow=0 / fxlow=1). Change demostage to look at another stage.
+mode=demo
+BT3_DEMO_PICK=0
+demoduel=1
+demostage=4
+sweep=0
+report=1
+drawlog=1800-1802

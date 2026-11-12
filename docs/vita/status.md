@@ -82,6 +82,19 @@ vitacompanion; by hand), what each shows, how to set each up once, and the two r
 fetched, `perfsum.py` over it). Both were written from the tools' documentation and tried only against stand-ins of
 Vita3K and of the console (not on the real ones yet).
 
+## Comparing A and B, and the results
+
+The workflow: [compare.md](compare.md) (stage 1 in Vita3K: does the new way draw what the old one draws; stage 2 on
+the console: is it faster and does it look right; stage 3: write it down here, then decide).
+
+### Results
+
+One line per stage run (the newest first). The run's folder is `port/build/runs/...` on the computer that ran it.
+
+| Date | Build (commit) | Where | Setting | Stage | Verdict / figures | Run |
+|---|---|---|---|---|---|---|
+| | | | | | (none yet) | |
+
 ## Rules for whoever goes on
 
 - Every change behind a `bt3.txt` switch, `0` the old way, `1` the new, `2` the new in the soak's B battles only
