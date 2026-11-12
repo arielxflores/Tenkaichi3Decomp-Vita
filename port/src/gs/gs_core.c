@@ -761,7 +761,7 @@ static inline void plane_bump(uint32_t b, int planes) {
     sPlaneGen[b][1] += (uint32_t)(planes >> 1 & 1);
     sPlaneGen[b][2] += (uint32_t)(planes >> 2 & 1);
 }
-#define VRAM_TOUCH(n) do { uint32_t b_ = (n) & 0x3FFF; if (sBlk[b_].up != 0) { blk_real(b_); } if (write) { sBlk[b_].dirty = 1; plane_bump(b_, psm_planes(psm)); } } while (0)
+#define VRAM_TOUCH(n) do { uint32_t b_ = (n) & 0x3FFF; if (sBlk[b_].up != 0) { blk_real(b_); } if (write) { sBlk[b_].dirty = 1; plane_bump(b_, psm_planes(psm)); sBlk[b_].dest = sDestPend != NULL ? (uint16_t)(sDestPend - sDest + 1) : 0; } } while (0)
 #else
 #define VRAM_TOUCH(n) ((void)0)
 #endif
@@ -1146,7 +1146,8 @@ static UpDest *bind_dest(uint32_t bp, uint32_t bw, uint32_t psm, uint32_t w, uin
     return NULL;
 }
 static inline int bind_ok(const UpDest *d, uint32_t dk, uint32_t pos, uint32_t size) {
-    return d->valid && sDestBok[d - sDest] && d->dk == dk && d->pos == pos && d->size == size && d->rect < 0xFFFFFFFEu;
+    return d->valid && sDestBok[d - sDest] && d->dk == dk && d->pos == pos && d->size == size && d->rect < 0xFFFFFFFEu &&
+           (d->nblk == 0 || d->sig == dest_bsig(d)); /* (a small one, a palette sharing its block with others: its blocks' writes too, one or two) */
 }
 /* (vita_vgl.c texture_get_k) the names of what the texture of TEX0 t0 (its palette's place in it as the renderer
    takes it) and its palette lie in: 1 and *nT, *nC; 0: none (found the long way) */
@@ -1995,6 +1996,7 @@ static void up_pixels(uint32_t dbp, uint32_t dbw, uint32_t dpsm, uint32_t bits, 
             }
             sBlk[b].dirty = 1;
             plane_bump(b, psm_planes(dpsm));
+            sBlk[b].dest = sDestPend != NULL ? (uint16_t)(sDestPend - sDest + 1) : 0; /* (texbind: the block's writer) */
             d = &sVram[b * 64];
             switch (base) {
             case 0x02: case 0x0A:

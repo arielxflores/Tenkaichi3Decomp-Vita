@@ -1949,7 +1949,7 @@ static GLuint texture_get_k_(uint64_t t0raw, uint64_t texa);
 unsigned gVitaKeyProf[2]; /* (upprof=1, the log) texture lookups by the drawing state, their microseconds */
 /* (bt3.txt texbind: gs_core.c Gs_TexNames) the texture found last by the names of what its destinations hold: its
    place in the table, checked against what is there (the table is put together again when full) */
-static struct { uint64_t t0, texa; uint32_t nT, nC, gen; GLuint id; int ti; } sBind2[1024];
+static struct { uint64_t t0, texa; uint32_t nT, nC, gen, rid, cid; GLuint id; int ti; } sBind2[1024]; /* (rid, cid: with updestlog=1, the texture's and the palette's contents when bound) */
 /* TEX0 as texture_get_k_ takes it: CLD 0 and CBP 0, the palette of the GS's last CLUT load */
 static inline uint64_t tex_t0_now(uint64_t t0raw) {
     extern volatile uint64_t gGsClutT0;
@@ -1994,13 +1994,30 @@ static GLuint texture_get_k(uint64_t t0raw, uint64_t texa) {
     }
     r = texture_get_k_(t0raw, texa);
     if (bound != 0) {
+        extern int gVitaUpDestLog;
+        uint32_t rid = 0, cid = 0;
+        if (gVitaUpDestLog) { /* (the contents now, block by block: whether a binding found wrong was a texture made twice) */
+            uint32_t tw = 1u << ((t0s >> 26) & 15), th = 1u << ((t0s >> 30) & 15), bits = (uint32_t)Gs_PsmBits((t0s >> 20) & 0x3F);
+            rid = Gs_RectId((uint32_t)(t0s & 0x3FFF), (uint32_t)((t0s >> 14) & 0x3F), (uint32_t)((t0s >> 20) & 0x3F), 0, 0, tw > 512 ? 512 : tw, th > 512 ? 512 : th);
+            cid = bits <= 8 ? Gs_RectId((uint32_t)((t0s >> 37) & 0x3FFF), 1, (uint32_t)((t0s >> 51) & 15), 0, 0, bits == 8 ? 16 : 8, bits == 8 ? 16 : 2) : 0;
+        }
         if (bound == 2) {
             gVitaBind[2]++;
-            gVitaBind[3] += r != be->id;
+            if (r != be->id) {
+                static unsigned lines;
+                gVitaBind[3]++;
+                gVitaBind[4] += gVitaUpDestLog && (rid != be->rid || cid != be->cid);
+                if (gVitaUpDestLog && lines < 40) {
+                    lines++;
+                    Vita_Log("vgl: texbind wrong: tex0 %016llx texa %llx names %08x %08x, gen %08x, now %08x (made %d); contents %s\n", (unsigned long long)t0s, (unsigned long long)texa, nT, nC, be->gen,
+                             sLast != NULL && sLast->id == r ? sLast->gen : 0u, r == 0 ? -1 : 0, rid != be->rid || cid != be->cid ? "OTHER (the names were wrong)" : "the same (a texture made twice)");
+                }
+            }
         }
         if (r != 0 && sLast != NULL && sLast->id == r && sLast->tex0 == t0s && sLast->texa == texa) {
             be->t0 = t0s; be->texa = texa; be->nT = nT; be->nC = nC;
             be->ti = (int)(sLast - sTex); be->gen = sLast->gen; be->id = r;
+            be->rid = rid; be->cid = cid;
             gVitaBind[1]++;
         }
     }
@@ -8159,12 +8176,6 @@ static GLuint sDpIbo;             /* the groups' indices (16 bits), appended; em
 static uint32_t sDpIboUsed;
 static uint8_t *sDpIboShadow;     /* the same indices in memory the processor reads fast (draws merged: below) */
 unsigned gVitaDpMerge[2];         /* for the log: the stage's draws merged into the one before (same state, same constants), merged draws made */
-/* bt3.txt dpjoin: a kept group drawn with the one before it in one draw when they have the same state and the same
-   constants and their indices follow one another on the chip (a part's groups are kept one after the other): no
-   copying, unlike the merge above (safe=16777216), whose copying of the indices cost more than the draws it saved.
-   0 off (default), 1 on, 2 in the soak's B battles. */
-int gVitaDpJoin = 0;
-unsigned gVitaDpJoinN[2];         /* for the log: groups drawn with the one before, draws made of more than one */
 static int sDpOn, sDsOn;
 static uint32_t sDpUSize[2];      /* bytes of a uniform block: fighters, stage */
 int gDpCapture;                   /* a part is walked the long way to be kept (gs_core.c) */
@@ -9480,10 +9491,6 @@ static void dp_draw_items(DpItem *items, int n, int prof, unsigned frame) {
                     static int pend[64];
                     int np = 0, merge = mode != 1 && sDpIboShadow != NULL && (gVglSafe & 16777216); /* (on request: a test, the copying cost more than the draws) */
                     uint32_t pcount = 0;
-                    extern int gVitaAbSide;
-                    int join = !merge && (gVitaDpJoin == 2 ? gVitaAbSide == 1 : gVitaDpJoin != 0) && !VITA_RARE(gVitaBisList >= 0 || gVitaDrawLogTo >= 0);
-                    int jq = -1, jn = 0;
-                    uint32_t joff = 0, jcnt = 0;
                     for (q = bk[i].first;; q = items[q].next) {
                         const DpGroup *g = q >= 0 ? items[q].g : NULL;
                         if (g != NULL && g->icount == 0) {
@@ -9491,34 +9498,6 @@ static void dp_draw_items(DpItem *items, int n, int prof, unsigned frame) {
                         }
                         if (g != NULL && VITA_RARE(gVitaBisList >= 0 || gVitaDrawLogTo >= 0) &&
                             bis_draw(frame, mode == 1 ? 16 : 8, s, (int)g->icount, (int)g->ioff | g->layer << 24, NULL)) {
-                            continue;
-                        }
-                        if (join) { /* (dpjoin: the groups whose indices follow one another, with the same constants, as one draw) */
-                            if (g != NULL && g->iptr == NULL && jcnt != 0 && joff + jcnt == g->ioff && jcnt + g->icount <= 196608 &&
-                                (items[jq].u == items[q].u || memcmp(items[jq].u, items[q].u, usize) == 0)) {
-                                jcnt += g->icount;
-                                jn++;
-                                gVitaDpJoinN[0]++;
-                                continue;
-                            }
-                            if (jcnt != 0) {
-                                vglFastDraw(GL_UNSIGNED_SHORT, joff, jcnt, zl_u(items[jq].u, usize, s, mode), usize);
-                                gVitaDp[1]++;
-                                gVitaDpJoinN[1] += jn > 0;
-                                jcnt = 0;
-                                jn = 0;
-                            }
-                            if (g == NULL) {
-                                break;
-                            }
-                            if (g->iptr == NULL) {
-                                jq = q;
-                                joff = g->ioff;
-                                jcnt = g->icount;
-                            } else {
-                                vglFastDrawPtr(GL_UNSIGNED_SHORT, g->iptr, g->icount, zl_u(items[q].u, usize, s, mode), usize);
-                                gVitaDp[1]++;
-                            }
                             continue;
                         }
                         if (g != NULL && merge && g->iptr == NULL && np > 0 && np < 64 && pcount + g->icount <= 196608 &&
