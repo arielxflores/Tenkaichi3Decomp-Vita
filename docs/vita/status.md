@@ -56,7 +56,7 @@ Build the development package (`BT3_VITA_DEV=1`, [building.md](building.md)), in
    `effects at a lower resolution: N groups drawn smaller (S screens), M drawn on the picture, D draws without their shader`:
    N > 0 in effect-heavy moments, **D must stay 0**.
 3. **The seam (native).** `native=1`: the stage, its animated objects and the fighters as with `native=0`, through a
-   transformation and a change of fighter. The line `engine seam (native=1): ...`: most calls "sent from their
+   transformation and a change of fighter. The line `engine seam (native): ...`: most calls "sent from their
    copies", **"to the cache (table full)" 0**, "of an old generation" only after loads and transformations.
 4. **The speed, A/B.** In `bt3.txt`:
 

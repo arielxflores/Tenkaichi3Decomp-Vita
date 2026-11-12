@@ -693,6 +693,7 @@ void Vita_VBlank(unsigned vblanks) {
                                   " given up | model calls: %u sent from copies, %u read the long way and recorded, %u kept, %u dropped (changed)\n",
                                   cen[0], cen[5], cen[1], cen[2], cen[3], cen[4], gVitaCcNoRoom, gVitaCcEvicted, gVitaCc[0], gVitaCc[1], gVitaCc[2], gVitaCc[3]);
                             gVitaCcEvicted = 0;
+                            { extern unsigned gVitaEs[6], gVitaEsGens[2]; if (gVitaEs[0] | gVitaEs[1] | gVitaEs[3] | gVitaEs[4]) { logf_("vita:   engine seam (native): %u calls sent from their copies, %u read the long way, %u kept, %u to the cache (table full), %u of an old generation, %u places taken over; generations %u of the stage, %u of the models\n", gVitaEs[0], gVitaEs[1], gVitaEs[2], gVitaEs[3], gVitaEs[4], gVitaEs[5], gVitaEsGens[0], gVitaEsGens[1]); memset(gVitaEs, 0, sizeof(gVitaEs)); } } /* (here, not with the processor counters: printed without libperf) */
                             logf_("vita:   kept parts: %u drawn directly, %u walked (%u kept now, %u refused, %u found in another state), %u not recorded"
                                   " (their place another part's) | calls not kept: %u too big (largest %u KB), %u wrapped, %u empty, %u strips copied,"
                                   " %u strips not planned, %u other constants, %u other records, %u writing the constants\n",
@@ -1097,7 +1098,6 @@ void Vita_VBlank(unsigned vblanks) {
                                             { extern void Vita_UpLog(void); Vita_UpLog(); }
                                             { extern unsigned gVitaXf[3]; if (gVitaXf[0] | gVitaXf[1] | gVitaXf[2]) { logf_("vita:   the intro's cross-fade: %u pictures copied, %u fade draws, %u left out\n", gVitaXf[0], gVitaXf[1], gVitaXf[2]); memset(gVitaXf, 0, sizeof(gVitaXf)); } }
                                             { extern unsigned gVitaCc[4]; logf_("vita:   model calls: %u sent from copies, %u read the long way and recorded, %u kept, %u dropped (changed)\n", gVitaCc[0], gVitaCc[1], gVitaCc[2], gVitaCc[3]); memset(gVitaCc, 0, sizeof(gVitaCc)); }
-                                            { extern unsigned gVitaEs[6], gVitaEsGens[2]; if (gVitaEs[0] | gVitaEs[1] | gVitaEs[3] | gVitaEs[4]) { logf_("vita:   engine seam (native=1): %u calls sent from their copies, %u read the long way, %u kept, %u to the cache (table full), %u of an old generation, %u places taken over; generations %u of the stage, %u of the models\n", gVitaEs[0], gVitaEs[1], gVitaEs[2], gVitaEs[3], gVitaEs[4], gVitaEs[5], gVitaEsGens[0], gVitaEsGens[1]); memset(gVitaEs, 0, sizeof(gVitaEs)); } }
                                             { extern unsigned gVitaDp[8], gVitaDpMerge[2]; logf_("vita:   model parts drawn directly: %u (%u draws in %u states), %u parts walked (%u kept now, %u refused, %u found in another state), %u KB of indices on the chip; the stage's draws: %u merged into %u\n", gVitaDp[0], gVitaDp[1], gVitaDp[2], gVitaDp[6], gVitaDp[3], gVitaDp[4], gVitaDp[5], gVitaDp[7], gVitaDpMerge[0], gVitaDpMerge[1]); gVitaDpMerge[0] = gVitaDpMerge[1] = 0; { unsigned kb = gVitaDp[7]; memset(gVitaDp, 0, sizeof(gVitaDp)); gVitaDp[7] = kb; } }
                                             { extern unsigned gVitaCcWhy[9], gVitaCcMax, gVitaFtWhere[4], gVitaDpMiss[34], gVitaDpShared, gVitaList[2][2]; extern unsigned long long gVitaDpUs;
                                               unsigned perList = gVitaList[1][0] ? gVitaList[1][0] : 1, best[3] = {0, 0, 0}, bi[3] = {0, 0, 0}, i2, j2;
@@ -1521,6 +1521,9 @@ static void read_settings(void) {
         } else if (strcmp(line, "dpframe") == 0) { /* kept parts matched with FRAME's buffer as "the picture": 0 off, 1 on, 2 in the soak's B battles (gs_core.c dp_norm) */
             extern int gVitaDpFrame;
             gVitaDpFrame = atoi(eq);
+        } else if (strcmp(line, "dpsplit") == 0) { /* kept parts' stage strips grouped by their bank too: 0 off, 1 on, 2 in the soak's B battles (vita_vgl.c GsGpu_DpCapEnd) */
+            extern int gVitaDpSplit;
+            gVitaDpSplit = atoi(eq);
         } else if (strcmp(line, "exitafter") == 0) { /* the program ends itself after that many seconds, its log written (test runs) */
             gVitaExitAfter = atoi(eq);
         } else if (strcmp(line, "native") == 0) { /* the engine seam: the stage's meshes named by the game, kept for the stage's life: 0 off, 1 on, 2 in the soak's B battles (gs_marker.c, gs_core.c es_find) */

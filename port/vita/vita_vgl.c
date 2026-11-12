@@ -8051,6 +8051,9 @@ typedef struct DpGroup { State st; uint64_t t0, texa; uint32_t ioff, icount; uin
    and walked the long way every frame from then on, the pictures a second falling from 29 to 22 in a fight.
    bt3.txt dpbank=0: as before. */
 int gVitaDpBank = 1;
+int gVitaDpSplit = 1; /* bt3.txt dpsplit: a kept part's stage strips grouped by their own bank too, so that a group's indices
+                         stay within 64K vertices of its bank (else the whole part was refused for the fight, walked the long
+                         way: the first fight on a stage, "indices beyond a bank"): 0 off, 1 on, 2 in the soak's B battles */
 #define DP_BANK_SHIFT 15
 typedef struct DpUb { float u17[3]; uint8_t mode, layer; } DpUb;
 #define DP_UB 8
@@ -8146,7 +8149,9 @@ static void dp_record(const State *d, int layer, const float (*u)[4], const Chip
 }
 /* The walk is over: the part's strips in groups, their indices on the chip. NULL: not kept. */
 void *GsGpu_DpCapEnd(void) {
-    typedef struct { State st; uint64_t t0, texa; float u17[3]; uint32_t mode, layer; } Key;
+    typedef struct { State st; uint64_t t0, texa; float u17[3]; uint32_t mode, layer, bank; } Key;
+    extern int gVitaAbSide;
+    const int split = gVitaDpBank && (gVitaDpSplit == 2 ? gVitaAbSide == 1 : gVitaDpSplit != 0);
     static Key key[64];
     static uint8_t gi[DP_REC];
     static uint32_t gcount[64], gstrips[64], gmin[64], gmax[64];
@@ -8174,6 +8179,14 @@ void *GsGpu_DpCapEnd(void) {
         memcpy(k.u17, r->u17, sizeof(k.u17));
         k.mode = r->p->mode;
         k.layer = r->layer;
+        if (split && k.mode == 2) { /* (the strip's own bank: a group only of strips that start in the same one) */
+            const uint32_t *ix = (const uint32_t *)(const void *)((const uint8_t *)r->p + 32);
+            uint32_t n = (r->p->count - 2) * 3, q, lo = 0xFFFFFFFFu;
+            for (q = 0; q < n; q++) {
+                lo = ix[q] < lo ? ix[q] : lo;
+            }
+            k.bank = lo >> DP_BANK_SHIFT;
+        }
         for (j = 0; j < ng && memcmp(&key[j], &k, sizeof(k)) != 0; j++) {
         }
         if (j == ng) {
