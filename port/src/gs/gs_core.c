@@ -2536,6 +2536,75 @@ static void tri_run(const uint64_t *q, uint32_t n) {
     gs.vcount = 0;
     gs.strip = 3;
 }
+/* ---- bt3.txt fxrun (the effects as runs): a run of the effects' quad packets, EftGfx_DrawSprite's (src/battle/eft_a.c:
+   REGLIST 14: PRIM, TEX0, 4 x (RGBAQ, ST, XYZF2)) or EftPrim_DrawBillboard's / EftBubble_DrawOne's (eft_b.c: REGLIST 12:
+   PRIM, TEX0, RGBAQ, 4 x (ST, XYZF2), NOP), PRIM a triangle strip, all with the same PRIM and TEX0: each drawn as its
+   strip's two triangles the triangle runs' way (GsGpu_DrawTriRun) instead of register by register and the full way
+   for each triangle (a particle: 14 register writes and two GsGpu_Draw_impl). And the triangle runs' additive
+   triangles go into the additive groups (vita_vgl.c) instead of closing them. 0 off (default), 1 on, 2 in the
+   soak's B battles. */
+int gVitaFxRun = 0;
+unsigned gVitaQuadRunN[2]; /* (the log) quad runs, quads in them */
+int Gs_FxRunOn(void) {
+    extern int gVitaAbSide;
+    return gVitaFxRun == 2 ? gVitaAbSide == 1 : gVitaFxRun != 0;
+}
+static void quad_run(const uint64_t *q, uint32_t n, int flat) {
+    extern int gVitaGsSkip;
+    extern void GsGpu_DrawTriRun(int ctx, const GsVertex *v, uint32_t ntri);
+    static GsVertex vb[3 * 64];
+    const uint32_t stride = flat ? 14 : 16; /* (64-bit words a packet: its tag and its 12 or 14 registers) */
+    uint32_t i, j, k, texreg = (uint32_t)((q[1] >> 4) & 0xF);
+    const uint64_t *last = q + stride * (n - 1);
+    int ctx;
+    float ox, oy;
+    gVitaQuadRunN[0]++;
+    gVitaQuadRunN[1] += n;
+    sStat[3] += n;
+    reg_write(0, (q[2] & ~7ull) | 3); /* (its two triangles: PRIM a triangle, the rest of it as it is) */
+    reg_write(texreg, q[3]);
+    ctx = (int)((gs.prim >> 9) & 1);
+    ox = (float)(gs.xyoffset[ctx] & 0xFFFF);
+    oy = (float)((gs.xyoffset[ctx] >> 32) & 0xFFFF);
+    for (i = 0; i < n; i += 32) {
+        uint32_t m = n - i < 32 ? n - i : 32;
+        for (j = 0; j < m; j++) {
+            const uint64_t *pk = q + stride * (i + j);
+            GsVertex c4[4];
+            if (i + j > 0 && (pk[3] >> 61)) {
+                clut_note(pk[3]);
+            }
+            for (k = 0; k < 4; k++) {
+                uint64_t c = flat ? pk[4] : pk[4 + 3 * k], st = flat ? pk[5 + 2 * k] : pk[5 + 3 * k], xyz = flat ? pk[6 + 2 * k] : pk[6 + 3 * k];
+                uint32_t qq = (uint32_t)(c >> 32), tt = (uint32_t)(st >> 32), ss = (uint32_t)st;
+                GsVertex *v = &c4[k];
+                v->x = ((float)(int)(uint32_t)(xyz & 0xFFFF) - ox) / 16.0f;
+                v->y = ((float)(int)(uint32_t)((xyz >> 16) & 0xFFFF) - oy) / 16.0f;
+                v->z = (uint32_t)((xyz >> 32) & 0xFFFFFF);
+                v->r = (uint8_t)c; v->g = (uint8_t)(c >> 8); v->b = (uint8_t)(c >> 16); v->a = (uint8_t)(c >> 24);
+                memcpy(&v->s, &ss, 4);
+                memcpy(&v->t, &tt, 4);
+                memcpy(&v->q, &qq, 4);
+                v->u = (int)(gs.uv & 0x3FFF);
+                v->v = (int)((gs.uv >> 16) & 0x3FFF);
+            }
+            vb[6 * j + 0] = c4[0]; vb[6 * j + 1] = c4[1]; vb[6 * j + 2] = c4[2]; /* (the strip's triangles: 0 1 2, 1 2 3) */
+            vb[6 * j + 3] = c4[1]; vb[6 * j + 4] = c4[2]; vb[6 * j + 5] = c4[3];
+        }
+        if (!gVitaGsSkip) {
+            GsGpu_DrawTriRun(ctx, vb, 2 * m);
+        }
+    }
+    reg_write(0, last[2]); /* (the registers as the last packet leaves them) */
+    gs.rgbaq = flat ? last[4] : last[13];
+    { uint32_t qq = (uint32_t)(gs.rgbaq >> 32); memcpy(&gs.q, &qq, 4); }
+    gs.st = flat ? last[11] : last[14];
+    gs.vtx[0] = vb[3 * ((2 * n - 1) % 64)];
+    gs.vtx[1] = vb[3 * ((2 * n - 1) % 64) + 1];
+    gs.vtx[2] = vb[3 * ((2 * n - 1) % 64) + 2];
+    gs.vcount = 0;
+    gs.strip = 3;
+}
 #endif
 static uint64_t sGifTagLo, sGifTagHi; /* current tag: persists across runs */
 static uint32_t sGifLoops, sGifReg;    /* loops left, register index within the loop */
@@ -2589,6 +2658,19 @@ __attribute__((hot)) void Gs_Gif(const uint8_t *p, uint32_t qwc) {
             }
             q += 14 * n;
             qwc -= 7 * n;
+            continue;
+        }
+        if (loops == 0 && qwc >= 7 && sGpu && !sDpCap && sVtxDbg == 0 && (q[2] & 7) == 4 && Gs_FxRunOn() &&
+            (((q[0] == 0xE400000000008001ull || q[0] == 0xE400000000000001ull) && qwc >= 8 && (q[1] == 0x42142142142160ull || q[1] == 0x42142142142170ull)) ||
+             ((q[0] == 0xC400000000008001ull || q[0] == 0xC400000000000001ull) && (q[1] == 0xF42424242160ull || q[1] == 0xF42424242170ull)))) {
+            int flat = (q[0] >> 60) == 0xC;
+            uint32_t stride = flat ? 14u : 16u, n = 1, maxn = qwc / (stride / 2);
+            while (n < maxn && q[stride * n] == q[0] && q[stride * n + 1] == q[1] && q[stride * n + 2] == q[2] && q[stride * n + 3] == q[3]) {
+                n++;
+            }
+            quad_run(q, n, flat);
+            q += stride * n;
+            qwc -= (stride / 2) * n;
             continue;
         }
 #endif
@@ -3344,7 +3426,7 @@ typedef struct DpForm { void *gpu; uint32_t hits; uint8_t n, idx[DP_NF + 1]; uin
    long way three times in four (15,000 a 2 s in the shadows' stretches of a test, the drawing thread 36-45 ms a
    list) and soon refused for good as changing */
 #define DP_FORMS 4
-typedef struct DpSlot { uint32_t serial, refused, made, hits, seen; DpForm f[DP_FORMS]; } DpSlot;
+typedef struct DpSlot { uint32_t serial, refused, made, hits, seen, last; DpForm f[DP_FORMS]; } DpSlot; /* last: the form that matched last (dpfast: tried first) */
 /* The places: 2048, were 1024 in the program's memory. A detailed stage keeps 1,000-1,500 parts drawn in a picture
    (stage 18: ~1,550), more than there were places: two parts on one place took turns being walked the long way
    (~1,000 a 2 s on stage 18). Taken from the heap when the first number is given out (the list reader, before any
@@ -3505,15 +3587,21 @@ static int dp_part(uint32_t serial, const float *consts) {
     if (s->serial != serial) {
         return 0;
     }
-    for (k = 0; k < DP_FORMS; k++) {
-        DpForm *f = &s->f[k];
-        if (f->gpu != NULL && dp_match(f)) {
-            GsGpu_DpDraw(f->gpu, consts);
-            dp_apply(f);
-            f->hits++;
-            s->hits++;
-            s->seen = sFrame;
-            return 1;
+    {
+        extern int GsGpu_DpFastOn(void);
+        int first = GsGpu_DpFastOn() ? (int)(s->last & (DP_FORMS - 1)) : 0; /* (dpfast: the form that matched last first) */
+        for (k = 0; k < DP_FORMS; k++) {
+            int kk = (first + k) & (DP_FORMS - 1);
+            DpForm *f = &s->f[kk];
+            if (f->gpu != NULL && dp_match(f)) {
+                GsGpu_DpDraw(f->gpu, consts);
+                dp_apply(f);
+                f->hits++;
+                s->hits++;
+                s->seen = sFrame;
+                s->last = (uint32_t)kk;
+                return 1;
+            }
         }
     }
     if (s->f[0].gpu != NULL) {
