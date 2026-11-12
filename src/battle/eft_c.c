@@ -1366,6 +1366,167 @@ static inline void EftV_Scale3(f32 *o, f32 s) {
     o[1] = y;
     o[2] = z;
 }
+/* ---- bt3.txt seavtx (the surfaces' vertices worked out once): the surfaces queued in the ordering table (Kame House's
+   sea and the other stages' water: ~600 triangles a frame, ~8 ms of the game's thread there) are triangles of their
+   own, each with its three corners: a corner shared by six triangles was tested against the five clip planes and
+   projected six times. A mesh's corners are now numbered once (the same place, texture place and colour: the same
+   corner), and in a frame each corner is tested and projected once; a triangle whose three corners lie inside the
+   planes is queued from them, as EftSurf_DrawPolyOtClipped / EftSurf_DrawTriOtClipped would queue it unclipped. A
+   triangle with a corner outside goes their way, clipped. 0 off (default), 1 on, 2 in the soak's B battles. ---- */
+int gVitaSeaVtx = 0;
+unsigned gVitaSeaVtxN[4]; /* for the log: triangles queued from the corners worked out once, corners worked out, corners found worked out, meshes numbered */
+typedef struct SeaV { s32 scr[4]; Vec4 st; u32 stamp; s32 inside; s32 pad[2]; } __attribute__((aligned(16))) SeaV;
+typedef struct SeaMesh { EftSurfMesh *mesh; struct EftSurfTri *tris; s32 triCount, nv; u16 *idx; SeaV *v; void *raw; } SeaMesh;
+#define SEA_MESH_N 256
+static SeaMesh sSeaMesh[SEA_MESH_N];
+static void *sSeaFile;
+static u32 sSeaStamp;
+extern void EftSurf_PortReflectTri(s32 *s0, s32 *s1, s32 *s2, Vec4 *c0, Vec4 *c1, Vec4 *c2, Vec4 *st0, Vec4 *st1, Vec4 *st2, u64 *tex, Vec4 *fog, s32 zBias);
+static void EftSurf_PortPlainTri(s32 *s0, s32 *s1, s32 *s2, f32 *c0, f32 *c1, f32 *c2, Vec4 *st0, Vec4 *st1, Vec4 *st2, s32 layer, u64 tex0, s32 zBias);
+static void sea_free(void) {
+    s32 k;
+    for (k = 0; k < SEA_MESH_N; k++) {
+        if (sSeaMesh[k].mesh != NULL) {
+            __builtin_free(sSeaMesh[k].idx);
+            __builtin_free(sSeaMesh[k].raw);
+        }
+    }
+    __builtin_memset(sSeaMesh, 0, sizeof(sSeaMesh));
+}
+static u32 sea_hash(const u32 *w) {
+    u32 h = 2166136261u;
+    s32 k;
+    for (k = 0; k < 12; k++) {
+        h = (h ^ w[k]) * 16777619u;
+    }
+    return h ^ h >> 15;
+}
+/* the mesh's corners numbered: NULL when it is not one to take this way (or no memory) */
+static SeaMesh *sea_mesh(EftSurfMesh *m, void *file) {
+    extern int gVitaAbSide, gVitaSurfCull;
+    u32 h, n, P, i;
+    SeaMesh *e = NULL;
+    u16 *ht;
+    s32 *first;
+    if (!(gVitaSeaVtx == 2 ? gVitaAbSide == 1 : gVitaSeaVtx != 0) || !gVitaSurfCull) {
+        return NULL;
+    }
+    if (file != sSeaFile) {
+        sea_free();
+        sSeaFile = file;
+    }
+    if (m->triCount <= 0 || m->triCount > 20000 || (m->flags & (EFT_SURF_CLIP | EFT_SURF_WAVE))) {
+        return NULL;
+    }
+    h = ((u32)(unsigned long)m * 0x9E3779B1u) >> 24;
+    for (i = 0; i < SEA_MESH_N; i++, h = (h + 1) & (SEA_MESH_N - 1)) {
+        SeaMesh *c = &sSeaMesh[h];
+        if (c->mesh == m && c->tris == m->tris && c->triCount == m->triCount) {
+            return c->v != NULL ? c : NULL;
+        }
+        if (c->mesh == NULL) {
+            e = c;
+            break;
+        }
+    }
+    if (e == NULL) {
+        return NULL; /* (full) */
+    }
+    e->mesh = m;
+    e->tris = m->tris;
+    e->triCount = m->triCount;
+    n = (u32)m->triCount * 3;
+    for (P = 1; P < 2 * n; P <<= 1) {
+    }
+    e->idx = (u16 *)__builtin_malloc(n * sizeof(u16));
+    ht = (u16 *)__builtin_malloc(P * sizeof(u16));
+    first = (s32 *)__builtin_malloc(n * sizeof(s32));
+    if (e->idx == NULL || ht == NULL || first == NULL) {
+        __builtin_free(ht);
+        __builtin_free(first);
+        return NULL; /* (e->v NULL: never this way) */
+    }
+    __builtin_memset(ht, 0, P * sizeof(u16));
+    e->nv = 0;
+    for (i = 0; i < n; i++) {
+        const EftSurfVtx *vx = &m->tris[i / 3].v[i % 3];
+        u32 k = sea_hash((const u32 *)vx) & (P - 1);
+        while (ht[k] != 0 && __builtin_memcmp(&m->tris[first[ht[k] - 1] / 3].v[first[ht[k] - 1] % 3], vx, sizeof(EftSurfVtx)) != 0) {
+            k = (k + 1) & (P - 1);
+        }
+        if (ht[k] == 0) {
+            first[e->nv] = (s32)i;
+            ht[k] = (u16)(e->nv + 1);
+            e->nv++;
+        }
+        e->idx[i] = (u16)(ht[k] - 1);
+    }
+    __builtin_free(ht);
+    __builtin_free(first);
+    e->raw = __builtin_malloc((u32)e->nv * sizeof(SeaV) + 16);
+    if (e->raw == NULL) {
+        return NULL;
+    }
+    e->v = (SeaV *)(((unsigned long)e->raw + 15) & ~15ul);
+    __builtin_memset(e->v, 0, (u32)e->nv * sizeof(SeaV));
+    gVitaSeaVtxN[3]++;
+    {
+        extern void Vita_Log(const char *fmt, ...);
+        static s32 lines;
+        if (lines < 40) {
+            lines++;
+            Vita_Log("vita: surfaces (seavtx): a mesh of %d triangles: %d corners of %u\n", m->triCount, e->nv, n);
+        }
+    }
+    return e;
+}
+/* (as EftSurf_PortInside, one corner) */
+static inline s32 sea_inside(const f32 *pos, const Vec4 *pl) {
+    s32 p;
+    if (pos[3] != 1.0f) {
+        return 0;
+    }
+    for (p = 0; p < 5; p++, pl++) {
+        f32 a = pl->x * pos[0], b = pl->y * pos[1], c = pl->z * pos[2];
+        f32 d = a + b + c + pl->w * pos[3];
+        f32 m = (a < 0.0f ? -a : a) + (b < 0.0f ? -b : b) + (c < 0.0f ? -c : c) + (pl->w < 0.0f ? -pl->w : pl->w);
+        if (!(d > 1e-4f * m)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+/* triangle j of the mesh (its corners prepared in out) queued from its corners worked out once: 1; 0: a corner
+   outside the planes (the caller's way, clipped) */
+static s32 sea_tri(SeaMesh *sm, s32 j, EftSurfVtx *out, Vec4 *pl, s32 reflect, u64 *tex, f32 (*fog)[4], s32 layer, u64 tex0, s32 zBias) {
+    SeaV *v[3];
+    s32 k;
+    for (k = 0; k < 3; k++) {
+        SeaV *e = &sm->v[sm->idx[j * 3 + k]];
+        if (e->stamp != sSeaStamp) {
+            e->stamp = sSeaStamp;
+            e->inside = sea_inside(out[k].pos, pl);
+            if (e->inside) {
+                ClipPoly_ProjectCur((s32 (*)[4])e->scr, &e->st, &out[k], 1);
+            }
+            gVitaSeaVtxN[1]++;
+        } else {
+            gVitaSeaVtxN[2]++;
+        }
+        if (!e->inside) {
+            return 0;
+        }
+        v[k] = e;
+    }
+    gVitaSeaVtxN[0]++;
+    if (reflect) {
+        EftSurf_PortReflectTri(v[0]->scr, v[1]->scr, v[2]->scr, (Vec4 *)out[0].color, (Vec4 *)out[1].color, (Vec4 *)out[2].color, &v[0]->st, &v[1]->st, &v[2]->st,
+                               tex, (Vec4 *)fog, zBias);
+    } else {
+        EftSurf_PortPlainTri(v[0]->scr, v[1]->scr, v[2]->scr, out[0].color, out[1].color, out[2].color, &v[0]->st, &v[1]->st, &v[2]->st, layer, tex0, zBias);
+    }
+    return 1;
+}
 #endif
 /* Draws every mesh of the surface file: scrolls and tints the vertices of each triangle, then sends it through
    the draw routine its flags select. */
@@ -1398,6 +1559,9 @@ void EftSurf_DrawMeshes(void) {
     unsigned surfC0, surfC1 = 0, surfC2;
     gVitaSurfN[0]++;
     gVitaSurfMeas = gVitaPerfOn && (gVitaSurfN[0] & 7) == 0;
+    if (++sSeaStamp == 0) { /* (seavtx: the corners worked out in this call) */
+        sSeaStamp = 1;
+    }
     surfC0 = gVitaSurfMeas ? Vita_SurfCyc() : 0;
 #endif
     memset(tex, 0, sizeof(tex));
@@ -1504,6 +1668,9 @@ void EftSurf_DrawMeshes(void) {
                 gVitaSurfN[flat ? 8 : 9]++;
             }
         }
+#endif
+#ifdef PORT_VITA
+        SeaMesh *sv = (flags & EFT_SURF_CLIP) ? NULL : sea_mesh(mesh, w->file);
 #endif
         for (j = 0; j < triCount; j++, tri++) {
             s32 k;
@@ -1615,8 +1782,14 @@ void EftSurf_DrawMeshes(void) {
                     EftSurf_DrawTri(out, tex0);
                 }
             } else if (flags & EFT_SURF_REFLECT) {
+#ifdef PORT_VITA
+                if (sv == NULL || !sea_tri(sv, j, out, gEftSurf->u.s.planes, 1, tex, fog, 0, 0, zBias))
+#endif
                 EftSurf_DrawPolyOtClipped(out, 0, tex, (Vec4 *)fog, zBias);
             } else {
+#ifdef PORT_VITA
+                if (sv == NULL || !sea_tri(sv, j, out, gEftSurf->u.s.planes, 0, NULL, NULL, layer, tex0, zBias))
+#endif
                 EftSurf_DrawTriOtClipped(out, layer, 1, 0, tex0, zBias);
             }
 #ifdef PORT_VITA
@@ -2118,6 +2291,26 @@ void EftSurf_DrawTriOtClipped(EftSurfVtx *tri, s32 layer, s32 unused, s32 flipZ,
     }
 }
 
+#ifdef PORT_VITA
+/* (seavtx) EftSurf_DrawTriOtClipped's queueing of a triangle that is not clipped, from its corners projected */
+static void EftSurf_PortPlainTri(s32 *s0, s32 *s1, s32 *s2, f32 *c0, f32 *c1, f32 *c2, Vec4 *st0, Vec4 *st1, Vec4 *st2, s32 layer, u64 tex0, s32 zBias) {
+    EftScreenPos xyz[3];
+    s32 z = s0[2] >> 8;
+    __builtin_memcpy(&xyz[0], s0, 16);
+    __builtin_memcpy(&xyz[1], s1, 16);
+    __builtin_memcpy(&xyz[2], s2, 16);
+    if (xyz[0].z > 0xFFFFFF) {
+        xyz[0].z = 0xFFFFFF;
+    }
+    if (xyz[1].z > 0xFFFFFF) {
+        xyz[1].z = 0xFFFFFF;
+    }
+    if (xyz[2].z > 0xFFFFFF) {
+        xyz[2].z = 0xFFFFFF;
+    }
+    EftSurf_QueueTri(&xyz[0], &xyz[1], &xyz[2], c0, c1, c2, st0, st1, st2, layer, z - zBias, tex0);
+}
+#endif
 /* Called once per frame before the views are drawn: builds the two palettes of the reflecting surface,
    alternating between two pairs of textures. */
 void EftSurf_BuildPalettes(void) {

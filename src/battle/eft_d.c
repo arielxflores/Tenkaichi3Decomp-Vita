@@ -373,6 +373,13 @@ void EftSurf_DrawPolyOtClipped(EftSurfVtxD *poly, s32 unused, u64 *tex, Vec4 *fo
     }
 }
 
+#ifdef PORT_VITA
+/* (eft_c.c seavtx) EftSurf_DrawPolyOtClipped's queueing of a triangle that is not clipped, from its corners projected */
+void EftSurf_PortReflectTri(s32 *s0, s32 *s1, s32 *s2, Vec4 *c0, Vec4 *c1, Vec4 *c2, Vec4 *st0, Vec4 *st1, Vec4 *st2, u64 *tex, Vec4 *fog, s32 zBias) {
+    EftSurf_QueueTri((EftScrPos *)s0, (EftScrPos *)s1, (EftScrPos *)s2, c0, c1, c2, st0, st1, st2, 0, (s0[2] >> 8) - zBias, tex, fog, 2);
+}
+#endif
+
 /* Sets colour A of the surface parameters. No caller. */
 void EftSurf_SetColorA(EftVec16 v) {
     Vec4_Copy(&gEftSurf->colorA, (Vec4 *)&v);
