@@ -1579,6 +1579,8 @@ static void read_settings(void) {
 #endif
         } else if (strncmp(line, "BT3_", 4) == 0) {
             setenv(line, eq, 1);
+        } else if (strcmp(line, "lang") == 0) { /* the language for this run, not kept (vita_eu.c: 0..4 English .. Italian) */
+            setenv("BT3_LANG", eq, 1);
         }
         logf_("vita: setting %s=%s\n", line, eq);
     }

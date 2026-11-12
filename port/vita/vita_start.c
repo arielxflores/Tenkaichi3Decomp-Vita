@@ -38,6 +38,20 @@ extern int sceAppMgrLoadExec(const char *appPath, char *const argv[], void *optP
 int gVitaCheatUnlock;     /* the save the game loads next is given everything (src/menu/menu_i_b.c BootCard_OnFlowDone) */
 int gVitaStartMenuForce;  /* (development build, startmenu=1 in bt3.txt) the menu as if SELECT were held: the test runs' */
 
+/* The text screens in Spanish when the game is (the European disc's Spanish, vita_eu.c; BT4's Spanish release): the
+   text screen's font has no accents, so the words go without them. */
+static int sEs;
+#define ES(english, spanish) (sEs ? (spanish) : (english))
+
+static void es_update(void) {
+#ifdef BT3_BT4
+    extern int Port_Setting(const char *name, int def);
+    sEs = Port_Setting("bt4lang", 0) == 1;
+#else
+    sEs = VitaEu_Lang() == 1;
+#endif
+}
+
 static unsigned pad_now(void) {
     SceCtrlData pad;
     memset(&pad, 0, sizeof(pad));
@@ -110,7 +124,7 @@ static void release_buttons(void) {
 /* BT4 in the package and its files in place: 1; else 0, and `why` says what is missing */
 static int bt4_ready(const char **why) {
     if (!exists(BT4_PROGRAM)) {
-        *why = "this package has no BT4 program";
+        *why = ES("this package has no BT4 program", "este paquete no tiene el programa de BT4");
         return 0;
     }
     if (!(exists("ux0:data/bt3/bt4/SLUS_219.78") && exists("ux0:data/bt3/bt4/BIN/DBZ4.BIN")) &&
@@ -119,7 +133,8 @@ static int bt4_ready(const char **why) {
         char iso[300];
         if (!Vita_IsoFind("ux0:data/bt3/bt4", "BIN/DBZ4.BIN", 0, iso, sizeof(iso), NULL) &&
             !Vita_IsoFind("ux0:data/bt3/bt4/es", "BIN/DBZ4.BIN", 0, iso, sizeof(iso), NULL)) { /* (or its .iso: vita_iso.c) */
-            *why = "copy your BT4 B14 Rev2 disc's .iso (or its SLUS_219.78,\n  BIN and DATA) to ux0:data/bt3/bt4/";
+            *why = ES("copy your BT4 B14 Rev2 disc's .iso (or its SLUS_219.78,\n  BIN and DATA) to ux0:data/bt3/bt4/",
+                      "copia el .iso de tu disco BT4 B14 Rev2 (o su SLUS_219.78,\n  BIN y DATA) en ux0:data/bt3/bt4/");
             return 0;
         }
     }
@@ -131,11 +146,12 @@ static void start_bt4(void) {
     int r;
     write_text(BT4_STARTING, "1");
     Vita_Log("vita: starting Budokai Tenkaichi 4 (%s)\n", BT4_PROGRAM);
-    psvDebugScreenPrintf("\e[H\e[2J\n  Starting Budokai Tenkaichi 4 ...\n");
+    psvDebugScreenPrintf(ES("\e[H\e[2J\n  Starting Budokai Tenkaichi 4 ...\n", "\e[H\e[2J\n  Iniciando Budokai Tenkaichi 4 ...\n"));
     r = sceAppMgrLoadExec(BT4_PROGRAM, NULL, NULL);
     sceIoRemove(BT4_STARTING);
     Vita_Log("vita: BT4 could not be started (%08x)\n", (unsigned)r);
-    psvDebugScreenPrintf("\n  \e[31mBT4 could not be started (%08x).\e[39m Press CROSS.\n", (unsigned)r);
+    psvDebugScreenPrintf(ES("\n  \e[31mBT4 could not be started (%08x).\e[39m Press CROSS.\n",
+                            "\n  \e[31mNo se pudo iniciar BT4 (%08x).\e[39m Pulsa X.\n"), (unsigned)r);
     press(SCE_CTRL_CROSS);
     psvDebugScreenPrintf("\e[H\e[2J");
 }
@@ -305,27 +321,41 @@ void Vita_GameSwitch(void) {
    game then starts as a match: vita_net.c). */
 static int net_menu(void) {
     extern int gVitaNetRole, gVitaNetLink, gVitaNetRules[6];
-    static const char *const kTime[6] = {"the game's (240 s)", "60 seconds", "90 seconds", "180 seconds", "240 seconds", "none"};
+    static const char *const kTimeEn[6] = {"the game's (240 s)", "60 seconds", "90 seconds", "180 seconds", "240 seconds", "none"};
+    static const char *const kTimeEs[6] = {"el del juego (240 s)", "60 segundos", "90 segundos", "180 segundos", "240 segundos", "sin limite"};
+    const char *const *kTime = sEs ? kTimeEs : kTimeEn;
     int sel = 0, time = gVitaNetRules[0] + 1;
     unsigned p;
 
     for (;;) {
-        static const char *const kItem[6] = {"Host a match (ad hoc)", "Join a match (ad hoc)", "Host a match (Wi-Fi, the same network)",
-                                             "Join a match (Wi-Fi, the same network)", "Time limit when hosting: ", "Back"};
+        static const char *const kItemEn[6] = {"Host a match (ad hoc)", "Join a match (ad hoc)", "Host a match (Wi-Fi, the same network)",
+                                               "Join a match (Wi-Fi, the same network)", "Time limit when hosting: ", "Back"};
+        static const char *const kItemEs[6] = {"Crear una partida (ad hoc)", "Unirse a una partida (ad hoc)", "Crear una partida (Wi-Fi, la misma red)",
+                                               "Unirse a una partida (Wi-Fi, la misma red)", "Tiempo limite al crearla: ", "Volver"};
+        const char *const *kItem = sEs ? kItemEs : kItemEn;
         int i;
-        psvDebugScreenPrintf("\e[H\e[2J\n  Multiplayer: a match against another Vita\n\n");
+        psvDebugScreenPrintf(ES("\e[H\e[2J\n  Multiplayer: a match against another Vita\n\n", "\e[H\e[2J\n  Multijugador: una partida contra otra Vita\n\n"));
         for (i = 0; i < 6; i++) {
             psvDebugScreenPrintf("  %s %s%s\e[39m\n", i == sel ? "\e[33m>" : " ", kItem[i], i == 4 ? kTime[time] : "");
         }
-        psvDebugScreenPrintf("\n  Both Vitas need this same version of the game and the\n"
-                             "  same disc files. Ad hoc: the two Vitas near each other,\n"
-                             "  no router (the system asks to connect). Wi-Fi: both\n"
-                             "  connected to the same network (Settings > Network).\n\n"
-                             "  The match is the versus mode, player 1 (the host)\n"
-                             "  against player 2, everything unlocked, with a save of\n"
-                             "  its own; your save is not touched. It ends at the\n"
-                             "  main menu; then the game starts again as usual.\n\n"
-                             "  Up / down, CROSS to choose; CIRCLE: back.\n");
+        psvDebugScreenPrintf(ES("\n  Both Vitas need this same version of the game and the\n"
+                                "  same disc files. Ad hoc: the two Vitas near each other,\n"
+                                "  no router (the system asks to connect). Wi-Fi: both\n"
+                                "  connected to the same network (Settings > Network).\n\n"
+                                "  The match is the versus mode, player 1 (the host)\n"
+                                "  against player 2, everything unlocked, with a save of\n"
+                                "  its own; your save is not touched. It ends at the\n"
+                                "  main menu; then the game starts again as usual.\n\n"
+                                "  Up / down, CROSS to choose; CIRCLE: back.\n",
+                                "\n  Las dos Vitas necesitan esta misma version del juego y\n"
+                                "  los mismos archivos del disco. Ad hoc: las dos Vitas\n"
+                                "  cerca, sin router (el sistema pide conectar). Wi-Fi:\n"
+                                "  las dos en la misma red (Ajustes > Red).\n\n"
+                                "  La partida es el modo versus, jugador 1 (quien la crea)\n"
+                                "  contra jugador 2, todo desbloqueado, con una partida\n"
+                                "  guardada propia; la tuya no se toca. Termina en el\n"
+                                "  menu principal; luego el juego empieza como siempre.\n\n"
+                                "  Arriba / abajo, X para elegir; CIRCULO: volver.\n"));
         p = press(SCE_CTRL_UP | SCE_CTRL_DOWN | SCE_CTRL_CROSS | SCE_CTRL_CIRCLE | SCE_CTRL_LEFT | SCE_CTRL_RIGHT);
         if (p & SCE_CTRL_CIRCLE) {
             return 0;
@@ -359,6 +389,8 @@ void Vita_StartMenu(void) {
     const char *why = NULL;
     int bt4;
 
+    es_update();
+
     {   /* started again for a multiplayer match by the versus menu (vita_net.c): no menu, no BT4 */
         extern int Vita_NetStartFile(void);
         if (Vita_NetStartFile()) {
@@ -380,10 +412,14 @@ void Vita_StartMenu(void) {
             sceIoRemove(BT4_STARTING);
             write_text(START_FILE, "bt3");
             Vita_Log("vita: BT4 did not get going the last time: Budokai Tenkaichi 3 instead\n");
-            psvDebugScreenPrintf("\n  \e[33mBudokai Tenkaichi 4 did not get going the last time\e[39m\n"
-                                 "  (see ux0:data/bt3/bt4/log.txt and crash.txt).\n\n"
-                                 "  Budokai Tenkaichi 3 starts instead. Hold SELECT while the\n"
-                                 "  game starts to choose BT4 again.\n\n  Press CROSS.\n");
+            psvDebugScreenPrintf(ES("\n  \e[33mBudokai Tenkaichi 4 did not get going the last time\e[39m\n"
+                                    "  (see ux0:data/bt3/bt4/log.txt and crash.txt).\n\n"
+                                    "  Budokai Tenkaichi 3 starts instead. Hold SELECT while the\n"
+                                    "  game starts to choose BT4 again.\n\n  Press CROSS.\n",
+                                    "\n  \e[33mBudokai Tenkaichi 4 no llego a arrancar la ultima vez\e[39m\n"
+                                    "  (mira ux0:data/bt3/bt4/log.txt y crash.txt).\n\n"
+                                    "  En su lugar empieza Budokai Tenkaichi 3. Manten SELECT\n"
+                                    "  al iniciar el juego para elegir BT4 otra vez.\n\n  Pulsa X.\n"));
             press(SCE_CTRL_CROSS);
             psvDebugScreenPrintf("\e[H\e[2J");
         } else if (!select_held()) {
@@ -399,6 +435,7 @@ chosen:
     if (VitaEu_NeedsChoice()) {
         VitaEu_ChooseLanguage();
     }
+    es_update();
     if (!select_held()) {
         return;
     }
@@ -419,51 +456,67 @@ chosen:
 #endif
     items[n++] = IT_START;
     for (;;) {
-        psvDebugScreenPrintf("\e[H\e[2J\n  %s: start menu\n\n", VITA_GAME_NAME);
+        psvDebugScreenPrintf(ES("\e[H\e[2J\n  %s: start menu\n\n", "\e[H\e[2J\n  %s: menu de inicio\n\n"), VITA_GAME_NAME);
         for (i = 0; i < n; i++) {
             psvDebugScreenPrintf("  %s ", i == sel ? "\e[33m>" : " ");
             if (items[i] == IT_GAME) {
 #ifndef BT3_BT4
-                psvDebugScreenPrintf("Game: Budokai Tenkaichi 3 (choose for BT4)");
+                psvDebugScreenPrintf(ES("Game: Budokai Tenkaichi 3 (choose for BT4)", "Juego: Budokai Tenkaichi 3 (elige para BT4)"));
 #else
-                psvDebugScreenPrintf("Game: Budokai Tenkaichi 4 (choose for BT3)");
+                psvDebugScreenPrintf(ES("Game: Budokai Tenkaichi 4 (choose for BT3)", "Juego: Budokai Tenkaichi 4 (elige para BT3)"));
 #endif
             } else if (items[i] == IT_LANG) {
-                psvDebugScreenPrintf("Language: %s", VitaEu_LangName(VitaEu_Lang()));
+                psvDebugScreenPrintf(ES("Language: %s", "Idioma: %s"), VitaEu_LangName(VitaEu_Lang()));
             } else if (items[i] == IT_UNLOCK) {
-                psvDebugScreenPrintf("Unlock everything (cheat): %s", gVitaCheatUnlock ? "ON" : "OFF");
+                psvDebugScreenPrintf(ES("Unlock everything (cheat): %s", "Desbloquear todo (truco): %s"), gVitaCheatUnlock ? ES("ON", "SI") : ES("OFF", "NO"));
             } else if (items[i] == IT_NET) {
-                psvDebugScreenPrintf("Multiplayer: play against another Vita");
+                psvDebugScreenPrintf(ES("Multiplayer: play against another Vita", "Multijugador: juega contra otra Vita"));
             } else {
-                psvDebugScreenPrintf("Start the game");
+                psvDebugScreenPrintf(ES("Start the game", "Empezar el juego"));
             }
             psvDebugScreenPrintf("\e[39m\n");
         }
         if (items[sel] == IT_UNLOCK) {
-            psvDebugScreenPrintf("\n  Every character, stage, song and item, and 4,850,000\n"
-                                 "  Zenni, given to the save the game loads now (its\n"
-                                 "  records list is emptied). It stays once the game saves\n"
-                                 "  (it cannot be taken back). Also in the game: Options >\n"
-                                 "  Controller > Vita Settings > Cheats.\n");
+            psvDebugScreenPrintf(ES("\n  Every character, stage, song and item, and 4,850,000\n"
+                                    "  Zenni, given to the save the game loads now (its\n"
+                                    "  records list is emptied). It stays once the game saves\n"
+                                    "  (it cannot be taken back). Also in the game: Options >\n"
+                                    "  Controller > Vita Settings > Cheats.\n",
+                                    "\n  Todos los personajes, escenarios, canciones y objetos, y\n"
+                                    "  4.850.000 Zenni, para la partida que el juego carga ahora\n"
+                                    "  (su lista de records se vacia). Se queda cuando el juego\n"
+                                    "  guarda (no se puede deshacer). En el juego tambien:\n"
+                                    "  Opciones > Ajustes Vita > Desbloquear.\n"));
         } else if (items[sel] == IT_NET) {
-            psvDebugScreenPrintf("\n  A match of the versus mode against a friend's Vita:\n"
-                                 "  ad hoc (the two Vitas near each other) or over the\n"
-                                 "  same Wi-Fi network. One hosts, the other joins.\n");
+            psvDebugScreenPrintf(ES("\n  A match of the versus mode against a friend's Vita:\n"
+                                    "  ad hoc (the two Vitas near each other) or over the\n"
+                                    "  same Wi-Fi network. One hosts, the other joins.\n",
+                                    "\n  Una partida del modo versus contra la Vita de un amigo:\n"
+                                    "  ad hoc (las dos Vitas cerca) o por la misma red Wi-Fi.\n"
+                                    "  Uno la crea y el otro se une.\n"));
         } else if (items[sel] == IT_GAME) {
 #ifndef BT3_BT4
-            psvDebugScreenPrintf("\n  Team BT4's Budokai Tenkaichi 4 B14 Rev2 (NauTaro's\n"
-                                 "  BT4decomp), from your own BT4 disc's .iso or files in\n"
-                                 "  ux0:data/bt3/bt4/. It then starts each time, until\n"
-                                 "  changed here again.%s%s\n", why != NULL ? "\n\n  \e[33mNot now: " : "", why != NULL ? why : "");
+            psvDebugScreenPrintf(ES("\n  Team BT4's Budokai Tenkaichi 4 B14 Rev2 (NauTaro's\n"
+                                    "  BT4decomp), from your own BT4 disc's .iso or files in\n"
+                                    "  ux0:data/bt3/bt4/. It then starts each time, until\n"
+                                    "  changed here again.%s%s\n",
+                                    "\n  Budokai Tenkaichi 4 B14 Rev2 de Team BT4 (BT4decomp de\n"
+                                    "  NauTaro), del .iso o los archivos de tu propio disco de\n"
+                                    "  BT4 en ux0:data/bt3/bt4/. Luego empieza siempre, hasta\n"
+                                    "  que lo cambies aqui.%s%s\n"),
+                                 why != NULL ? ES("\n\n  \e[33mNot now: ", "\n\n  \e[33mAhora no: ") : "", why != NULL ? why : "");
             if (why != NULL) {
                 psvDebugScreenPrintf("\e[39m");
             }
 #else
-            psvDebugScreenPrintf("\n  Back to Budokai Tenkaichi 3: it then starts each time,\n"
-                                 "  until BT4 is chosen again.\n");
+            psvDebugScreenPrintf(ES("\n  Back to Budokai Tenkaichi 3: it then starts each time,\n"
+                                    "  until BT4 is chosen again.\n",
+                                    "\n  Volver a Budokai Tenkaichi 3: luego empieza siempre,\n"
+                                    "  hasta que se elija BT4 otra vez.\n"));
 #endif
         }
-        psvDebugScreenPrintf("\n  Up / down, CROSS to choose; CIRCLE or START: start.\n");
+        psvDebugScreenPrintf(ES("\n  Up / down, CROSS to choose; CIRCLE or START: start.\n",
+                                "\n  Arriba / abajo, X para elegir; CIRCULO o START: empezar.\n"));
         p = press(SCE_CTRL_UP | SCE_CTRL_DOWN | SCE_CTRL_CROSS | SCE_CTRL_CIRCLE | SCE_CTRL_START);
         if (p & (SCE_CTRL_CIRCLE | SCE_CTRL_START)) {
             break;
@@ -489,6 +542,7 @@ chosen:
 #endif
         } else if (items[sel] == IT_LANG) {
             VitaEu_ChooseLanguage();
+            es_update();
         } else if (items[sel] == IT_UNLOCK) {
             gVitaCheatUnlock ^= 1;
 #ifndef BT3_BT4

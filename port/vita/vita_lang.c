@@ -8,8 +8,8 @@
  * bytes of UTF-16), about 36 to a line; the letters are UTF-8 here, the Spanish discs' lettering has them (á é í ó ú
  * ñ ü ¿ ¡); the page counter's font has no accents.
  *
- * BT3: its Spanish (the European disc's, vita_eu.c) is the menus', the HUD's and the subtitles'; the options screen
- * stays the USA disc's, in English, and so does what the port adds to it.
+ * BT3: its Spanish is the European disc's (vita_eu.c): the menus, the HUD, the subtitles and, in Spanish, the options
+ * screen too (its Vita art made from it, vita_optart_es.h).
  */
 #include <string.h>
 
@@ -21,7 +21,12 @@ int Vita_Spanish(void) {
 #ifdef BT3_BT4
     return !Port_GameProfileEnglish();
 #else
-    return 0;
+    /* the options screen's own language while it is up (it is the USA disc's until it is opened again after the
+       language changed), else the language chosen (vita_eu.c) */
+    extern int Vita_OptionArtLang(void);
+    extern int VitaEu_Lang(void);
+    int screen = Vita_OptionArtLang();
+    return screen >= 0 ? screen == 1 : VitaEu_Lang() == 1;
 #endif
 }
 
@@ -97,6 +102,52 @@ static const char *const kEs[][2] = {
     {"ON: files in ux0:data/bt3/mods\nreplace the disc's, from the\nnext start.",
      "Sí: los archivos de ux0:data/bt3/\nmods sustituyen a los del disco,\ndesde el próximo inicio."},
     {"OFF: the disc's files only, from\nthe next start.", "No: solo los archivos del disco,\ndesde el próximo inicio."},
+    /* BT3's Vita Settings */
+    {"Screen: the camera, the screen's\nshake and its position.", "Pantalla: la cámara, la vibración\nde pantalla y su posición."},
+    {"Game: Budokai Tenkaichi 3, or Team\nBT4's Budokai Tenkaichi 4 mod.", "Juego: Budokai Tenkaichi 3, o el\nmod Budokai Tenkaichi 4 de Team BT4."},
+    {"Quick Start: no logos, opening film\nor copyright page at the start: %s.",
+     "Inicio Rápido: sin logos, vídeo\nde apertura ni página de copyright\nal empezar: %s."},
+    {"Quick Save: saving and loading\nwithout the memory card window: %s.",
+     "Guardado Rápido: guardar y cargar\nsin la ventana de la tarjeta de\nmemoria: %s."},
+    {"Tech Fixes: the community's fixes\nof the fighting: Z Counter %s,\nBombardment %s.",
+     "Arreglos: los arreglos de la\ncomunidad al combate: Contador Z\n%s, Bombardeo %s."},
+    {"Not turned on: the copy of your\nsave could not be made (see\nux0:data/bt3/log.txt).",
+     "No activado: no se pudo copiar tu\npartida (mira ux0:data/bt3/log.txt)."},
+    {"Z Counter fix (%s): keeps a timed\nZ Counter the game loses when you\nmove as the attack lands.",
+     "Contador Z (%s): mantiene un\nContador Z a tiempo que el juego\npierde si te mueves al golpear."},
+    {"Bombardment fix (%s): a chain of\nsmash Ki blasts with dashes is not\nbroken by body contact.",
+     "Bombardeo (%s): una cadena de\nráfagas de Ki con embestidas no\nse rompe por el contacto."},
+    {"Budokai Tenkaichi 3: the game you\nare playing now.", "Budokai Tenkaichi 3: el juego al\nque estás jugando."},
+    {"This package has no Budokai\nTenkaichi 4 program.", "Este paquete no tiene el programa\nde Budokai Tenkaichi 4."},
+    {"Not now: copy your BT4 B14 Rev2\ndisc's .iso to ux0:data/bt3/bt4/\nfirst (see the README).",
+     "Ahora no: copia antes el .iso de\ntu disco BT4 B14 Rev2 en\nux0:data/bt3/bt4/ (ver el README)."},
+    {"Budokai Tenkaichi 4 could not be\nstarted (see ux0:data/bt3/log.txt).",
+     "No se pudo iniciar Budokai Tenkaichi\n4 (mira ux0:data/bt3/log.txt)."},
+    {"Budokai Tenkaichi 4. Game starts\neach time, until changed back.\nPress again to confirm.",
+     "Budokai Tenkaichi 4. Se inicia\nsiempre, hasta que lo cambies.\nPulsa otra vez para confirmar."},
+    {"Budokai Tenkaichi 4. Game starts\neach time, until changed back.",
+     "Budokai Tenkaichi 4. Se inicia\nsiempre, hasta que lo cambies."},
+    {"ON: the game starts at its title\nscreen (no logos, opening film or\ncopyright page).",
+     "Sí: el juego empieza en su pantalla\nde título (sin logos, vídeo de\napertura ni copyright)."},
+    {"OFF: the logos, the opening film\nand the copyright page, as the\ngame has them.",
+     "No: los logos, el vídeo de apertura\ny la página de copyright, como\nlos tiene el juego."},
+    {"ON: saving and loading go without\nthe memory card window, unless\nthere is a question to answer.",
+     "Sí: guardar y cargar sin la ventana\nde la tarjeta de memoria, salvo\nsi hay una pregunta."},
+    {"OFF: the memory card window and\nits pages, as the game has them.", "No: la ventana de la tarjeta de\nmemoria, como la tiene el juego."},
+    /* BT3's Language row (Sound > Language: the plates are the disc's, Inglés and Japonés in Spanish) */
+    {"English: the menus, the text and\nthe voices in English.", "Inglés: los menús, el texto y\nlas voces en inglés."},
+    {"Japanese: the voices in Japanese,\nthe menus and subtitles in\nEnglish.", "Japonés: las voces en japonés,\nlos menús y subtítulos en inglés."},
+    {"Espanol: the menus, the HUD and\nthe subtitles in Spanish, from\nthe next screen.",
+     "Español: los menús, el HUD y los\nsubtítulos en español, desde la\nsiguiente pantalla."},
+    {"Deutsch: the menus, the HUD and\nthe subtitles in German, from\nthe next screen.",
+     "Deutsch: los menús, el HUD y los\nsubtítulos en alemán, desde la\nsiguiente pantalla."},
+    {"Francais: the menus, the HUD and\nthe subtitles in French, from\nthe next screen.",
+     "Français: los menús, el HUD y los\nsubtítulos en francés, desde la\nsiguiente pantalla."},
+    {"Italiano: the menus, the HUD and\nthe subtitles in Italian, from\nthe next screen.",
+     "Italiano: los menús, el HUD y los\nsubtítulos en italiano, desde la\nsiguiente pantalla."},
+    {"The voices in English (the\nEuropean disc has English and\nJapanese ones).",
+     "Las voces en inglés (el disco\neuropeo las tiene en inglés y\njaponés)."},
+    {"The voices in Japanese.", "Las voces en japonés."},
     /* BT4's Language: its English and its Spanish release */
     {"Language: %s. Team BT4's English\nor Spanish release: text, voices.",
      "Idioma: %s. Versión inglesa o\nespañola de Team BT4: texto, voces."},

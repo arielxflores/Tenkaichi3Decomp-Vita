@@ -345,7 +345,7 @@ while i < len(cap_t):
 
 # the versus menu: the second plate, 1P VS 2P -> Multiplayer (the plates' strip, plain and highlighted)
 patches, previews = [], []
-for e in (0, 1) if not ES else ():  # (the Spanish disc's own reads Multijugador)
+for e in (0, 1) if not (ES and BT4) else ():  # (BT4's Spanish disc's own reads Multijugador)
     label_job(8, e, [(32, 'Multiplayer', 4, 'left')], 32, pack='vs')
 out_vs = runs_of(patches)
 

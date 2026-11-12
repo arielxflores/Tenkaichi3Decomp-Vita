@@ -105,6 +105,10 @@ Copy its disc image (`.iso`) to `ux0:data/bt3/eu/` (or beside the USA one in `ux
 ux0:data/bt3/eu/PZS3EU1.AFS
 ```
 
+In Spanish the Options screen is the European disc's too, with the Vita's rows and Vita Settings in Spanish (Ajustes
+Vita, Idioma, Ajustes del Mando, and the guide lines), and so are the start menu and the versus menu's Multiplayer.
+In German, French and Italian the Options screen stays in English.
+
 With it, the game asks for the language at its next start; the [start menu](#start-menu) has the list too. A new
 language shows from the next screen (the options screen itself stays in English, with the Vita's rows). The folder
 `ux0:data/bt3/pzs3eu1/` written by the PC version's `extract_eu.py` is read too.

@@ -338,6 +338,7 @@ static void Option_VitaKeysLeave(void) {
 extern int Vita_TouchGetSpot(int b);
 extern void Vita_TouchSetSpot(int b, int spot);
 extern s32 Vita_OptionGuide(const char *text);
+extern const char *Vita_Tr(const char *english); /* (port/vita/vita_lang.c: in Spanish when the game is) */
 extern void Vita_OptionCaptions(int set);
 extern int Port_ClashSquare(void);
 extern void Port_ClashSquareSet(int on);
@@ -420,7 +421,7 @@ static void Option_VitaSetGuide(void) {
     static const char *const kName[4] = {"L2", "R2", "L3", "R3"};
     static const char *const kQuarter[4] = {"upper left", "upper right", "lower left", "lower right"};
     static const char *const kCorner[4] = {"bottom left", "bottom right", "top left", "top right"};
-    char text[120], more[64];
+    char text[200], more[96]; /* (UTF-8: the Spanish letters take two bytes) */
     s32 b, spot, v = gOption->value;
 
     if (sVitaSetLevel == 1) {
@@ -429,28 +430,28 @@ static void Option_VitaSetGuide(void) {
     switch (sVitaSetLevel) {
     case 1: /* the setting under the cursor, and what it is now */
         if (v == 9) {
-            sprintf(text, "Screen: the camera, the screen's\nshake and its position.");
+            sprintf(text, Vita_Tr("Screen: the camera, the screen's\nshake and its position."));
         } else if (v == 8) {
-            sprintf(text, "Game: Budokai Tenkaichi 3, or Team\nBT4's Budokai Tenkaichi 4 mod.");
+            sprintf(text, Vita_Tr("Game: Budokai Tenkaichi 3, or Team\nBT4's Budokai Tenkaichi 4 mod."));
         } else if (v == 4) {
-            sprintf(text, "Unlock All (%s): every fighter and\nform, stage, song and item, and\n9,999,999 Zenni.", Port_Setting("unlock_all", 0) ? "ON" : "OFF");
+            sprintf(text, Vita_Tr("Unlock All (%s): every fighter and\nform, stage, song and item, and\n9,999,999 Zenni."), Vita_Tr(Port_Setting("unlock_all", 0) ? "ON" : "OFF"));
         } else if (v == 5) {
-            sprintf(text, "Quick Start: no logos, opening film\nor copyright page at the start: %s.", Option_VitaQuickStart() ? "ON" : "OFF");
+            sprintf(text, Vita_Tr("Quick Start: no logos, opening film\nor copyright page at the start: %s."), Vita_Tr(Option_VitaQuickStart() ? "ON" : "OFF"));
         } else if (v == 6) {
-            sprintf(text, "Quick Save: saving and loading\nwithout the memory card window: %s.", Option_VitaQuickSave() ? "ON" : "OFF");
+            sprintf(text, Vita_Tr("Quick Save: saving and loading\nwithout the memory card window: %s."), Vita_Tr(Option_VitaQuickSave() ? "ON" : "OFF"));
         } else if (v == 7) {
-            sprintf(text, "Tech Fixes: the community's fixes\nof the fighting: Z Counter %s,\nBombardment %s.",
-                    Port_Setting("tech_zcounter2", 0) ? "ON" : "OFF", Port_Setting("tech_bombardment", 0) ? "ON" : "OFF");
+            sprintf(text, Vita_Tr("Tech Fixes: the community's fixes\nof the fighting: Z Counter %s,\nBombardment %s."),
+                    Vita_Tr(Port_Setting("tech_zcounter2", 0) ? "ON" : "OFF"), Vita_Tr(Port_Setting("tech_bombardment", 0) ? "ON" : "OFF"));
         } else if (v == 0) {
-            sprintf(text, "Touch: where L2, R2, L3 and R3\nare touched.");
+            sprintf(text, Vita_Tr("Touch: where L2, R2, L3 and R3\nare touched."));
         } else if (v == 1) {
-            sprintf(text, "Clashes: %s\nwins beam and rush clashes.", Port_ClashSquare() ? "pressing Square fast" : "turning the left stick");
+            sprintf(text, Vita_Tr("Clashes: %s\nwins beam and rush clashes."), Vita_Tr(Port_ClashSquare() ? "pressing Square fast" : "turning the left stick"));
         } else if (v == 2) {
-            sprintf(text, "2nd Pad: a second controller\nis player 2 (PS TV): %s.", Vita_Pad2Setting() ? "ON" : "OFF");
+            sprintf(text, Vita_Tr("2nd Pad: a second controller\nis player 2 (PS TV): %s."), Vita_Tr(Vita_Pad2Setting() ? "ON" : "OFF"));
         } else if (Option_VitaModsOn()) {
             s32 k, line = 0, sp = -1;
             Vita_ModsSummary(more, 50);
-            sprintf(text, "Mods (ux0:data/bt3/mods): ON.\nIn use: %s.", more);
+            sprintf(text, Vita_Tr("Mods (ux0:data/bt3/mods): ON.\nIn use: %s."), more);
             for (k = 0; text[k] != '\0'; k++) { /* (lines of up to 34 letters, broken at spaces) */
                 if (text[k] == '\n') {
                     line = 0;
@@ -467,89 +468,89 @@ static void Option_VitaSetGuide(void) {
                 }
             }
         } else {
-            sprintf(text, "Mods: files in ux0:data/bt3/mods\nreplace the disc's: OFF.");
+            sprintf(text, Vita_Tr("Mods: files in ux0:data/bt3/mods\nreplace the disc's: OFF."));
         }
         break;
     case 2: /* the button under the cursor, and where it is now */
         b = v;
         spot = Vita_TouchGetSpot(b);
         if (spot == 0) {
-            sprintf(more, "the rear touch pad's\n%s quarter", kQuarter[b]);
+            sprintf(more, Vita_Tr("the rear touch pad's\n%s quarter"), Vita_Tr(kQuarter[b]));
         } else if (spot == 1) {
-            sprintf(more, "the screen's %s\ncorner", kCorner[b]);
+            sprintf(more, Vita_Tr("the screen's %s\ncorner"), Vita_Tr(kCorner[b]));
         } else {
-            sprintf(more, b < 2 ? "SELECT + %c only" : "not on the touch panels", kName[b][0]);
+            sprintf(more, Vita_Tr(b < 2 ? "SELECT + %c only" : "not on the touch panels"), kName[b][0]);
         }
-        sprintf(text, "%s is %s.\nChoose a button to change it.", kName[b], more);
+        sprintf(text, Vita_Tr("%s is %s.\nChoose a button to change it."), kName[b], more);
         break;
     case 3: /* the place under the cursor */
         b = sVitaTouchBtn;
         if (v == 0) {
-            sprintf(text, "%s on the rear touch pad's\n%s quarter, where a grip\nattachment's %s presses.", kName[b], kQuarter[b], kName[b]);
+            sprintf(text, Vita_Tr("%s on the rear touch pad's\n%s quarter, where a grip\nattachment's %s presses."), kName[b], Vita_Tr(kQuarter[b]), kName[b]);
         } else if (v == 1) {
-            sprintf(text, "%s on the screen's %s\ncorner.", kName[b], kCorner[b]);
+            sprintf(text, Vita_Tr("%s on the screen's %s\ncorner."), kName[b], Vita_Tr(kCorner[b]));
         } else if (b < 2) {
-            sprintf(text, "%s not on the touch panels\n(SELECT + %c still gives it).", kName[b], kName[b][0]);
+            sprintf(text, Vita_Tr("%s not on the touch panels\n(SELECT + %c still gives it)."), kName[b], kName[b][0]);
         } else {
-            sprintf(text, "%s not on the touch panels.", kName[b]);
+            sprintf(text, Vita_Tr("%s not on the touch panels."), kName[b]);
         }
         break;
     case 4:
-        sprintf(text, v == 0 ? "Square: press it again and again\nto win beam and rush clashes."
-                             : "Stick: turn the left stick round\nto win clashes, as on the PS2.");
+        sprintf(text, "%s", Vita_Tr(v == 0 ? "Square: press it again and again\nto win beam and rush clashes."
+                             : "Stick: turn the left stick round\nto win clashes, as on the PS2."));
         break;
     case 5:
-        sprintf(text, v == 0 ? "ON: a second controller plays\nas player 2 (Versus: Multiplayer)."
-                             : "OFF: a second controller is not\nused.");
+        sprintf(text, "%s", Vita_Tr(v == 0 ? "ON: a second controller plays\nas player 2 (Versus: Multiplayer)."
+                             : "OFF: a second controller is not\nused."));
         break;
     case 6:
-        sprintf(text, v == 0 ? "ON: files in ux0:data/bt3/mods\nreplace the disc's, from the\nnext start."
-                             : "OFF: the disc's files only, from\nthe next start.");
+        sprintf(text, "%s", Vita_Tr(v == 0 ? "ON: files in ux0:data/bt3/mods\nreplace the disc's, from the\nnext start."
+                             : "OFF: the disc's files only, from\nthe next start."));
         break;
     case 7:
         b = Port_Setting("unlock_all", 0);
         if (sVitaCheatArmed == 2) {
-            sprintf(text, "Done: everything is unlocked. It\nis saved as you leave the options.");
+            sprintf(text, Vita_Tr("Done: everything is unlocked. It\nis saved as you leave the options."));
         } else if (sVitaCheatArmed == 3) {
-            sprintf(text, "Done: your save's own unlocks and\nZenni are back. Saved as you\nleave the options.");
+            sprintf(text, Vita_Tr("Done: your save's own unlocks and\nZenni are back. Saved as you\nleave the options."));
         } else if (sVitaCheatArmed == 4) {
-            sprintf(text, "OFF: no longer given to each save.\nWhat is unlocked stays (there was\nno copy of the save from before).");
+            sprintf(text, Vita_Tr("OFF: no longer given to each save.\nWhat is unlocked stays (there was\nno copy of the save from before)."));
         } else if (sVitaCheatArmed == 5) {
-            sprintf(text, "Not turned on: the copy of your\nsave could not be made (see\nux0:data/bt3/log.txt).");
+            sprintf(text, Vita_Tr("Not turned on: the copy of your\nsave could not be made (see\nux0:data/bt3/log.txt)."));
         } else if (v == 0) {
-            sprintf(text, b ? "ON: everything is unlocked, for\neach save loaded."
+            sprintf(text, "%s", Vita_Tr(b ? "ON: everything is unlocked, for\neach save loaded."
                           : sVitaCheatArmed ? "Press CROSS again to unlock\neverything (Circle: no)."
-                                            : "Every fighter and form, stage, song\nand item (Evolution Z, Potara),\n9,999,999 Zenni. CROSS twice.");
+                                            : "Every fighter and form, stage, song\nand item (Evolution Z, Potara),\n9,999,999 Zenni. CROSS twice."));
         } else {
-            sprintf(text, !b ? "OFF: your save's own unlocks."
+            sprintf(text, "%s", Vita_Tr(!b ? "OFF: your save's own unlocks."
                           : sVitaCheatArmed ? "Press CROSS again: the unlocks and\nZenni go back to how they were\n(Circle: no)."
                           : Vita_UnlockBackupThere() ? "Your save's unlocks and Zenni as\nthey were before ON. CROSS twice."
-                                                     : "Stops unlocking each save; what is\nunlocked stays. CROSS twice.");
+                                                     : "Stops unlocking each save; what is\nunlocked stays. CROSS twice."));
         }
         break;
     case 10:
         if (v == 0) {
-            sprintf(text, "Z Counter fix (%s): keeps a timed\nZ Counter the game loses when you\nmove as the attack lands.", Port_Setting("tech_zcounter2", 0) ? "ON" : "OFF");
+            sprintf(text, Vita_Tr("Z Counter fix (%s): keeps a timed\nZ Counter the game loses when you\nmove as the attack lands."), Vita_Tr(Port_Setting("tech_zcounter2", 0) ? "ON" : "OFF"));
         } else {
-            sprintf(text, "Bombardment fix (%s): a chain of\nsmash Ki blasts with dashes is not\nbroken by body contact.", Port_Setting("tech_bombardment", 0) ? "ON" : "OFF");
+            sprintf(text, Vita_Tr("Bombardment fix (%s): a chain of\nsmash Ki blasts with dashes is not\nbroken by body contact."), Vita_Tr(Port_Setting("tech_bombardment", 0) ? "ON" : "OFF"));
         }
         break;
     case 12:
         b = Vita_GameSwitchCheck();
-        sprintf(text, v == 0 ? "Budokai Tenkaichi 3: the game you\nare playing now."
+        sprintf(text, "%s", Vita_Tr(v == 0 ? "Budokai Tenkaichi 3: the game you\nare playing now."
                       : b == 1 ? "This package has no Budokai\nTenkaichi 4 program."
                       : b == 2 ? "Not now: copy your BT4 B14 Rev2\ndisc's .iso to ux0:data/bt3/bt4/\nfirst (see the README)."
                       : sVitaCheatArmed == 3 ? "Budokai Tenkaichi 4 could not be\nstarted (see ux0:data/bt3/log.txt)."
                       : sVitaCheatArmed ? "Budokai Tenkaichi 4. Game starts\neach time, until changed back.\nPress again to confirm."
-                                        : "Budokai Tenkaichi 4. Game starts\neach time, until changed back.");
+                                        : "Budokai Tenkaichi 4. Game starts\neach time, until changed back."));
         break;
     case 8:
-        sprintf(text, v == 0 ? "ON: the game starts at its title\nscreen (no logos, opening film or\ncopyright page)."
-                             : "OFF: the logos, the opening film\nand the copyright page, as the\ngame has them.");
+        sprintf(text, "%s", Vita_Tr(v == 0 ? "ON: the game starts at its title\nscreen (no logos, opening film or\ncopyright page)."
+                             : "OFF: the logos, the opening film\nand the copyright page, as the\ngame has them."));
         break;
     default:
-        sprintf(text, v == 0 ? "ON: saving and loading go without\nthe memory card window, unless\nthere is a question to answer."
-                             : "OFF: the memory card window and\nits pages, as the game has them.");
+        sprintf(text, "%s", Vita_Tr(v == 0 ? "ON: saving and loading go without\nthe memory card window, unless\nthere is a question to answer."
+                             : "OFF: the memory card window and\nits pages, as the game has them."));
         break;
     }
     gOption->voiceLine = Vita_OptionGuide(text);
@@ -722,7 +723,7 @@ static void Option_VitaPageNumber(void) {
         return;
     }
     item = sVitaSetLevel == 1 ? sVitaItem1 : sVitaSetItem;
-    sprintf(text, "Page %d/%d", item / 4 + 1, (VITA_L1_ITEMS + 3) / 4);
+    sprintf(text, Vita_Tr("Page %d/%d"), item / 4 + 1, (VITA_L1_ITEMS + 3) / 4);
     /* its own small plate, like the pickers' (a capsule, a light rim, a shaded body), the text in its middle in their
        colours */
     Gfx_AddDefaultEnv();
@@ -983,7 +984,7 @@ static void Option_VitaLangGuide(void) {
     } else {
         text = kVitaLang[sVitaLangSel].guide;
     }
-    gOption->voiceLine = Vita_OptionGuide(text);
+    gOption->voiceLine = Vita_OptionGuide(Vita_Tr(text));
     OPT_VOICE(gOption->voiceLine);
 }
 

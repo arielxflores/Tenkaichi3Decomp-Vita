@@ -45,8 +45,10 @@ extern int psvDebugScreenPrintf(const char *fmt, ...);
 #define BTL_MAIN 45
 
 /* The USA menu archives with lettering or text (454..458: Dragon World Tour's brackets, 464..471: the sagas). 453, the
-   options screen, stays the USA disc's: the Vita's rows (Vita Settings, Language: vita_optart.c) are drawn into its
-   pictures, and the Language row is where the language is changed back. */
+   options screen, stays the USA disc's in German, French and Italian: the Vita's rows (Vita Settings, Language:
+   vita_optart.c) are drawn into its pictures, and those are made for the USA disc's and the Spanish one's
+   (vita_optart_es.h); in Spanish it is the European disc's too. */
+#define OPTIONS_USA 453
 static const uint16_t kUsaMenu[] = {448, 449, 450, 451, 452, 454, 455, 456, 457, 458, 459,
                                     460, 461, 463, 464, 465, 466, 467, 468, 469, 470, 471, 472};
 static const char *const kNames[LANGS] = {"English", "Espanol", "Deutsch", "Francais", "Italiano"};
@@ -82,6 +84,9 @@ static int eu_member(int flid) {
     }
     if (flid == HUD_USA) {
         return HUD_USA + sLang;
+    }
+    if (flid == OPTIONS_USA && sLang == 1) { /* (Spanish: the options screen too, its Vita art made from it) */
+        return EU_FIRST + (OPTIONS_USA - kUsaMenu[0]) + sLang * EU_STRIDE;
     }
     for (k = 0; k < (int)(sizeof(kUsaMenu) / sizeof(kUsaMenu[0])); k++) {
         if (kUsaMenu[k] == flid) {
@@ -144,6 +149,9 @@ void VitaEu_Init(const char *home) {
         sDir = file_ok(path);
     }
     sLang = Port_Setting("lang", -1);
+    if (getenv("BT3_LANG") != NULL) { /* (bt3.txt lang=: this run's, not kept) */
+        sLang = atoi(getenv("BT3_LANG"));
+    }
     if (VitaEu_Available()) {
         Vita_Log("eu: the European languages from %s (%u members); language %d\n", sDir ? "pzs3eu1/" : sEuDisc,
                  (unsigned)sCount, sLang);
@@ -187,7 +195,7 @@ static unsigned pad_now(void) {
 
 /* 1: the archive is there and no language was chosen yet (the start menu shows the list first) */
 int VitaEu_NeedsChoice(void) {
-    return VitaEu_Available() && Port_Setting("lang", -1) < 0;
+    return VitaEu_Available() && Port_Setting("lang", -1) < 0 && getenv("BT3_LANG") == NULL;
 }
 
 const char *VitaEu_LangName(int lang) {
@@ -202,11 +210,13 @@ void VitaEu_ChooseLanguage(void) {
 
     prev = pad_now();
     for (;;) {
-        psvDebugScreenPrintf("\e[H\e[2J\n  Budokai Tenkaichi 3: the game's language\n\n");
+        psvDebugScreenPrintf("\e[H\e[2J\n  Budokai Tenkaichi 3: the game's language\n  (el idioma del juego)\n\n");
         for (i = 0; i < LANGS; i++) {
             psvDebugScreenPrintf("  %s %s\e[39m\n", i == sel ? "\e[33m>" : " ", kNames[i]);
         }
-        psvDebugScreenPrintf("\n  Up / down, then CROSS.\n\n  (Hold SELECT while the game starts to choose again.)\n");
+        psvDebugScreenPrintf("\n  Up / down, then CROSS.\n  (Arriba / abajo, luego X.)\n\n"
+                             "  Hold SELECT while the game starts to choose again.\n"
+                             "  (Manten SELECT al iniciar el juego para elegir otra vez.)\n");
         for (;;) {
             sceKernelDelayThread(16000);
             now = pad_now();

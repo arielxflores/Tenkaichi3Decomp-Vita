@@ -33,7 +33,9 @@
 #include "vita_optart_bt4es.h" /* (and those of its Spanish release, in Spanish) */
 #define VITA_ART_ES
 #else
-#include "vita_optart.h"
+#include "vita_optart.h"    /* (the USA disc's) */
+#include "vita_optart_es.h" /* (the European disc's Spanish menus: the options screen in Spanish, vita_eu.c) */
+#define VITA_ART_ES
 #endif
 
 extern void Vita_Log(const char *fmt, ...);
@@ -188,6 +190,7 @@ static unsigned apply(void *res, const ArtSection *secs, unsigned n, const uint3
 /* section 14 of the options screen as unpacked and patched (NULL: not the USA disc's, or not up), the captions in it */
 static uint8_t *sCapSec;
 static int sCapSet;
+static int sOptUp; /* the options screen is up (its art: sOpt) */
 
 void Vita_OptionArt(void *res) {
     unsigned done, lines = 0, k;
@@ -206,6 +209,7 @@ void Vita_OptionArt(void *res) {
             }
         }
     }
+    sOptUp = 1;
     done = apply(res, sOpt->opt, sOpt->optN, sOpt->optRuns, sOpt->optBytes, "optart");
     {   /* the captions of Touch Buttons in place (as patched): the other set can take turns with them */
         uint8_t *sec = pack_at(res, 14);
@@ -225,12 +229,14 @@ void Vita_OptionArt(void *res) {
     {
         uint8_t *t = pack_at(res, 33);
 #ifndef BT3_BT4
-        lines += put_line(t, 25, 28, Vita_Tr("Touch, clashes, Unlock All, the\nscreen, BT4 and more."));
+        lines += put_line(t, 25, 28, sOpt != kArtSets ? "T\303\241ctil, choques, Desbloquear, la\npantalla, BT4 y m\303\241s."
+                                                      : "Touch, clashes, Unlock All, the\nscreen, BT4 and more.");
 #else
         lines += put_line(t, 25, 28, Vita_Tr("Touch buttons, clashes, the\nscreen, the language and more."));
 #endif
 #ifndef BT3_BT4 /* (BT4's options keep the console's voice picker: its guide line stays) */
-        lines += put_line(t, 19, 20, Vita_Tr("The language of the menus and\nthe text, and of the voices."));
+        lines += put_line(t, 19, 20, sOpt != kArtSets ? "El idioma de los men\303\272s, del texto\ny de las voces."
+                                                      : "The language of the menus and\nthe text, and of the voices.");
 #endif
         lines += put_line(t, 40, 27, "");
         lines += put_line(t, 41, 23, "");
@@ -246,7 +252,7 @@ void Vita_OptionArt(void *res) {
    message window's text, and the lines 5 to 7 kept while Multiplayer's choice writes over them */
 static uint8_t *sVsSec8, *sVsText;
 static int sVsNetOn;
-static uint8_t sVsLines[3][128];
+static uint8_t sVsLines[3][256];
 
 /* 1: section 8 of the versus menu has the battle types' lettering as the set has it */
 static int vs_net_there(uint8_t *sec, const ArtSet *set) {
@@ -431,4 +437,10 @@ int Vita_OptionCaptionsOk(void) {
 /* the options screen is closed: its pack is let go */
 void Vita_OptionArtEnd(void) {
     sCapSec = NULL;
+    sOptUp = 0;
+}
+
+/* (vita_lang.c) the language of the options screen that is up: 0 English, 1 Spanish; -1 none is up */
+int Vita_OptionArtLang(void) {
+    return sOptUp ? (int)(sOpt - kArtSets) : -1;
 }
