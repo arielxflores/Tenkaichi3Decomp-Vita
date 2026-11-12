@@ -105,8 +105,8 @@ int Vita_InFight(void) { return gBtlSeq != NULL && gBtlSeq->state == 3; }
 /* the battle from its stage intro to its end (states 0..6): the same stage and fighters the whole time, drawn the fast
    way (kept parts, fighters on the chip) and shown every two blanks */
 int Vita_InBattle(void) { return gBtlSeq != NULL && gBtlSeq->state >= 0 && gBtlSeq->state <= 6; }
-/* The renderer's ways of a fight (the fighters' and the stage's models kept on the graphics chip, the VU1 calls'
-   results replayed, the picture begun on the chip in parts) also for the dragon's screen (Shenron, gProgress->mode
+/* The renderer's ways of a fight (the fighters' and the stage's models kept on the graphics chip, the picture begun
+   on the chip in parts; not the VU1 calls' results replayed) also for the dragon's screen (Shenron, gProgress->mode
    70): its sky and its dragon are a fight's kind of 3D, about a thousand draws a picture the other way (13 pictures a
    second where the game gives 30). bt3.txt shenfast=0: the dragon's screen drawn as the other menus. */
 int gVitaShenFast = 1;

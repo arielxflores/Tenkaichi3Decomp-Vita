@@ -131,7 +131,7 @@ On a PS TV, or with a DualShock paired, the controller's own L2, R2, L3 and R3 b
 
 - The rear touch pad's quarters are those of PS4 Remote Play, so the triggers and rear buttons of a grip attachment
   for it, such as HORI's Remote Play Assist Attachment, work as L2, R2, L3 and R3.
-- **Options → Vita Settings** (the Options screen's second row, where the PS2 had Screen) has ten settings on three
+- **Options → Vita Settings** (the Options screen's second row, where the PS2 had Screen) has eleven settings on three
   pages (Down from the lower row turns the page):
   - **Touch**: for each of L2, R2, L3 and R3, where it is touched: its quarter of the rear pad, a corner of the
     front screen (L2 / R2 the bottom corners, L3 / R3 the top ones), or nowhere (Off). A finger resting on the rear
@@ -166,6 +166,11 @@ On a PS TV, or with a DualShock paired, the controller's own L2, R2, L3 and R3 b
   - **Screen**: the PS2's Screen page (camera type, screen shake, screen position), which Vita Settings took the place
     of on the Options screen; back from it leads to the Options screen. (In BT4: on the second page, with the tag
     team's HUD.)
+  - **Buttons**: what each of the ten fighting buttons (Cross, Circle, Square, Triangle, L1, R1, L2, R2, L3, R3)
+    does in a fight: any of them can take any one's action, or none, so L1 / R1 / L2 / R2 can be put on the face
+    buttons and the other way round. Up / Down picks a button, Left / Right its action, Square puts them all back as
+    the game has them (the default). The menus keep their buttons (Cross still chooses); the d-pad, the sticks,
+    START and SELECT stay as they are. It works on top of the game's own Control Type. (In BT4: the second page.)
 - **Options → Controller → Control Type → Custom** assigns the actions to other buttons, as on the PS2. The pause
   menu's skill list shows each command with the buttons of the control type in use, and L3 / R3 as buttons like L1,
   not as the PS2's sticks.

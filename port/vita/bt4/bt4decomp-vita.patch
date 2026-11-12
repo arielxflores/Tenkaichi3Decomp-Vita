@@ -1227,7 +1227,7 @@ index c0c0ba1..91f869d 100644
      TM_RES(22);
      IconWin_Init(MPACK_AT(gTourMenu->res, 21), res);
 diff --git a/src/menu/menu_x_c.c b/src/menu/menu_x_c.c
-index d89aefe..2c42384 100644
+index d89aefe..b9f64f6 100644
 --- a/src/menu/menu_x_c.c
 +++ b/src/menu/menu_x_c.c
 @@ -7,6 +7,10 @@
@@ -1265,7 +1265,7 @@ index d89aefe..2c42384 100644
          }
      } while (0);
      return 1;
-@@ -211,9 +225,615 @@ s32 Option_Run(s32 section) {
+@@ -211,9 +225,731 @@ s32 Option_Run(s32 section) {
      return 0;
  }
  
@@ -1388,13 +1388,17 @@ index d89aefe..2c42384 100644
 +static s32 sVitaSetLevel; /* 0 closed, 1..6 above */
 +static s32 sVitaSetItem;  /* the setting chosen on level 1 */
 +static s32 sVitaTouchBtn; /* the button chosen on level 2 */
-+static s32 sVitaItem1;    /* level 1's item under the cursor: 0..3 the first page's, 4..6 the second's (its plate: item % 4) */
++static s32 sVitaItem1;    /* level 1's item under the cursor: 0..3 the first page's, 4..7 the second's (its plate: item % 4) */
++static s32 sVitaBtnSel;   /* level 10 (Buttons): the button under the cursor */
 +static s32 sVitaFromTop;  /* Vita Settings is open on the top page (its second row, the console's Screen) */
 +static s32 sVitaRow2Hidden; /* the controller page's second row (the console's Vibration) is hidden */
 +static s32 sVitaGameArmed; /* level 7 and 9: CROSS was pressed once (7: 2 the other game did not start; 9: 2 turned
 +                              on, 3 turned off, 4 off but the copy of the save was not there, 5 the copy could not be
 +                              made) */
-+#define VITA_L1_ITEMS 7
++#define VITA_L1_ITEMS 8
++extern int Vita_ButtonAction(int b);         /* port/vita/vita_gfx.c: what button b does in a fight (10: nothing) */
++extern void Vita_ButtonActionSet(int b, int a); /* (b < 0: every button its own action again) */
++static const char *const kVitaBtnName[11] = {"Cross", "Circle", "Square", "Triangle", "L1", "R1", "L2", "R2", "L3", "R3", "Nothing"};
 +extern void Vita_GameSwitch(void);
 +extern void Vita_Log(const char *fmt, ...);
 +extern int Vita_UnlockBackupWrite(const void *save, int size);
@@ -1454,7 +1458,13 @@ index d89aefe..2c42384 100644
 +    }
 +    switch (sVitaSetLevel) {
 +    case 1: /* the setting under the cursor, and what it is now */
-+        if (v == 6) {
++        if (v == 7) {
++            s32 k, changed = 0;
++            for (k = 0; k < 10; k++) {
++                changed += Vita_ButtonAction(k) != k;
++            }
++            sprintf(text, "Buttons: what each button does\nin a fight, any button any action\n(%s).", changed ? "changed" : "as the game has them");
++        } else if (v == 6) {
 +            sprintf(text, "Screen: the camera, the screen's\nshake, its position and the tag\nteam's HUD.");
 +        } else if (v == 5) {
 +            sprintf(text, "Unlock All (%s): every fighter and\nform, stage, song and item, and\n9,999,999 Zenni.", Port_Setting("unlock_all", 0) ? "ON" : "OFF");
@@ -1527,6 +1537,12 @@ index d89aefe..2c42384 100644
 +                      : sVitaGameArmed ? "Press CROSS again: this game closes\nand BT3 starts. Options not saved\nyet are lost (Circle: no)."
 +                                       : "Budokai Tenkaichi 3. It then starts\neach time, until changed back.\nCROSS.");
 +        break;
++    case 10: /* Buttons: the one under the cursor */
++        b = sVitaBtnSel;
++        spot = Vita_ButtonAction(b);
++        sprintf(more, spot == b ? "its own action" : spot == 10 ? "nothing (off)" : "%s's action", kVitaBtnName[spot]);
++        sprintf(text, "%s: %s.\nLeft / Right: its fight action.\nSquare: all back. Circle: done.", kVitaBtnName[b], more);
++        break;
 +    case 9: {
 +        s32 on = Port_Setting("unlock_all", 0);
 +        if (sVitaGameArmed == 2) {
@@ -1574,7 +1590,7 @@ index d89aefe..2c42384 100644
 +        sVitaItem1 = value;
 +        value %= 4;
 +    }
-+    Vita_OptionCaptions(level == 2 || level == 3 ? 0 : level == 7 || level == 9 || (level == 1 && sVitaItem1 >= 4) ? 6 : 1);
++    Vita_OptionCaptions(level == 2 || level == 3 ? 0 : level == 7 || level == 9 || level == 10 || (level == 1 && sVitaItem1 >= 4) ? 6 : 1);
 +    Option_DimPickers();
 +    gOption->value = value;
 +    OPT_PLATE(OPT_CLIP_PICK, "fl_on_start");
@@ -1611,13 +1627,27 @@ index d89aefe..2c42384 100644
 +extern void Font_FlushAll(void);
 +extern FontStyle gFontStyle;
 +extern void Gfx_AddDefaultEnv(void);
-+/* a flat rectangle at (x, y) of the 512 x 448 screen, one sprite of any width, blended (Dma_AddFillRect's packet,
-+   which draws whole 32-pixel sprites only) */
-+static void Option_VitaFlat(s32 x, s32 y, s32 w, s32 h, u32 rgba) {
++extern s32 Font_GetGlyphHeight(void);
++extern s32 Font_GetWidthAscii(char *str);
++/* A plate like the pickers' at (x, y) of the 512 x 448 screen, w x h: round corners of radius `rad` (0: a capsule,
++   round ends) with a light rim `rim` two pixels wide and a body shaded from `top` to `bottom`, drawn row by row as
++   flat sprites (blended; rows of one colour with nothing cut off are one sprite). */
++static s32 Option_VitaIsqrt(s32 n) {
++    s32 r = 0;
++    while ((r + 1) * (r + 1) <= n) {
++        r++;
++    }
++    return r;
++}
++
++static void Option_VitaPill(s32 x, s32 y, s32 w, s32 h, s32 rad, u32 rim, u32 top, u32 bottom) {
 +    u64 *p = Dma_BeginDirect();
++    s32 pass, row, n = 0;
++    u64 *tag, *last = NULL;
++    u32 lastC = 0;
 +    x += 0x700;
 +    y += 0x720;
-+    p[0] = GIF_TAG(5, 0, 1);
++    p[0] = GIF_TAG(4, 0, 1);
 +    p[1] = GIF_REG_AD;
 +    p += 2;
 +    p[0] = 0x44;
@@ -1632,17 +1662,72 @@ index d89aefe..2c42384 100644
 +    p[0] = 0x46;
 +    p[1] = GS_PRIM;
 +    p += 2;
-+    p[0] = (u64)rgba | (0x3F800000ULL << 32);
-+    p[1] = GS_RGBAQ;
++    tag = p;
 +    p += 2;
-+    p[0] = GIF_TAG_EX(1, 1, GIF_FLG_REGLIST, 2);
-+    p[1] = GS_REG_XYZ2 | (GS_REG_XYZ2 << 4);
-+    p += 2;
-+    p[0] = GS_SET_XYZ(x << 4, y << 4, 0);
-+    p[1] = GS_SET_XYZ((x + w) << 4, (y + h) << 4, 0);
-+    p += 2;
++    for (pass = 0; pass < 2; pass++) { /* 0 the rim (the whole capsule), 1 the body two pixels inside it */
++        s32 bx = x + pass * 2, by = y + pass * 2, bw = w - pass * 4, bh = h - pass * 4;
++        s32 r = rad <= 0 || rad - pass * 2 > bh / 2 ? bh / 2 : rad - pass * 2;
++        last = NULL;
++        for (row = 0; row < bh; row++) {
++            s32 e = row < bh - 1 - row ? row : bh - 1 - row, in = 0, k;
++            u32 c = rim;
++            if (r > 0 && e < r) { /* (the corners: quarter circles of radius r) */
++                s32 t = 2 * r - 2 * e - 1, d = r * r * 4 - t * t;
++                in = r - Option_VitaIsqrt(d > 0 ? d : 0) / 2;
++            }
++            if (pass == 1) {
++                c = 0;
++                for (k = 0; k < 32; k += 8) { /* (each channel from top to bottom) */
++                    s32 a = (s32)((top >> k) & 0xFF), b = (s32)((bottom >> k) & 0xFF);
++                    c |= (u32)(a + (b - a) * row / (bh > 1 ? bh - 1 : 1)) << k;
++                }
++            }
++            if (in == 0 && last != NULL && c == lastC) { /* (the sprite above, one row taller) */
++                last[0] = GS_SET_XYZ((bx + bw) << 4, (by + row + 1) << 4, 0);
++                continue;
++            }
++            p[0] = (u64)c | (0x3F800000ULL << 32);
++            p[1] = GS_SET_XYZ((bx + in) << 4, (by + row) << 4, 0);
++            p += 2;
++            p[0] = GS_SET_XYZ((bx + bw - in) << 4, (by + row + 1) << 4, 0);
++            p[1] = 0;
++            last = in == 0 ? p : NULL;
++            lastC = c;
++            p += 2;
++            n++;
++        }
++    }
++    tag[0] = GIF_TAG_EX(n, 1, GIF_FLG_REGLIST, 4);
++    tag[1] = GS_RGBAQ | (GS_REG_XYZ2 << 4) | (GS_REG_XYZ2 << 8) | (0xFULL << 12);
 +    Dma_EndDirect(p);
 +}
++
++/* Buttons (level 10): the ten buttons and what each does, a plate each like the pickers' (the one under the cursor
++   lit as theirs are), on a darker panel over the pickers' place */
++static void Option_VitaButtonsDraw(void) {
++    static char line[10][24];
++    s32 k, a, y;
++    Option_VitaPill(0x74, 0x40, 0x180, 0x104, 10, 0x80C0C0C0, 0x70303030, 0x70181818);
++    for (k = 0; k < 10; k++) {
++        y = 0x46 + k * 0x19;
++        if (k == sVitaBtnSel) {
++            Option_VitaPill(0x7C, y, 0x170, 0x16, 0, 0x80F8F0E8, 0x8040E8F8, 0x8008A0D8);
++        } else {
++            Option_VitaPill(0x7C, y, 0x170, 0x16, 0, 0x80E8E8E8, 0x80D0D0D0, 0x80808080);
++        }
++    }
++    for (k = 0; k < 10; k++) {
++        y = 0x46 + k * 0x19;
++        a = Vita_ButtonAction(k);
++        gFontStyle.color = k == sVitaBtnSel ? 0x80102C80 : 0x80303030;
++        gFontStyle.align = FONT_ALIGN_LEFT;
++        Font_PrintAsciiAt(0x94, y + (0x16 - Font_GetGlyphHeight()) / 2, (char *)kVitaBtnName[k]);
++        sprintf(line[k], k == sVitaBtnSel ? "<  %s  >" : "%s", a == 10 ? "Nothing" : kVitaBtnName[a]);
++        gFontStyle.align = FONT_ALIGN_CENTER;
++        Font_PrintAsciiAt(0x7C + 0x170 - 0x5C, y + (0x16 - Font_GetGlyphHeight()) / 2, line[k]);
++    }
++}
++
 +static void Option_VitaPageNumber(void) {
 +    static char text[16];
 +    FontStyle saved;
@@ -1652,19 +1737,31 @@ index d89aefe..2c42384 100644
 +    }
 +    item = sVitaSetLevel == 1 ? sVitaItem1 : sVitaSetItem;
 +    sprintf(text, "Page %d/%d", item / 4 + 1, (VITA_L1_ITEMS + 3) / 4);
-+    /* its own small plate: a darker panel framed by a lighter one, the text in its middle */
++    /* its own small plate, like the pickers' (a capsule, a light rim, a shaded body), the text in its middle in their
++       colours */
 +    Gfx_AddDefaultEnv();
-+    Option_VitaFlat(0x196, 0x0A, 0x60, 0x24, 0x70A0A0A0);
-+    Option_VitaFlat(0x198, 0x0C, 0x5C, 0x20, 0x70282828);
++    Option_VitaPill(0x186, 0x08, 0x72, 0x1C, 0, 0x80E8E8E8, 0x80D0D0D0, 0x80808080);
 +    saved = gFontStyle;
-+    gFontStyle.align = FONT_ALIGN_CENTER;
-+    gFontStyle.color = 0x80F0F0F0;
-+    gFontStyle.scale = 1.25f;
++    gFontStyle.scale = 1.0f;
 +    gFontStyle.shadowMode = FONT_SHADOW_OUTLINE8;
-+    gFontStyle.shadowColor = 0x80383838;
++    gFontStyle.shadowColor = 0x80FFFFFF;
 +    gFontStyle.shadowDx = 1;
 +    gFontStyle.shadowDy = 1;
-+    Font_PrintAsciiAt(0x196 + 0x30, 0x10, text); /* (the menus are 512 x 448) */
++    if (sVitaSetLevel == 10) {
++        Option_VitaButtonsDraw();
++        gFontStyle.scale = 1.0f;
++    }
++    gFontStyle.align = FONT_ALIGN_CENTER;
++    gFontStyle.color = 0x80303030;
++    { /* (as large as fits between the round ends: 0x72 wide less the 0x1C of the two half circles, a little margin) */
++        s32 w = Font_GetWidthAscii(text);
++        f32 sc = 1.1f;
++        if (w > 0 && (f32)w * sc > (f32)(0x72 - 0x1C - 4)) {
++            sc = (f32)(0x72 - 0x1C - 4) / (f32)w;
++        }
++        gFontStyle.scale = sc;
++        Font_PrintAsciiAt(0x186 + 0x72 / 2, 0x08 + (0x1C - (s32)((f32)Font_GetGlyphHeight() * sc)) / 2, text); /* (the menus are 512 x 448) */
++    }
 +    gFontStyle = saved;
 +    Font_FlushAll();
 +}
@@ -1723,7 +1820,8 @@ index d89aefe..2c42384 100644
 +        } else if (pressed & PADG_CROSS) {
 +            sVitaSetItem = v;
 +            Snd_PlaySe(1, 1);
-+            Option_VitaSetLevel(v == 0 ? 2 : v == 1 ? 4 : v == 2 ? 5 : v == 3 ? 6 : v == 4 ? 7 : 9,
++            sVitaBtnSel = 0;
++            Option_VitaSetLevel(v == 0 ? 2 : v == 1 ? 4 : v == 2 ? 5 : v == 3 ? 6 : v == 4 ? 7 : v == 7 ? 10 : 9,
 +                                v == 0 ? 0 : v == 1 ? !Port_ClashSquare() : v == 2 ? !Vita_Pad2Setting() : v == 3 ? !Option_VitaModsOn()
 +                                : v == 4 ? 1 : !Port_Setting("unlock_all", 0));
 +        } else if (back && sVitaFromTop) { /* back to the top page, on Vita Settings */
@@ -1808,6 +1906,24 @@ index d89aefe..2c42384 100644
 +            Option_VitaSetLevel(1, sVitaSetItem);
 +        }
 +        break;
++    case 10: /* Buttons: Up / Down a button, Left / Right its action, Square all back as they were */
++        if (pressed & (PADG_UP | PADG_DOWN)) {
++            sVitaBtnSel = (sVitaBtnSel + ((pressed & PADG_DOWN) ? 1 : 9)) % 10;
++            Snd_PlaySe(1, 0);
++            Option_VitaSetGuide();
++        } else if (pressed & (PADG_LEFT | PADG_RIGHT)) {
++            Vita_ButtonActionSet(sVitaBtnSel, (Vita_ButtonAction(sVitaBtnSel) + ((pressed & PADG_RIGHT) ? 1 : 10)) % 11);
++            Snd_PlaySe(1, 0);
++            Option_VitaSetGuide();
++        } else if (pressed & PADG_SQUARE) {
++            Vita_ButtonActionSet(-1, 0);
++            Snd_PlaySe(1, 1);
++            Option_VitaSetGuide();
++        } else if (back || (pressed & PADG_CROSS)) {
++            Snd_PlaySe(1, 2);
++            Option_VitaSetLevel(1, sVitaSetItem);
++        }
++        break;
 +    case 9: /* Unlock All: ON / OFF, CROSS twice to change it */
 +        if (pressed & (PADG_LEFT | PADG_RIGHT)) {
 +            sVitaGameArmed = 0;
@@ -1881,7 +1997,7 @@ index d89aefe..2c42384 100644
  /*
   * Pad 0, one state per frame; does nothing until the movie accepts input. Returns 0 when the screen is over
   * (faded out), else 1. Option.state:
-@@ -328,6 +948,11 @@ s32 Option_Input(void) {
+@@ -328,6 +1064,11 @@ s32 Option_Input(void) {
                  OPT_PLATE(OPT_CLIP_PICK, "fl_on_start");
                  gOption->picker = 0;
              } else if (gOption->state == OPT_ITEM_SCREEN) {
@@ -1893,7 +2009,7 @@ index d89aefe..2c42384 100644
                  Flash_GotoLabel(&gOption->flash[0], "fl_menu_change", 1);
                  OPT_PLATE(OPT_CLIP_ROW, "fl_off_start");
                  gOption->cursor = OPT_ITEM_TYPE;
-@@ -761,6 +1386,11 @@ s32 Option_Input(void) {
+@@ -761,6 +1502,11 @@ s32 Option_Input(void) {
                  OPT_PLATE(OPT_CLIP_ROW_CTRL, "fl_off_start");
              }
              gOption->cursor--;
@@ -1905,7 +2021,7 @@ index d89aefe..2c42384 100644
              if (gOption->cursor < OPT_ITEM_KEYS) {
                  gOption->cursor = OPT_ITEM_CTRL_RESET;
              }
-@@ -785,6 +1415,11 @@ s32 Option_Input(void) {
+@@ -785,6 +1531,11 @@ s32 Option_Input(void) {
                  OPT_PLATE(OPT_CLIP_ROW_CTRL, "fl_off_start");
              }
              gOption->cursor++;
@@ -1917,7 +2033,7 @@ index d89aefe..2c42384 100644
              if (gOption->cursor > OPT_ITEM_CTRL_RESET) {
                  gOption->cursor = OPT_ITEM_KEYS;
              }
-@@ -808,6 +1443,9 @@ s32 Option_Input(void) {
+@@ -808,6 +1559,9 @@ s32 Option_Input(void) {
              gOption->pad = 0;
              Option_DimPickers();
              if (gOption->state == OPT_ITEM_VIB) {
@@ -1927,7 +2043,7 @@ index d89aefe..2c42384 100644
                  OPT_PLATE(OPT_CLIP_ROW_CTRL, "fl_ok");
                  gOption->ctrlKind = 0;
                  gOption->picker = 2;
-@@ -815,15 +1453,22 @@ s32 Option_Input(void) {
+@@ -815,15 +1569,22 @@ s32 Option_Input(void) {
                  OPT_PLATE(OPT_CLIP_PICK, "fl_on_start");
                  OPT_PLATE(OPT_CLIP_VIB_OFF, "fl_ok");
                  Snd_PlaySe(1, 1);
@@ -1950,7 +2066,7 @@ index d89aefe..2c42384 100644
              } else {
                  OPT_PLATE(OPT_CLIP_BOTTOM, "fl_ok");
              }
-@@ -892,6 +1537,38 @@ s32 Option_Input(void) {
+@@ -892,6 +1653,38 @@ s32 Option_Input(void) {
          }
          break;
      case OPT_ST_KEYS_PAD:
@@ -1989,7 +2105,7 @@ index d89aefe..2c42384 100644
          if (((gPad[0].gamePressed & PADG_LEFT) || (gPad[0].gamePressed & PADG_RIGHT)) && gOption->keyEdit == 0) {
              OPT_PLATE(OPT_CLIP_KEY_OFF, "fl_off_start");
              gOption->value ^= 1;
-@@ -980,7 +1657,11 @@ s32 Option_Input(void) {
+@@ -980,7 +1773,11 @@ s32 Option_Input(void) {
                  gOption->keyCursor++;
              }
              Snd_PlaySe(1, 0);
@@ -2002,7 +2118,7 @@ index d89aefe..2c42384 100644
              /* original bug: address comparisons again, always true */
              if (gOption->key[0] != gSaveData->keyEdit[0] || gOption->key[1] != gSaveData->keyEdit[1]) {
                  gOption->dirty = 1;
-@@ -1025,13 +1706,20 @@ s32 Option_Input(void) {
+@@ -1025,13 +1822,20 @@ s32 Option_Input(void) {
                  gOption->keyOld = gSaveData->keyEdit[gOption->pad][gOption->keyRow];
              }
          }
@@ -2025,7 +2141,7 @@ index d89aefe..2c42384 100644
                  gSaveData->keyEdit[gOption->pad][gOption->keyRow] = 0;
              }
              Snd_PlaySe(1, 0);
-@@ -1054,6 +1742,10 @@ s32 Option_Input(void) {
+@@ -1054,6 +1858,10 @@ s32 Option_Input(void) {
          }
          break;
      case OPT_ITEM_VIB:
@@ -2036,7 +2152,7 @@ index d89aefe..2c42384 100644
          if ((gPad[0].gamePressed & PADG_LEFT) || (gPad[0].gamePressed & PADG_RIGHT)) {
              OPT_PLATE(OPT_CLIP_VIB_OFF, "fl_off_start");
              OPT_PLATE(OPT_CLIP_PICK, "fl_off_start");
-@@ -1319,6 +2011,111 @@ s32 Option_Input(void) {
+@@ -1319,6 +2127,112 @@ s32 Option_Input(void) {
                          Flash_ClipSetUv(flash, &ref, &uv); \
                      }
  
@@ -2097,12 +2213,13 @@ index d89aefe..2c42384 100644
 +
 +static void Option_VitaTouchPlates(MFlash *flash) {
 +    /* per level: the plates used, and each plate's strip (0 the first, 1 the second) and row; 8 is level 1's second
-+       page (Game, Unlock All) */
-+    static const s8 kCount[10] = {0, 4, 4, 3, 2, 2, 2, 2, 3, 2};
-+    static const s8 kTex[10][4] = {{0}, {1, 1, 1, 1}, {1, 1, 1, 1}, {1, 1, 0, 0}, {1, 1, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0},
-+                                   {1, 1, 0, 0}, {1, 1, 1, 0}, {0, 0, 0, 0}};
-+    static const s8 kRow[10][4] = {{0}, {0, 1, 4, 5}, {0, 1, 4, 7}, {5, 6, 1, 0}, {6, 7, 0, 0}, {0, 1, 0, 0}, {0, 1, 0, 0},
-+                                   {6, 7, 0, 0}, {0, 1, 4, 0}, {0, 1, 0, 0}};
++       page (Game, Unlock All, Screen, Buttons); 10 Buttons' own list (drawn by
++       Option_VitaButtonsDraw: no plates) */
++    static const s8 kCount[11] = {0, 4, 4, 3, 2, 2, 2, 2, 4, 2, 0};
++    static const s8 kTex[11][4] = {{0}, {1, 1, 1, 1}, {1, 1, 1, 1}, {1, 1, 0, 0}, {1, 1, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0},
++                                   {1, 1, 0, 0}, {1, 1, 1, 1}, {0, 0, 0, 0}, {0}};
++    static const s8 kRow[11][4] = {{0}, {0, 1, 4, 5}, {0, 1, 4, 7}, {5, 6, 1, 0}, {6, 7, 0, 0}, {0, 1, 0, 0}, {0, 1, 0, 0},
++                                   {6, 7, 0, 0}, {0, 1, 4, 5}, {0, 1, 0, 0}, {0}};
 +    MFlashRef ref;
 +    MFlashUv uv;
 +    char name[0x40];
@@ -2111,7 +2228,7 @@ index d89aefe..2c42384 100644
 +    if (lv == 1 && sVitaItem1 >= 4) {
 +        lv = 8;
 +    }
-+    if (gOption->picker != 5 || lv < 1 || lv > 9) {
++    if (gOption->picker != 5 || lv < 1 || lv > 10) {
 +        if (sVitaPlatesHidden) {
 +            for (i = 0; i < 4; i++) {
 +                sprintf(name, "mc_select_plate_%d", i + 1);
@@ -2148,7 +2265,7 @@ index d89aefe..2c42384 100644
  /* Per frame: sets up every clip of the movie from the screen's state and draws the screen. */
  void Option_Draw(void) {
      MFlashRef ref;
-@@ -1368,6 +2165,8 @@ void Option_Draw(void) {
+@@ -1368,6 +2282,8 @@ void Option_Draw(void) {
          IconWin_SetIcon(2);
      } else if (gOption->state == YOPT_BGM) {
          IconWin_SetIcon(3);
@@ -2157,7 +2274,7 @@ index d89aefe..2c42384 100644
      } else if (gOption->state == YOPT_CTRL || gOption->state >= YOPT_KEYS) {
          IconWin_SetIcon(4);
      } else {
-@@ -1375,6 +2174,13 @@ void Option_Draw(void) {
+@@ -1375,6 +2291,13 @@ void Option_Draw(void) {
      }
  
      TagHudScreen_Restore(flash);
@@ -2171,7 +2288,7 @@ index d89aefe..2c42384 100644
      switch (gOption->page) {
          case 0:
              rows4 = 4;
-@@ -1605,6 +2411,11 @@ void Option_Draw(void) {
+@@ -1605,6 +2528,11 @@ void Option_Draw(void) {
              sprintf(name, "mc_menu_plate_%d", 4);
              Flash_FindLabel(flash, NULL, name, &ref);
              Flash_ClipSetFlags(flash, &ref, 2, 0);
@@ -2183,7 +2300,7 @@ index d89aefe..2c42384 100644
              uv.y0 = 0x20;
              uv.x0 = 0;
              uv.x1 = 0x100;
-@@ -1768,6 +2579,9 @@ void Option_Draw(void) {
+@@ -1768,6 +2696,9 @@ void Option_Draw(void) {
              break;
      }
  
@@ -2193,7 +2310,7 @@ index d89aefe..2c42384 100644
      /* the two-way picker's captions */
      if (gOption->picker == 4 || gOption->picker == 2) {
          baseY = 0;
-@@ -1823,6 +2637,9 @@ void Option_Draw(void) {
+@@ -1823,6 +2754,9 @@ void Option_Draw(void) {
              Flash_ClipSetFlags(flash, &ref, 2, 0);
          }
      }
@@ -2203,7 +2320,7 @@ index d89aefe..2c42384 100644
  
      /* the volume window: ten numbered plates per volume */
      for (i = 0; i < 3; i++) {
-@@ -1989,7 +2806,8 @@ void Option_Draw(void) {
+@@ -1989,7 +2923,8 @@ void Option_Draw(void) {
      IconWin_Draw();
      if(gOption->page==1 && gOption->cursor==OPT_ITEM_TAG_HUD && gOption->state==OPT_ITEM_SCREEN)
          TagHudScreen_Description();
@@ -2213,7 +2330,7 @@ index d89aefe..2c42384 100644
      ColorFade_Draw();
      if (gOption->mcBusy) {
          gOption->mcBusy = McFlow_Update();
-@@ -2178,6 +2996,13 @@ void Option_UpdateReset(void) {
+@@ -2178,6 +3113,13 @@ void Option_UpdateReset(void) {
                  if (!(gSaveData->flags & 4)) {
                      gSaveData->flags |= 4;
                  }
@@ -2227,7 +2344,7 @@ index d89aefe..2c42384 100644
                  for (i = 0; i < 2; i++) {
                      gSaveData->keyEdit[i][0] = 2;
                      gSaveData->keyEdit[i][1] = 1;
-@@ -2187,6 +3012,10 @@ void Option_UpdateReset(void) {
+@@ -2187,6 +3129,10 @@ void Option_UpdateReset(void) {
                      gSaveData->keyEdit[i][5] = 5;
                      gSaveData->keyEdit[i][6] = 6;
                      gSaveData->keyEdit[i][7] = 7;
@@ -2238,7 +2355,7 @@ index d89aefe..2c42384 100644
                  }
              }
              gOption->resetStep = 3;
-@@ -2275,6 +3104,12 @@ void Option_OnSaved(void) {
+@@ -2275,6 +3221,12 @@ void Option_OnSaved(void) {
  /* Frees the screen. */
  void Option_Term(void) {
      s32 i;

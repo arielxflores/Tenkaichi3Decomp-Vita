@@ -220,6 +220,84 @@ static void clash_square(int socket, unsigned *btn, unsigned char *lx, unsigned 
     }
 }
 
+/* Vita Settings > Buttons (src/menu/menu_x_c.c): what each of the ten buttons of the fighting does in a fight, any
+   button any one's action (L1 R1 L2 R2 on the face buttons and the other way round) or none. Each button is the
+   one it is on the PS2's pad as the Vita gives it (L1 / R1 the L / R triggers, L2 / R2 the rear pad or SELECT + L /
+   R, L3 / R3 the touch spots; a DualShock's own); bt3.txt keeps the choice as btn_<n> = the action's number (as the
+   buttons here; 10 none). The menus keep the buttons as they are (a menu's Cross is always Cross). */
+static const unsigned kBtnBit[10] = {B_CROSS, B_CIRCLE, B_SQUARE, B_TRIANGLE, B_L1, B_R1, B_L2, B_R2, B_L3, B_R3};
+static signed char sBtnMap[10] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+static int sBtnSame = -1; /* 1: every button its own action (nothing to do) */
+
+static void btn_load(void) {
+    char name[8];
+    int i;
+    sBtnSame = 1;
+    for (i = 0; i < 10; i++) {
+        int v;
+        name[0] = 'b'; name[1] = 't'; name[2] = 'n'; name[3] = '_'; name[4] = (char)('0' + i); name[5] = 0;
+        v = Port_Setting(name, i);
+        sBtnMap[i] = (signed char)(v >= 0 && v <= 10 ? v : i);
+        if (sBtnMap[i] != i) {
+            sBtnSame = 0;
+        }
+    }
+}
+
+/* the action of button `b` (0..9): 0..9, 10 none */
+int Vita_ButtonAction(int b) {
+    if (sBtnSame < 0) {
+        btn_load();
+    }
+    return b >= 0 && b < 10 ? sBtnMap[b] : b;
+}
+
+/* button `b` given action `a` (saved); b < 0: every button its own again */
+void Vita_ButtonActionSet(int b, int a) {
+    char name[8];
+    int i;
+    if (sBtnSame < 0) {
+        btn_load();
+    }
+    for (i = 0; i < 10; i++) {
+        if (b >= 0 && i != b) {
+            continue;
+        }
+        sBtnMap[i] = (signed char)(b < 0 ? i : a < 0 || a > 10 ? i : a);
+        name[0] = 'b'; name[1] = 't'; name[2] = 'n'; name[3] = '_'; name[4] = (char)('0' + i); name[5] = 0;
+        Port_SettingSave(name, sBtnMap[i]);
+    }
+    Port_SettingsWrite();
+    sBtnSame = 1;
+    for (i = 0; i < 10; i++) {
+        if (sBtnMap[i] != i) {
+            sBtnSame = 0;
+        }
+    }
+}
+
+static unsigned btn_remap(unsigned btn) {
+    extern int gVitaInMenus;
+    unsigned out;
+    int i;
+    if (sBtnSame < 0) {
+        btn_load();
+    }
+    if (sBtnSame || gVitaInMenus) {
+        return btn;
+    }
+    out = btn;
+    for (i = 0; i < 10; i++) {
+        out &= ~kBtnBit[i];
+    }
+    for (i = 0; i < 10; i++) {
+        if ((btn & kBtnBit[i]) && sBtnMap[i] < 10) {
+            out |= kBtnBit[(int)sBtnMap[i]];
+        }
+    }
+    return out;
+}
+
 int Port_PadRead(int socket, unsigned char *data) {
     static const struct { unsigned vita, ps2; } map[] = {
         {SCE_CTRL_START, B_START}, {SCE_CTRL_UP, B_UP}, {SCE_CTRL_RIGHT, B_RIGHT}, {SCE_CTRL_DOWN, B_DOWN}, {SCE_CTRL_LEFT, B_LEFT},
@@ -287,6 +365,7 @@ int Port_PadRead(int socket, unsigned char *data) {
         extern unsigned Vita_TouchPad(void);
         btn |= Vita_TouchPad();
     }
+    btn = btn_remap(btn); /* (before the clashes' Square: whichever button gives Square's action) */
     clash_square(socket, &btn, &pad.lx, &pad.ly);
     memset(data, 0, 18);
     data[0] = (unsigned char)(~btn & 0xFF);

@@ -42,6 +42,7 @@ all of them. The full list, each with a comment, is `read_settings` in `port/vit
 | `netdelay=<n>` | (the host) a multiplayer match's input delay, 1..8 blanks (default 2 ad hoc, 3 Wi-Fi) |
 | `warmtest=<s>` | The same test begun from the running game, fifteen seconds in: the game is started again inside the program as the versus menu's Multiplayer does it (`port/vita/vita_warm.c`), then runs the match's test for s seconds and writes `net_test.txt`. The file must be the same as a `nettest=<s>` run's: the game begun again inside the program is then the game a new program runs |
 | `menuauto=0` | (the released program too) a menu screen too slow for the chip at 960 x 544 (Shenron's) stays at that size instead of the fights' |
+| `shenfast=0` | (the released program too) the dragon's screen (Shenron) drawn as the menus are, not the fights' way (its dragon and balls as fighters: about 30 pictures a second instead of 13) |
 | `netwarm=0` | (the released program too) the versus menu's Multiplayer starts the program again for a match instead |
 
 Most of the remaining settings switch one optimisation of the renderer off (`fastlane=0`, `stx=0`, `wtc=0`, ...)

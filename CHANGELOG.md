@@ -39,7 +39,11 @@ New
   narrowed to fit inside them. BT4's options now show these labels too (Vita Settings, Game, Unlock All, Screen and
   the rest): its disc's lettering is the mod's own, so it has its own set, made from that disc
   (`port/vita/vita_optart_bt4.h`); before, BT4's Vita Settings plates showed the PS2's captions.
-- **Vita Settings' page number** ("Page 1/3") at the top right while it is open, in BT3 and BT4.
+- **Vita Settings' page number** ("Page 1/3") at the top right while it is open, on a plate of its own like the
+  pickers', in BT3 and BT4.
+- **Buttons**: Vita Settings → Buttons (third page; in BT4 the second) gives any of the ten fighting buttons any
+  one's action, or none: L1 / R1 / L2 / R2 on the face buttons and the other way round. The default layout stays
+  until changed; Square on the page puts it back. The menus keep their buttons.
 - **The dragon's screen (Shenron) keeps its pace**: a menu screen that the graphics chip cannot draw at 960 x 544
   in the time the game gives each picture is drawn at the fights' size until it gets light again (`menuauto=0`
   in bt3.txt keeps the menus' size whatever it costs).
@@ -67,6 +71,10 @@ Sound
   before. If that ever leaves the output empty, the game goes back to the longer blocks by itself.
 
 Fixed
+
+- BT4: the fight camera stood still (it kept the fight's first picture's pose, so it did not follow the fighters and
+  the right stick could not move it).
+- The dragon's screen (Shenron): the dragon balls' white outlines no longer lag behind or sit apart from the balls.
 
 - A second controller paired with the VitaControl plugin moved player 1 as well as player 2.
 - Budokai Tenkaichi 4: in a split-screen fight (two controllers), a moment the game shows as one full-screen view

@@ -78,6 +78,13 @@ void Port_VBlank(void) {
     }
 #endif
     gPortVBlanks++;
+#if defined(PORT_VITA) && defined(BT3_BT4)
+    {   /* (BT4: its fight camera keeps one pose per blank of this count, src/battle/btl_cam.c BtlCam_PortMods; never
+           counted, the camera kept the fight's first pose: it stood still) */
+        extern unsigned gPortLiveBlanks;
+        gPortLiveBlanks++;
+    }
+#endif
 #ifdef PORT_VITA
     {
         extern void Vita_VBlank(unsigned vblanks); /* port/vita/vita_main.c: status screen, timing */

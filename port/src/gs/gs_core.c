@@ -4497,9 +4497,11 @@ static void run_chain(uint32_t tadr, int tte) {
 #endif
 #ifdef PORT_VITA
         if (id == 5 && ccOn && gGsSplit && !gVitaGsSkipF && sp > 0 && sCcCap < 0) {
-            extern int Vita_RenderAsFight(void), Vita_ChipResetDue(void);
+            extern int Vita_InBattle(void), Vita_ChipResetDue(void);
             extern int gT116Fe;
-            CallCache *e = Vita_RenderAsFight() && !(gT116Fe & 2) ? cc_find(addr) : NULL; /* (no calls replayed) */
+            /* (fights only: a kept call is read the long way again only every 64th time, and the dragon's screen has
+               parts the game moves itself, the dragon balls' white outlines among them, which then lagged behind) */
+            CallCache *e = Vita_InBattle() && !(gT116Fe & 2) ? cc_find(addr) : NULL; /* (no calls replayed) */
             if (Vita_ChipResetDue()) {
                 gr_simple(GR_CHIPRESET, 0, 0, 0);
                 e = NULL;

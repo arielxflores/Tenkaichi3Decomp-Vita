@@ -238,7 +238,7 @@ static const struct StageBin *sStageDraw; /* the batch being drawn is one of the
 static GLuint sFtProg, sFtVbo;
 static GLint sFtU[5]; /* uF, uMode, uTest, uTex, uS */
 static const float *sFtDraw; /* the batch being drawn is the fighters' (its 20 uniforms; else NULL) */
-static struct { const float *src; uint32_t count, sig, at, seen, slot, ioff; } sFtCache[8192];
+static struct { const float *src; uint32_t count, sig, at, seen, slot, ioff, moving; } sFtCache[8192];
 #define FT_IDX (3 * FT_VERTS)   /* the fighters' strips as triangles, indices kept on the chip beside their vertices */
 static GLuint sFtIbo;
 static uint8_t *sStageVboPtr, *sFtVboPtr, *sDpIboPtr; /* the chip's buffers, written straight (no vitaGL call: the render thread may be in it) */
@@ -7538,12 +7538,24 @@ int Vita_ChipPlan(int which, int layer, const float *v, uint32_t count, const fl
             if (k < 8 && sFtCache[h].src != NULL && sFtCache[h].sig == sig) {
                 sFtCache[h].seen = gGsFrame;
             }
-        } else if (k < 8 && sFtCache[h].src != NULL && gGsFrame - sFtCache[h].seen < 32u) {
+        } else if (k < 8 && sFtCache[h].src != NULL && gGsFrame - sFtCache[h].seen < 32u && Vita_InBattle()) {
             sig = sFtCache[h].sig; /* (of 15000 strips a run looked at again, none had changed) */
         } else {
             sig = stage_sig(v, count);
             if (k < 8 && sFtCache[h].src != NULL && sFtCache[h].sig == sig) {
                 sFtCache[h].seen = gGsFrame;
+            }
+        }
+        if (!Vita_InBattle() && k < 8 && sFtCache[h].src != NULL) {
+            /* (the dragon's screen, Vita_RenderAsFight: its models' vertices are looked at every picture, and a strip
+               whose vertices the game moves itself (the dragon balls and their white outlines, flying) is drawn the
+               other way from then on: a copy on the chip would be a picture behind) */
+            if (sFtCache[h].moving) {
+                return -1;
+            }
+            if (sFtCache[h].sig != sig) {
+                sFtCache[h].moving = 1;
+                return -1;
             }
         }
         p->upload = 0;
@@ -7557,6 +7569,7 @@ int Vita_ChipPlan(int which, int layer, const float *v, uint32_t count, const fl
             sFtCache[h].src = v; sFtCache[h].count = count; sFtCache[h].sig = sig; sFtCache[h].at = sFtUsed; sFtCache[h].seen = gGsFrame;
             sFtCache[h].slot = sFtSlotNext++ & 15;
             sFtCache[h].ioff = sFtIdxUsed;
+            sFtCache[h].moving = 0;
             sFtUsed += count;
             sFtIdxUsed += need;
             p->upload = 1;

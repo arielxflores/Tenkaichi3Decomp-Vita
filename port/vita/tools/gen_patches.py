@@ -232,16 +232,17 @@ cap_y = bytearray(cap_t)
 for e in (1, 3):
     cap_y = label_job(14, e, [(0, 'Z Counter', 128.5, 'center'), (32, 'Bombardment', 128.5, 'center')],
                       64, base_sec=cap_y, keep=False, maxw=CAP_W)
-# a sixth: Vita Settings' third page (Game, Screen: the console's Screen page) and Game's two plates (BT3, BT4: the
-# package's two games); a seventh: BT4's second page (Game, Unlock All, Screen) and the same two plates
+# a sixth: Vita Settings' third page (Game, Screen: the console's Screen page, Buttons) and Game's two plates (BT3, BT4: the
+# package's two games); a seventh: BT4's second page (Game, Unlock All, Screen, Buttons) and the same two plates
 cap_g = bytearray(cap_t)
 for e in (1, 3):
-    cap_g = label_job(14, e, [(0, 'Game', 128.5, 'center'), (32, 'Screen', 128.5, 'center'),
+    cap_g = label_job(14, e, [(0, 'Game', 128.5, 'center'), (32, 'Screen', 128.5, 'center'), (128, 'Buttons', 128.5, 'center'),
                               (192, 'BT3', 128.5, 'center'), (224, 'BT4', 128.5, 'center')],
                       64, base_sec=cap_g, keep=False, maxw=CAP_W)
 cap_h = bytearray(cap_t)
 for e in (1, 3):
     cap_h = label_job(14, e, [(0, 'Game', 128.5, 'center'), (32, 'Unlock All', 128.5, 'center'), (128, 'Screen', 128.5, 'center'),
+                              (160, 'Buttons', 128.5, 'center'),
                               (192, 'BT3', 128.5, 'center'), (224, 'BT4', 128.5, 'center')],
                       64, base_sec=cap_h, keep=False, maxw=CAP_W)
 def differs(k):
