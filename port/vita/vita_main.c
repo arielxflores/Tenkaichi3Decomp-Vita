@@ -1318,7 +1318,7 @@ static void read_settings(void) {
             extern int gVitaMenuHi;
             gVitaMenuHi = atoi(eq) != 0;
         } else if (strcmp(line, "shenfast") == 0) { /* 0: the dragon's screen drawn as the other menus (Vita_RenderAsFight) */
-            gVitaShenFast = atoi(eq) != 0;
+            gVitaShenFast = atoi(eq); /* (1..3: the dragon's models' layers 0 .. n - 1 from the chip; vita_vgl.c Vita_ChipPlan) */
         } else if (strcmp(line, "menuauto") == 0) { /* 0: a menu screen too slow at 960 x 544 is still drawn so (vita_vgl.c) */
             extern int gVitaMenuAuto;
             gVitaMenuAuto = atoi(eq) != 0;
