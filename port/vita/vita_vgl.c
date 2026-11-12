@@ -8123,6 +8123,9 @@ void GsGpu_DpCapAbort(void) {
     gDpCapture = 0;
 }
 /* a strip of the part being walked: drawn with `d` from the chip's buffers as planned (vu_draw_impl) */
+unsigned gVitaDpEndWhy[8]; /* for the log: why a walk with nothing wrong in it was not kept (GsGpu_DpCapEnd): 0 nothing recorded,
+                               1 a strip not recordable, 2 over 64 groups, 3 indices beyond a bank, 4 the indices' room full,
+                               5 no memory, 6 over DP_UB uniform blocks; 7 (gs_core.c) a GIF loop still open */
 unsigned gVitaDpRefWhy[4]; /* for the log: parts not kept: a strip writing its vertices to the chip, another strip that cannot be */
 static void dp_record(const State *d, int layer, const float (*u)[4], const ChipPlan *p, int ctx) {
     DpRec *r;
@@ -8156,6 +8159,7 @@ void *GsGpu_DpCapEnd(void) {
 
     gDpCapture = 0;
     if (sDpRecBad || sDpRecN == 0) {
+        gVitaDpEndWhy[sDpRecBad ? 1 : 0]++;
         return NULL;
     }
     for (i = 0; i < sDpRecN; i++) {
@@ -8174,6 +8178,7 @@ void *GsGpu_DpCapEnd(void) {
         }
         if (j == ng) {
             if (ng == 64) {
+                gVitaDpEndWhy[2]++;
                 return NULL;
             }
             key[ng] = k;
@@ -8191,6 +8196,7 @@ void *GsGpu_DpCapEnd(void) {
             uint32_t n = (r->p->count - 2) * 3, q;
             for (q = 0; q < n; q++) {
                 if (ix[q] > 0xFFFFu && !gVitaDpBank) {
+                    gVitaDpEndWhy[3]++;
                     return NULL;
                 }
                 gmin[j] = ix[q] < gmin[j] ? ix[q] : gmin[j];
@@ -8200,6 +8206,7 @@ void *GsGpu_DpCapEnd(void) {
     }
     for (j = 0; j < ng; j++) { /* (the stage's groups: a bank each, their indices within 64K vertices of its start) */
         if (gmax[j] != 0 && gmax[j] - ((gmin[j] >> DP_BANK_SHIFT) << DP_BANK_SHIFT) > 0xFFFFu) {
+            gVitaDpEndWhy[3]++;
             return NULL;
         }
     }
@@ -8207,6 +8214,7 @@ void *GsGpu_DpCapEnd(void) {
         total += gcount[j];
     }
     if (sDpIboUsed + total * 2 + ng * 16 > DP_IBO_BYTES) {
+        gVitaDpEndWhy[4]++;
         return NULL;
     }
     b = (DpBlob *)malloc(sizeof(DpBlob) + (size_t)ng * sizeof(DpGroup));
@@ -8214,6 +8222,7 @@ void *GsGpu_DpCapEnd(void) {
     if (b == NULL || tmp == NULL) {
         free(b);
         free(tmp);
+        gVitaDpEndWhy[5]++;
         return NULL;
     }
     memset(b, 0, sizeof(DpBlob) + (size_t)ng * sizeof(DpGroup));
@@ -8240,6 +8249,7 @@ void *GsGpu_DpCapEnd(void) {
             if (u == DP_UB) {
                 free(b);
                 free(tmp);
+                gVitaDpEndWhy[6]++;
                 return NULL;
             }
             memcpy(b->ub[u].u17, key[j].u17, sizeof(key[j].u17));

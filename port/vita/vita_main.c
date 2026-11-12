@@ -725,6 +725,14 @@ void Vita_VBlank(unsigned vblanks) {
                                       " %u a GS primitive in it, %u an image upload, %u a register, %u another reason\n",
                                       gVitaDpWalk[0], gVitaDpWalk[1], gVitaDpWalk[2], bi[0], best[0], bi[1], best[1], bi[2], best[2], gVitaDpRefWhy[0], gVitaDpRefWhy[1],
                                       gVitaDpBadWhy[0], gVitaDpBadWhy[1], gVitaDpBadWhy[2], gVitaDpBadWhy[3]);
+                                {   extern unsigned gVitaDpEndWhy[8];
+                                    if (gVitaDpBadWhy[3] != 0) {
+                                        logf_("vita:   kept parts not kept for another reason: %u nothing recorded, %u a strip not recordable, %u over 64 groups, %u indices beyond a bank,"
+                                              " %u the indices' room full, %u no memory, %u too many uniform blocks, %u a GIF loop open\n",
+                                              gVitaDpEndWhy[0], gVitaDpEndWhy[1], gVitaDpEndWhy[2], gVitaDpEndWhy[3], gVitaDpEndWhy[4], gVitaDpEndWhy[5], gVitaDpEndWhy[6], gVitaDpEndWhy[7]);
+                                    }
+                                    memset(gVitaDpEndWhy, 0, sizeof(gVitaDpEndWhy));
+                                }
                                 memset(gVitaDpRefWhy, 0, sizeof(gVitaDpRefWhy));
                                 memset(gVitaDpBadWhy, 0, sizeof(gVitaDpBadWhy));
                                 if (!gVitaPerfOn) {
