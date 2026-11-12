@@ -1508,6 +1508,9 @@ static void read_settings(void) {
         } else if (strcmp(line, "gxmcache") == 0) { /* vitaGL's GXM state calls left out when they change nothing: 0 off, 1 on, 2 in the soak's B battles */
             extern int gVitaGxmCache;
             gVitaGxmCache = atoi(eq);
+        } else if (strcmp(line, "dpsplit") == 0) { /* kept parts' stage strips grouped by their bank too: 0 off, 1 on, 2 in the soak's B battles (vita_vgl.c GsGpu_DpCapEnd) */
+            extern int gVitaDpSplit;
+            gVitaDpSplit = atoi(eq);
         } else if (strcmp(line, "dpframe") == 0) { /* kept parts matched with FRAME's buffer as "the picture": 0 off, 1 on, 2 in the soak's B battles (gs_core.c dp_norm) */
             extern int gVitaDpFrame;
             gVitaDpFrame = atoi(eq);

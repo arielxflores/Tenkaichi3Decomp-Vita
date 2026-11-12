@@ -10,6 +10,9 @@ Faster
   was never emptied (a stage played after others ran without it); the kept parts' places were too few and shared at
   random; and only the first 2 MB of a stage's vertices could be kept, so a fight began fast and slowed down as more
   of the stage came into view.
+- **The first fight on a stage is as fast as the next ones**: some of the stage's kept parts were refused for the
+  whole first fight on a stage and drawn the long way (up to a quarter of the drawing thread's time; stage 20 at 27.9
+  pictures a second against 29.9 in the next fight there). Development build: `dpsplit=0` goes back.
 - Kept parts are no longer drawn again the long way every other frame (the game draws into its two display buffers
   in turn).
 - With the CapUnlocker plugin, the fourth CPU core works out the image uploads' numbers the list reader worked out
