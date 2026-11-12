@@ -95,7 +95,7 @@ One line per stage run (the newest first). The run's folder is `port/build/runs/
 
 | Date | Build (commit) | Where | Setting | Stage | Verdict / figures | Run |
 |---|---|---|---|---|---|---|
-| | | | | | (none yet) | |
+| 2026-11-12 | `8d19e3f` (dev) | Console (PCH-1004, 3.65, CapUnlocker) through vita-agent-use | `fxlow=2`, soakab, stages 4, 20, 22 | 2 (speed, pictures) | Shaders built; "draws without their shader" 0 in all 110 reports; B drew 1-3 groups smaller per 2 s (3-9 screens). fps B-A: 4: -0.4, 20: -1.0, 22: +0.4, all -0.3, within the order of the battles: the first fight on stage 20 in each round (A in round 1, B in round 2) walked its kept parts 270-470 ms / 2 s against ~30 in the second (`513c136` logs why). Render thread on 22: 778 -> 665 ms / 2 s, draws handed over 17,200 -> 13,800. Pictures (8 B screenshots: blasts, dust, auras): drawn right, in front of and behind the fighters. Run stopped by hand at ~9 of 10 minutes (11 fights). Verdict: stays on | `runs/ab-fxlow` |
 
 ## Rules for whoever goes on
 
