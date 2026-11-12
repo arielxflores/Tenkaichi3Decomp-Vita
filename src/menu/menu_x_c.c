@@ -205,7 +205,8 @@ s32 Option_Run(s32 section) {
    their voice is not played; nor that of line 18, the sound page's Language row (of the voices alone before). */
 extern void Voice_StopWithLip(void);
 static void Option_VoiceVita(s32 line) {
-    if (line == 18 || line == 24 || line == 39 || line == 40) { /* (18: the Language row's, vita_optart.c) */
+    if (line == 2 || line == 18 || line == 24 || line == 39 || line == 40) { /* (18: the Language row's, vita_optart.c;
+                                                                                 2: the top page's Vita Settings row) */
         Voice_StopWithLip();
     } else {
         Voice_PlayWithSubtitle(gOption->subtitles, OPTION_VOICE_BASE, line);
@@ -282,11 +283,13 @@ static void Option_VitaKeysLeave(void) {
     Snd_PlaySe(1, 2);
 }
 
-/* "Vita Settings", the controller page's second row (the console's Vibration). Its page holds four plates of the
-   console's two-way pickers, captioned from the second caption strip, whose rows take turns between two sets
-   (vita_optart.c Vita_OptionCaptions):
+/* "Vita Settings", the top page's second row (the console's Screen; the controller page's second row, the console's
+   Vibration, is hidden). It opens on the top page as Save / Load does: four plates of the console's two-way pickers
+   under the rows, captioned from the second caption strip, whose rows take turns between sets (vita_optart.c
+   Vita_OptionCaptions):
      level 1: Touch, Clashes / 2nd Pad, Mods, the four settings, on a second page (Down from the lower row) Unlock
-              All, Quick Start / Quick Save, Tech Fixes, and on a third Game;
+              All, Quick Start / Quick Save, Tech Fixes, and on a third Game, Screen (the console's Screen page:
+              camera type, screen shake, screen position; back from it to the top page);
      level 2: Touch: L2, R2 / L3, R3, laid out as the rear pad's quarters; level 3: where the chosen one is touched,
               Rear / Front, Off (port/vita/vita_touch.c, which keeps it in ux0:data/bt3/touch.txt);
      level 4: Clashes: Square / Stick, what wins a beam or rush clash (port/vita/vita_gfx.c, clash_square);
@@ -324,11 +327,13 @@ extern void Vita_ModsSummary(char *out, int size);
 static s32 sVitaSetLevel; /* 0 closed, 1..9 above */
 static s32 sVitaSetItem;  /* the setting chosen on level 1 */
 static s32 sVitaTouchBtn; /* the button chosen on level 2 */
-static s32 sVitaItem1;    /* level 1's item under the cursor: 0..3 the first page's, 4..7 the second's, 8 the third's (its plate: item % 4) */
+static s32 sVitaItem1;    /* level 1's item under the cursor: 0..3 the first page's, 4..7 the second's, 8 and 9 the third's (its plate: item % 4) */
+static s32 sVitaFromTop;  /* Vita Settings is open on the top page (its second row) */
+static s32 sVitaRow2Hidden; /* the controller page's second row (the console's Vibration) is hidden */
 static s32 sVitaCheatArmed; /* level 7 and 12: CROSS was pressed once (7: 2 turned on, 3 turned off, 4 off but the
                                copy of the save was not there, 5 the copy could not be made; 12: 3 the other game
                                did not start) */
-#define VITA_L1_ITEMS 9
+#define VITA_L1_ITEMS 10
 extern int Vita_GameSwitchCheck(void);
 extern void Vita_GameSwitch(void);
 /* (Save_UnlockAll: include/sys/save.h) */
@@ -400,7 +405,9 @@ static void Option_VitaSetGuide(void) {
     }
     switch (sVitaSetLevel) {
     case 1: /* the setting under the cursor, and what it is now */
-        if (v == 8) {
+        if (v == 9) {
+            sprintf(text, "Screen: the camera, the screen's\nshake and its position.");
+        } else if (v == 8) {
             sprintf(text, "Game: Budokai Tenkaichi 3, or Team\nBT4's Budokai Tenkaichi 4 mod\n(from your own BT4 disc).");
         } else if (v == 4) {
             sprintf(text, "Unlock All (%s): every fighter and\nform, stage, song and item, and\n9,999,999 Zenni.", Port_Setting("unlock_all", 0) ? "ON" : "OFF");
@@ -575,6 +582,34 @@ static void Option_VitaTouchOpen(void) {
     Option_VitaSetLevel(1, 0);
 }
 
+/* The top page's second row (Vita Settings): opened in place, as Save / Load opens its two plates */
+static void Option_VitaTopOpen(void) {
+    gOption->state = OPT_ITEM_VIB;
+    gOption->value = 0;
+    gOption->pad = 0;
+    gOption->ctrlKind = 0;
+    gOption->picker = 5;
+    gOption->valueOld = 0;
+    sVitaFromTop = 1;
+    Option_DimPickers();
+    Flash_GotoLabel(&gOption->flash[0], "fl_value_in", 1);
+    Option_VitaSetLevel(1, 0);
+}
+
+/* Vita Settings > Screen: the console's Screen page, as the top page's Screen row opened it (back from it: the top
+   page, on Vita Settings) */
+static void Option_VitaOpenScreen(void) {
+    gOption->state = OPT_ITEM_SCREEN;
+    Flash_GotoLabel(&gOption->flash[0], "fl_menu_change", 1);
+    OPT_PLATE(OPT_CLIP_ROW, "fl_off_start");
+    gOption->cursor = OPT_ITEM_TYPE;
+    gOption->voiceLine = gOption->cursor;
+    OPT_PLATE(OPT_CLIP_ROW_SCREEN, "fl_on_start");
+    gOption->fromPage = 0;
+    gOption->page = 1;
+    OPT_VOICE(gOption->cursor);
+}
+
 static void Option_VitaTouchInput(void) {
     u32 pressed = gPad[0].gamePressed;
     s32 v = gOption->value;
@@ -592,12 +627,30 @@ static void Option_VitaTouchInput(void) {
             row = (row + ((pressed & PADG_DOWN) ? 1 : rows - 1)) % rows;
             to = row * 2 + (v & 1);
             Option_VitaL1Move(to < VITA_L1_ITEMS ? to : row * 2);
+        } else if ((pressed & PADG_CROSS) && v == 9) { /* Screen: the console's Screen page, from the top page */
+            OPT_PLATE(OPT_CLIP_PICK, "fl_off_start");
+            Snd_PlaySe(1, 1);
+            sVitaSetLevel = 0;
+            sVitaFromTop = 0;
+            gOption->picker = 0;
+            Option_VitaOpenScreen();
         } else if (pressed & PADG_CROSS) {
             sVitaSetItem = v;
             Snd_PlaySe(1, 1);
             Option_VitaSetLevel(v == 0 ? 2 : v == 1 ? 4 : v == 2 ? 5 : v == 3 ? 6 : v == 4 ? 7 : v == 5 ? 8 : v == 6 ? 9 : v == 7 ? 10 : 12,
                                 v == 0 ? 0 : v == 1 ? !Port_ClashSquare() : v == 2 ? !Vita_Pad2Setting() : v == 3 ? !Option_VitaModsOn()
                                 : v == 4 ? !Port_Setting("unlock_all", 0) : v == 5 ? !Option_VitaQuickStart() : v == 6 ? !Option_VitaQuickSave() : 0);
+        } else if (back && sVitaFromTop) { /* back to the top page, on Vita Settings */
+            OPT_PLATE(OPT_CLIP_PICK, "fl_off_start");
+            Snd_PlaySe(1, 2);
+            sVitaSetLevel = 0;
+            sVitaFromTop = 0;
+            gOption->state = OPT_ST_TOP;
+            gOption->cursor = OPT_ITEM_SCREEN;
+            Flash_GotoLabel(&gOption->flash[0], "fl_value_out", 1);
+            OPT_PLATE(OPT_CLIP_ROW, "fl_on_start");
+            gOption->voiceLine = OPT_ITEM_SCREEN;
+            OPT_VOICE(gOption->voiceLine);
         } else if (back) { /* back to the page */
             OPT_PLATE(OPT_CLIP_PICK, "fl_off_start");
             Snd_PlaySe(1, 2);
@@ -1035,6 +1088,11 @@ s32 Option_Input(void) {
                 OPT_PLATE(OPT_CLIP_PICK, "fl_on_start");
                 gOption->picker = 0;
             } else if (gOption->state == OPT_ITEM_SCREEN) {
+#ifdef PORT_VITA
+                Option_VitaTopOpen(); /* (the row is Vita Settings: the Screen page is in it) */
+                gOption->greeted = 1;
+                break;
+#endif
                 Flash_GotoLabel(&gOption->flash[0], "fl_menu_change", 1);
                 OPT_PLATE(OPT_CLIP_ROW, "fl_off_start");
                 gOption->cursor = OPT_ITEM_TYPE;
@@ -1494,6 +1552,11 @@ s32 Option_Input(void) {
                 OPT_PLATE(OPT_CLIP_ROW_CTRL, "fl_off_start");
             }
             gOption->cursor--;
+#ifdef PORT_VITA
+            if (gOption->cursor == OPT_ITEM_VIB) { /* (Vita Settings is on the top page now) */
+                gOption->cursor--;
+            }
+#endif
             if (gOption->cursor < OPT_ITEM_KEYS) {
                 gOption->cursor = OPT_ITEM_CTRL_RESET;
             }
@@ -1518,6 +1581,11 @@ s32 Option_Input(void) {
                 OPT_PLATE(OPT_CLIP_ROW_CTRL, "fl_off_start");
             }
             gOption->cursor++;
+#ifdef PORT_VITA
+            if (gOption->cursor == OPT_ITEM_VIB) { /* (Vita Settings is on the top page now) */
+                gOption->cursor++;
+            }
+#endif
             if (gOption->cursor > OPT_ITEM_CTRL_RESET) {
                 gOption->cursor = OPT_ITEM_KEYS;
             }
@@ -2173,13 +2241,13 @@ static s32 sVitaPlatesHidden;
 static void Option_VitaTouchPlates(MFlash *flash) {
     /* per level: the plates used, and each plate's strip (0 the first, 1 the second) and row; 11 is level 1's second
        page (Cheats, Quick Start / Quick Save, Tech Fixes), 13 its third (Game) */
-    static const s8 kCount[14] = {0, 4, 4, 3, 2, 2, 2, 2, 2, 2, 2, 4, 2, 1};
+    static const s8 kCount[14] = {0, 4, 4, 3, 2, 2, 2, 2, 2, 2, 2, 4, 2, 2};
     static const s8 kTex[14][4] = {{0}, {1, 1, 1, 1}, {1, 1, 1, 1}, {1, 1, 0, 0}, {1, 1, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0},
                                    {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {1, 1, 0, 0}, {1, 1, 1, 1}, {1, 1, 0, 0},
-                                   {1, 0, 0, 0}};
+                                   {1, 1, 0, 0}};
     static const s8 kRow[14][4] = {{0}, {0, 1, 4, 5}, {0, 1, 4, 7}, {5, 6, 1, 0}, {6, 7, 0, 0}, {0, 1, 0, 0}, {0, 1, 0, 0},
                                    {0, 1, 0, 0}, {0, 1, 0, 0}, {0, 1, 0, 0}, {0, 1, 0, 0}, {0, 1, 4, 5}, {6, 7, 0, 0},
-                                   {0, 0, 0, 0}};
+                                   {0, 1, 0, 0}};
     MFlashRef ref;
     MFlashUv uv;
     char name[0x40];
@@ -2264,12 +2332,21 @@ void Option_Draw(void) {
         IconWin_SetIcon(2);
     } else if (gOption->state == YOPT_BGM) {
         IconWin_SetIcon(3);
+    } else if (sVitaFromTop) {
+        IconWin_SetIcon(0); /* (Vita Settings, open on the top page) */
     } else if (gOption->state == YOPT_CTRL || gOption->state >= YOPT_KEYS) {
         IconWin_SetIcon(4);
     } else {
         IconWin_SetIcon(0);
     }
 
+#ifdef PORT_VITA
+    if (sVitaRow2Hidden && gOption->page != 3) { /* (the controller page hides its second row: the others have theirs) */
+        Flash_FindLabel(flash, NULL, "mc_menu_plate_2", &ref);
+        Flash_ClipSetFlags(flash, &ref, 2, 1);
+        sVitaRow2Hidden = 0;
+    }
+#endif
     switch (gOption->page) {
         case 0:
             rows4 = 4;
@@ -2501,6 +2578,11 @@ void Option_Draw(void) {
             sprintf(name, "mc_menu_plate_%d", 4);
             Flash_FindLabel(flash, NULL, name, &ref);
             Flash_ClipSetFlags(flash, &ref, 2, 0);
+#ifdef PORT_VITA
+            Flash_FindLabel(flash, NULL, "mc_menu_plate_2", &ref); /* (Vita Settings is on the top page now) */
+            Flash_ClipSetFlags(flash, &ref, 2, 0);
+            sVitaRow2Hidden = 1;
+#endif
             uv.y0 = 0x20;
             uv.x0 = 0;
             uv.x1 = 0x100;
@@ -2876,7 +2958,11 @@ void Option_Draw(void) {
         Flash_Draw(&gOption->flash[i]);
     }
     IconWin_Draw();
+#ifdef PORT_VITA
+    MsgWin_Draw(0, 0, gOption->voiceLine == 2 ? 24 : gOption->voiceLine); /* (the top page's second row is Vita Settings) */
+#else
     MsgWin_Draw(0, 0, gOption->voiceLine);
+#endif
     ColorFade_Draw();
     if (gOption->mcBusy) {
         gOption->mcBusy = McFlow_Update();

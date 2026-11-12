@@ -131,7 +131,8 @@ On a PS TV, or with a DualShock paired, the controller's own L2, R2, L3 and R3 b
 
 - The rear touch pad's quarters are those of PS4 Remote Play, so the triggers and rear buttons of a grip attachment
   for it, such as HORI's Remote Play Assist Attachment, work as L2, R2, L3 and R3.
-- **Options → Controller → Vita Settings** has nine settings on three pages (Down from the lower row turns the page):
+- **Options → Vita Settings** (the Options screen's second row, where the PS2 had Screen) has ten settings on three
+  pages (Down from the lower row turns the page):
   - **Touch**: for each of L2, R2, L3 and R3, where it is touched: its quarter of the rear pad, a corner of the
     front screen (L2 / R2 the bottom corners, L3 / R3 the top ones), or nowhere (Off). A finger resting on the rear
     pad's lower half stops counting as L3 / R3 after a second, so the hands holding the Vita cannot hold R3 (which
@@ -162,6 +163,9 @@ On a PS TV, or with a DualShock paired, the controller's own L2, R2, L3 and R3 b
     once its files are in place). Press CROSS twice on the other game: this one closes and the other starts, and
     starts each time from then on, until changed back (BT4's Vita Settings have the same plate). Options changed and
     not saved yet are lost with it.
+  - **Screen**: the PS2's Screen page (camera type, screen shake, screen position), which Vita Settings took the place
+    of on the Options screen; back from it leads to the Options screen. (In BT4: on the second page, with the tag
+    team's HUD.)
 - **Options → Controller → Control Type → Custom** assigns the actions to other buttons, as on the PS2. The pause
   menu's skill list shows each command with the buttons of the control type in use, and L3 / R3 as buttons like L1,
   not as the PS2's sticks.
@@ -197,8 +201,8 @@ ux0:data/bt3/bt4/BIN/DBZP.BIN
 ux0:data/bt3/bt4/DATA/PZS4US0.AFS     (to PZS4US3.AFS, and the other files of the DATA folder: about 5.9 GB)
 ```
 
-Then choose it in the game, **Options → Controller → Vita Settings → Game → BT4** (on the third page: Down from the
-lower row, twice), or hold SELECT while the game starts and choose **Game** in the [start menu](#start-menu). The
+Then choose it in the game, **Options → Vita Settings → Game → BT4** (on the third page: Down from the lower row,
+twice), or hold SELECT while the game starts and choose **Game** in the [start menu](#start-menu). The
 way back is the same plate in BT4's own Vita Settings, or the start menu. BT4 keeps its own saves,
 settings and log in `ux0:data/bt3/bt4/`. The PC version's online play, Tag Team battles and its other PC features are
 not part of the Vita's. Should BT4 crash or freeze before its first pictures, the next start says so and starts BT3

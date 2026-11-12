@@ -139,7 +139,11 @@ void Vita_OptionArt(void *res) {
        page's cursor moves */
     {
         uint8_t *t = pack_at(res, 33);
+#ifndef BT3_BT4
+        lines += put_line(t, 25, 28, "Touch, clashes, Unlock All, the\nscreen, BT4 and more.");
+#else
         lines += put_line(t, 25, 28, "Touch buttons, clashes, a\nsecond controller and mods.");
+#endif
 #ifndef BT3_BT4 /* (BT4's options keep the console's voice picker: its guide line stays) */
         lines += put_line(t, 19, 20, "The language of the menus and\nthe text, and of the voices.");
 #endif
@@ -295,14 +299,15 @@ int Vita_OptionGuide(const char *text) {
 /* Vita Settings (src/menu/menu_x_c.c): the second caption strip with the captions of Touch Buttons (set 0: L2, R2, L3,
    Rear, Front, R3) or of the page above them (set 1: Touch, Clashes, 2nd Pad, Mods, Square, Stick), or the European
    languages of the Language row (set 2: Espanol, Deutsch, Francais, Italiano in rows 0, 1, 4, 5), or Vita Settings'
-   second page (set 3: Cheats, Quick Start, Quick Save, Tech Fixes in rows 0, 1, 4, 5, the cheat's Unlock All in 6),
-   or the Tech Fixes' two (set 4: Z Counter, Bombardment in rows 0, 1), or Vita Settings' third page (set 5: Game in
-   row 0, its BT3 and BT4 in rows 6 and 7). Rows 2 and 3 (Normal, Custom: the control
+   second page (set 3: Unlock All, Quick Start, Quick Save, Tech Fixes in rows 0, 1, 4, 5), or the Tech Fixes' two
+   (set 4: Z Counter, Bombardment in rows 0, 1), or Vita Settings' third page (set 5: Game, Screen in rows 0, 1, Game's
+   BT3 and BT4 in rows 6 and 7), or BT4's second page (set 6: Game, Unlock All, BT3, BT4 the same way). Captions
+   longer than the disc's are narrowed to fit the plates (gen_patches.py). Rows 2 and 3 (Normal, Custom: the control
    type's picker) are the same in every set. The menus upload a picture each time they draw it, so the change shows
    at once. */
 void Vita_OptionCaptions(int set) {
-    static const uint8_t *const kSet[6] = {kOptCapT, kOptCapV, kOptCapL, kOptCapX, kOptCapY, kOptCapG};
-    const uint8_t *b = kSet[set >= 0 && set < 6 ? set : 0];
+    static const uint8_t *const kSet[7] = {kOptCapT, kOptCapV, kOptCapL, kOptCapX, kOptCapY, kOptCapG, kOptCapH};
+    const uint8_t *b = kSet[set >= 0 && set < 7 ? set : 0];
     unsigned k;
     if (sCapSec == NULL || set == sCapSet) {
         return;

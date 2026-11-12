@@ -39,9 +39,10 @@ def smooth(rows):
 patches = []   # (section, original bytes, new bytes) of the screen being made
 previews = []
 
-def label_job(section, entry_i, jobs, style_cell, pack='opt', base_sec=None, keep=True):
+def label_job(section, entry_i, jobs, style_cell, pack='opt', base_sec=None, keep=True, maxw=None):
     """jobs: (cell_y, text, x, align); style from the label in style_cell (y of its 32-row cell). base_sec: draw on
-    these bytes of the section instead of the disc's; keep=False: only return the new bytes"""
+    these bytes of the section instead of the disc's; keep=False: only return the new bytes. maxw: no label wider
+    than that many pixels (a longer one is narrowed: the plates' captions, which the plates show only so wide)"""
     a, sec = sec_bytes(section, pack)
     if base_sec is not None:
         sec = bytearray(base_sec)
@@ -55,6 +56,26 @@ def label_job(section, entry_i, jobs, style_cell, pack='opt', base_sec=None, kee
     w = t['w']
     for cell, text, x, align in jobs:
         g = render(text, 18, x, 22, w, 32, fill, outl, sh, tracking=0.5, align=align)
+        if maxw is not None:
+            cols = np.where(g[..., 3].max(0) > 40)[0]
+            width = cols.max() - cols.min() + 1 if len(cols) else 0
+            if width > maxw:
+                # narrowed first, down to three quarters of its width; a longer one also a little smaller (its
+                # middle kept on the row's middle), a size at a time
+                for cap in (18, 17, 16, 15, 14, 13):
+                    xs = 1.0
+                    while width > maxw and xs > 0.74:  # (the outline's few pixels do not narrow: a step at a time)
+                        xs -= 0.02
+                        g = render(text, cap, x, 22 - (18 - cap) / 2, w, 32, fill, outl, sh, tracking=0.5, align=align, xscale=xs)
+                        cols = np.where(g[..., 3].max(0) > 40)[0]
+                        width = cols.max() - cols.min() + 1
+                    if width <= maxw:
+                        break
+                    xs = 1.0
+                    g = render(text, cap - 1, x, 22 - (18 - cap + 1) / 2, w, 32, fill, outl, sh, tracking=0.5, align=align)
+                    cols = np.where(g[..., 3].max(0) > 40)[0]
+                    width = cols.max() - cols.min() + 1
+                print(f'  {text!r}: {cap} high, narrowed to {xs:.2f} of its width ({width} pixels)')
         q = quantize(g, colors)
         q[g[..., 3] < 1.0] = clear
         idx[cell:cell + 32, :] = q
@@ -163,6 +184,9 @@ def emit(lines, out, macro, name):
 # Change Voice -> Language (the text's language and the voices: Option_VitaLang) (normal and highlighted strips)
 for e in (1, 3):
     label_job(16, e, [(128, 'Vita Settings', 4, 'left'), (64, 'Language', 4, 'left')], 128)
+# the top page's second row: Screen -> Vita Settings (the Screen page is opened from Vita Settings' third page)
+for e in (0, 2):
+    label_job(16, e, [(32, 'Vita Settings', 4, 'left')], 32)
 # the pickers' second caption strip (1P / 2P / Normal / Custom / Simple, three rows free): the captions of "Touch
 # Buttons" in the rows the Vita does not show and the free ones; Normal and Custom stay
 for e in (1, 3):
@@ -178,6 +202,7 @@ opt_previews = previews
 # the unpacked screen as the page changes (vita_optart.c Vita_OptionCaptions). Normal and Custom stay. A third set
 # holds the European languages of the Language row (English and Japanese are the first strip's own).
 _, sec14 = sec_bytes(14)
+CAP_W = 115  # (the widest caption of the disc's own in that strip: the plates show about so much)
 cap_t = bytearray(sec14)
 for section, runs in out:
     if section == 14:
@@ -187,32 +212,37 @@ cap_v = bytearray(cap_t)
 for e in (1, 3):
     cap_v = label_job(14, e, [(0, 'Touch', 128.5, 'center'), (32, 'Clashes', 128.5, 'center'), (128, '2nd Pad', 128.5, 'center'),
                               (160, 'Mods', 128.5, 'center'), (192, 'Square', 128.5, 'center'), (224, 'Stick', 128.5, 'center')],
-                      64, base_sec=cap_v, keep=False)
+                      64, base_sec=cap_v, keep=False, maxw=CAP_W)
 cap_l = bytearray(cap_t)
 for e in (1, 3):
     cap_l = label_job(14, e, [(0, 'Espa\u00f1ol', 128.5, 'center'), (32, 'Deutsch', 128.5, 'center'),
                               (128, 'Fran\u00e7ais', 128.5, 'center'), (160, 'Italiano', 128.5, 'center')],
-                      64, base_sec=cap_l, keep=False)
+                      64, base_sec=cap_l, keep=False, maxw=CAP_W)
 # a fourth: Vita Settings' second page (Unlock All, Quick Start, Quick Save, Tech Fixes); a fifth: the Tech Fixes' two (Z Counter, Bombardment). Normal and Custom stay in every set (the control
 # type's picker, whichever set was put in last).
 cap_x = bytearray(cap_t)
 for e in (1, 3):
     cap_x = label_job(14, e, [(0, 'Unlock All', 128.5, 'center'), (32, 'Quick Start', 128.5, 'center'),
                               (128, 'Quick Save', 128.5, 'center'), (160, 'Tech Fixes', 128.5, 'center')],
-                      64, base_sec=cap_x, keep=False)
+                      64, base_sec=cap_x, keep=False, maxw=CAP_W)
 cap_y = bytearray(cap_t)
 for e in (1, 3):
     cap_y = label_job(14, e, [(0, 'Z Counter', 128.5, 'center'), (32, 'Bombardment', 128.5, 'center')],
-                      64, base_sec=cap_y, keep=False)
-# a sixth: Vita Settings' third page (Game; in BT4's options also Unlock All) and Game's two plates (BT3, BT4: the
-# package's two games)
+                      64, base_sec=cap_y, keep=False, maxw=CAP_W)
+# a sixth: Vita Settings' third page (Game, Screen: the console's Screen page) and Game's two plates (BT3, BT4: the
+# package's two games); a seventh: BT4's second page (Game, Unlock All, Screen) and the same two plates
 cap_g = bytearray(cap_t)
 for e in (1, 3):
-    cap_g = label_job(14, e, [(0, 'Game', 128.5, 'center'), (32, 'Unlock All', 128.5, 'center'),
+    cap_g = label_job(14, e, [(0, 'Game', 128.5, 'center'), (32, 'Screen', 128.5, 'center'),
                               (192, 'BT3', 128.5, 'center'), (224, 'BT4', 128.5, 'center')],
-                      64, base_sec=cap_g, keep=False)
+                      64, base_sec=cap_g, keep=False, maxw=CAP_W)
+cap_h = bytearray(cap_t)
+for e in (1, 3):
+    cap_h = label_job(14, e, [(0, 'Game', 128.5, 'center'), (32, 'Unlock All', 128.5, 'center'), (128, 'Screen', 128.5, 'center'),
+                              (192, 'BT3', 128.5, 'center'), (224, 'BT4', 128.5, 'center')],
+                      64, base_sec=cap_h, keep=False, maxw=CAP_W)
 def differs(k):
-    return k < len(cap_t) and any(cap_t[k] != c[k] for c in (cap_v, cap_l, cap_x, cap_y, cap_g))
+    return k < len(cap_t) and any(cap_t[k] != c[k] for c in (cap_v, cap_l, cap_x, cap_y, cap_g, cap_h))
 cap_runs = []
 i = 0
 while i < len(cap_t):
@@ -274,7 +304,7 @@ for off, ln in cap_runs:
     lines.append(f'    {{0x{off:X}, {ln}}},')
 lines.append('};')
 for name, src in (('kOptCapT', cap_t), ('kOptCapV', cap_v), ('kOptCapL', cap_l), ('kOptCapX', cap_x), ('kOptCapY', cap_y),
-                  ('kOptCapG', cap_g)):
+                  ('kOptCapG', cap_g), ('kOptCapH', cap_h)):
     blob = b''.join(bytes(src[off:off + ln]) for off, ln in cap_runs)
     lines.append(f'static const uint8_t {name}[{len(blob)}] = {{')
     for i in range(0, len(blob), 32):
@@ -283,7 +313,7 @@ for name, src in (('kOptCapT', cap_t), ('kOptCapV', cap_v), ('kOptCapL', cap_l),
 print('captions: runs', len(cap_runs), 'bytes', sum(l for _, l in cap_runs))
 # previews of the second and third sets
 for e in (1, 3):
-    for tag, src in (('v', cap_v), ('l', cap_l), ('x', cap_x), ('y', cap_y), ('g', cap_g)):
+    for tag, src in (('v', cap_v), ('l', cap_l), ('x', cap_x), ('y', cap_y), ('g', cap_g), ('h', cap_h)):
         t = texture(bytes(src), e)
         Image.fromarray(t['rgba'].copy(), 'RGBA').save(f'{base}/patched_opt_s14_t{e}_{tag}.png')
 lines += ['', '/* The versus menu (file 449, section 1): the plate "1P VS 2P" reads "Multiplayer". */']

@@ -30,9 +30,13 @@ New
   own save with everything unlocked (yours is not touched). From the versus menu it all happens in the running
   game: the system's ad hoc dialog over the menu, the wait for the other Vita in the menu's message window, and
   after the match the versus menu again, without the program starting anew. See the README.
-- **The other game from the options**: Options → Controller → Vita Settings → **Game** (the third page) switches
+- **The other game from the options**: Options → Vita Settings → **Game** (the third page) switches
   between Budokai Tenkaichi 3 and Team BT4's Budokai Tenkaichi 4, as the start menu's Game does; BT4's own
   Vita Settings have the way back.
+- **Vita Settings on the Options screen**: its second row (where Screen was) opens Vita Settings at once, in BT3
+  and in BT4; the PS2's Screen page is inside it (third page in BT3, second in BT4). The controller page no longer
+  has the row. Captions longer than the plates (Quick Start, Quick Save, Tech Fixes, Unlock All, Bombardment) are
+  narrowed to fit inside them.
 - **Unlock All, a switch**: Vita Settings → Unlock All (second page; in BT4's options next to Game) turns on every
   character and transformation, stage, song and item (Evolution Z items, Potaras) and 9,999,999 Zenni, for the save
   in play and each one loaded while it is on. Your save is copied aside first, and turning it off gives the save

@@ -24,8 +24,9 @@ def dilate(mask, r):
     from scipy.ndimage import binary_dilation
     return binary_dilation(mask, structure=disk(r))
 
-def render(text, cap, x, baseline, w, h, fill_rows, outline_rows, shadow_rgb, embolden=0.6, outline=3.0, shadow=(1, 2), shadow_alpha=60, align='left', tracking=0.0):
-    """-> float RGBA (0..255 rgb, 0..128 alpha) of size h x w; fill_rows/outline_rows: dict y -> rgb"""
+def render(text, cap, x, baseline, w, h, fill_rows, outline_rows, shadow_rgb, embolden=0.6, outline=3.0, shadow=(1, 2), shadow_alpha=60, align='left', tracking=0.0, xscale=1.0):
+    """-> float RGBA (0..255 rgb, 0..128 alpha) of size h x w; fill_rows/outline_rows: dict y -> rgb; xscale: the
+    letters narrowed to that part of their width (about the text's middle), their height and strokes as they are"""
     f = font_for_cap(cap)
     W, H = w * SS, h * SS
     img = Image.new('L', (W, H), 0)
@@ -48,6 +49,14 @@ def render(text, cap, x, baseline, w, h, fill_rows, outline_rows, shadow_rgb, em
         d.text((cx, yorg), ch, font=f, fill=255)
         cx += wd
     m = np.array(img) > 127
+    if xscale != 1.0:
+        mid = x0 + total / 2
+        nw = max(1, int(round(W * xscale)))
+        sq = np.array(Image.fromarray((m * 255).astype(np.uint8)).resize((nw, H), Image.LANCZOS)) > 127
+        m = np.zeros_like(m)
+        off = int(round(mid - mid * xscale))
+        lo, hi = max(0, off), min(W, off + nw)
+        m[:, lo:hi] = sq[:, lo - off:hi - off]
     if embolden > 0:
         m = dilate(m, int(round(embolden * SS)))
     o = dilate(m, int(round(outline * SS)))
