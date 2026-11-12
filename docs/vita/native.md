@@ -1,5 +1,7 @@
 # Towards a native renderer: the engine seam
 
+State of the work, how to test it and the rules for going on: [status.md](status.md).
+
 The Vita's renderer is the PC port's GS front end with a back end on vitaGL: the game builds the PS2's display list
 (DMA, VIF, GIF) every frame, the list reader (`port/src/gs/gs_core.c`) reads it on a core of its own, and the drawing
 thread (`port/vita/vita_vgl.c`) turns what it finds into draws. For the 3D models it already draws natively in

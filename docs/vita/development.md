@@ -74,6 +74,6 @@ the texture count.
 | `port/vita/srcfix.py` | Rewrites of the game's text at build time: the PS2's rule for shift counts, and its float division by zero (`__port_fdiv` in `port/include/port_compat.h`: no infinity or NaN where the PS2 gives its largest number) |
 | `port/vita/vita_text.c`, `vita_optart.c` | What the game's text and the menus' art say of the PS2, said of the Vita (the options' controller page and its Vita Settings, the Versus Menu's "Multiplayer", the L3 / R3 icons) |
 | `port/vita/vitagl/` | The vitaGL patch and its build script |
-| `port/vita/tools/` | The scripts that made the new art of the menus and the button icons (`vita_optart.h`) |
+| `port/vita/tools/` | The scripts that made the new art of the menus and the button icons (`vita_optart.h`); `perfsum.py` (the soak's figures by stage); `check_syntax.sh` (the Vita's C checked without VitaSDK) |
 | `port/vita/sce_sys/` | The LiveArea |
 | `port/src/gs/gs_core.c` | The PC port's GS front end, with the Vita's changes (the list read and drawn on threads of their own, the upload store) |
