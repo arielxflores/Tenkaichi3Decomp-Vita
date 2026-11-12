@@ -56,6 +56,22 @@ Nobody has run this port in Vita3K yet. From what the port does and what the oth
 - **Not there**: the fourth core (the program sees no CapUnlocker and runs its fallbacks), the processor counters
   (`perf=0` if libperf's calls fail), the console's speed.
 
+### What the log is good for in Vita3K
+
+The log (`log-vgl.txt`) is written by the program itself, so what it counts is as good in Vita3K as on the console
+whenever it counts the program's own decisions:
+
+- **Good**: the renderer's counters every two seconds (`report=1`): the engine seam's line (calls sent from their
+  copies, read the long way, table full), the effects at a lower resolution (groups drawn smaller, draws without their
+  shader), the cache of calls, the kept parts, the textures made, the shaders built or refused at start-up; `drawlog=`
+  (each draw of the chosen frames: its path, state and size); errors, the watchdog's `hang-vgl.txt`, crashes. To tell
+  whether a change draws the same things: the same test with the setting at 0 and at 1, and these lines (and
+  `drawlog=` around one moment) side by side.
+- **Not good**: every time and speed figure (pictures a second, the threads' milliseconds, `perfsum.py`), the fourth
+  core's lines, the processor counters.
+- **Pictures**: `film=` copies the display's memory from the processor, which Vita3K does not fill in (its read-back
+  is empty, as TwinsanityEvolved found): use Vita3K's own screenshots, or its `-C` (it saves the colour surfaces).
+
 ### Once
 
 1. Build the emulator or take a build from [vita3k.org](https://vita3k.org); install the two firmware packages
