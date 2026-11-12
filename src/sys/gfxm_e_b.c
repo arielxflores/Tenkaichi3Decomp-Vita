@@ -167,6 +167,12 @@ void BtlObjMdl_BindFiles(ObjMdlObj *obj) {
     ObjMdl *mdl = &obj->mdl;
     void *res = obj->res;
     s32 i;
+#ifdef PORT_VITA
+    {   /* the port's engine seam: the models' chains may be other data now (port/src/gs_marker.c) */
+        extern void Port_EsModelBound(void);
+        Port_EsModelBound();
+    }
+#endif
 
     mdl->model = mdl->file;
     mdl->meshes = (ObjMdlMesh *)((u8 *)mdl->file + mdl->file->meshOfs);

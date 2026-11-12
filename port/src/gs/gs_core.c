@@ -2713,50 +2713,73 @@ static CallCache *cc_find(uint32_t addr) {
     return NULL;
 }
 
-/* ---- The engine seam (port/src/gs_marker.c, bt3.txt native=1): a call whose packet carries the seam's MARK is one of
-   the stage's meshes, the stage file's static data, named by the game. It is kept in a table of its own for the
-   stage's life: found by its address and the stage's generation (the MARK's low 15 bits), with no place given up to
-   another call and no part found again by the cache's guess. A new generation lets the whole table go (a stage
-   loaded, another model). Read again the long way only every nativecheck-th call (bt3.txt; 0 never; the cache's
-   calls every 64th), in case the game writes into a mesh. ---- */
+/* ---- The engine seam (port/src/gs_marker.c, bt3.txt native=1): a call whose packet carries the seam's MARK is static
+   data named by the game: a mesh of the stage (VU1 programs 4, 7, 8) or a part of an object's model (0, 1, 2). It is
+   kept in a table of its own: found by its address and, for a model's part, the program (the MARK's bits 12, 13: a
+   part is called with program 0 and with program 1, which make other draws), and checked against its generation (the
+   rest: bit 14 the kind, stage or model, and the generation of that kind, a new one whenever the stage may have been
+   loaded or a model was bound),
+   with no place given up to another call while it is drawn and no part found again by the cache's guess. An entry
+   whose generation is not the call's is read again (the memory holds something else now); one not called for ES_STALE
+   lists may be taken by another. Read again the long way only every nativecheck-th call (bt3.txt; 0 never; the
+   cache's calls every 64th), in case the game writes into a mesh. ---- */
 #define SEAM_N 8192
-static CallCache *sEsTab;          /* (SEAM_N entries, from the heap at the first use) */
-static uint32_t sEsGenNow;      /* the generation the table holds */
+#define ES_STALE 300u
+static CallCache *sEsTab;       /* (SEAM_N entries, from the heap at the first use) */
 static uint32_t sEsMark;        /* the list reader: the MARK of the DMA tag being read (0x10000 | its value), 0 none */
 int gVitaEsCheck = 512;         /* bt3.txt nativecheck */
-unsigned gVitaEs[5];            /* for the log: calls sent from the seam's copies, read the long way, kept, table full (to the cache), tables let go */
+unsigned gVitaEs[6];            /* for the log: calls sent from the seam's copies, read the long way, kept, table full (to the cache), entries of an old generation, places taken from calls not seen lately */
 static CallCache *es_find(uint32_t addr, uint32_t gen) {
-    uint32_t h, k;
+    uint32_t h, k, es = gen | 0x10000u;
+    CallCache *old = NULL;
     if (sEsTab == NULL) {
         sEsTab = (CallCache *)calloc(SEAM_N, sizeof(CallCache));
         if (sEsTab == NULL) {
             return NULL;
         }
     }
-    if (gen != sEsGenNow) { /* (another stage, or the same loaded again: what was kept is another's) */
-        for (k = 0; k < SEAM_N; k++) {
-            if (sEsTab[k].data != NULL) {
-                cc_retire(sEsTab[k].data);
-            }
-        }
-        memset(sEsTab, 0, SEAM_N * sizeof(CallCache));
-        sEsGenNow = gen;
-        gVitaEs[4]++;
-    }
     h = (addr * 0x9E3779B1u) >> (32 - 13);
+    if (gen & 0x4000u) {
+        h ^= (gen >> 12) & 3; /* (a part's calls with each program in places of their own) */
+    }
     for (k = 0; k < 64; k++, h = (h + 1) & (SEAM_N - 1)) {
         CallCache *e = &sEsTab[h];
-        if (e->addr == addr || e->addr == 0) {
-            if (e->addr == 0) { memset(e, 0, sizeof(*e)); e->addr = addr; e->gen = gVitaChipGen; e->es = gen | 0x10000u; }
+        if (e->addr == addr && ((e->es ^ es) & 0x7000u) == 0) {
+            if (e->es != es) { /* (another stage or model at that address: what was kept is another's) */
+                cc_retire(e->data);
+                e->data = NULL; e->state = 0; e->uses = 0; e->es = es;
+                gVitaEs[4]++;
+            }
             if (e->gen != gVitaChipGen) { /* (the chip's buffers were let go: what was kept refers to them) */
                 cc_retire(e->data); e->data = NULL; e->state = 0; e->gen = gVitaChipGen;
             }
             e->used = sFeListSeq;
             return e;
         }
+        if (e->addr == 0) { /* (the address is nowhere further: places are never emptied, only taken over) */
+            if (old == NULL) {
+                old = e;
+            }
+            break;
+        }
+        if (old == NULL && sFeListSeq - e->used > ES_STALE) {
+            old = e;
+        }
     }
-    gVitaEs[3]++;
-    return NULL; /* (full: the cache's way) */
+    if (old == NULL) {
+        gVitaEs[3]++;
+        return NULL; /* (full: the cache's way) */
+    }
+    if (old->addr != 0) {
+        cc_retire(old->data);
+        gVitaEs[5]++;
+    }
+    memset(old, 0, sizeof(*old));
+    old->addr = addr;
+    old->gen = gVitaChipGen;
+    old->es = es;
+    old->used = sFeListSeq;
+    return old;
 }
 
 /* The call to e->addr ended: keep what it made, if it can be kept. */

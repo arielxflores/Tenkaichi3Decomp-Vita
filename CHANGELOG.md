@@ -23,8 +23,8 @@ New
 
 - Options → Controller → Vita Settings says whether the game has the fourth CPU core (CapUnlocker on or off).
 - Development build: `native=1`, the first step of a native renderer (the "engine seam", as BT3-Recomp's and
-  Celosia's): the stage's meshes are named by the game, and the renderer keeps them for the stage's life instead of
-  finding them again in the display list by a cache of calls. Off by default until measured on a console
+  Celosia's): the stage's meshes and animated objects and the fighters' model parts are named by the game, and the
+  renderer keeps them instead of finding them again in the display list by a cache of calls. Off by default until measured on a console
   (`native=2` with `soakab=1`). See `docs/vita/native.md`.
 
 ## 1.1

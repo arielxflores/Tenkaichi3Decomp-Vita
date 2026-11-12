@@ -20,37 +20,54 @@ geometry to VU1 (the "engine seam"), and keep reading the GIF stream for 2D only
 | rac1-native-game (Ratchet & Clank) | "Not drawn by emulating the PS2's graphics chip": the renderer reads what the game decided to draw |
 | TwinsanityEvolved (Crash Twinsanity, Vita) | The decompilation's platform layer is the seam; meshes, skins and particles drawn by the engine |
 
-## The first step (bt3.txt `native=1`)
+## What `native=1` does now: the engine seam
 
-The stage's meshes are named by the game. `StgModel_Draw` (`src/battle/stgm_a.c`, under `#ifdef PORT_VITA`) calls
-`Port_EsStg4` / `Port_EsStg7` (`port/src/gs_marker.c`) for the plain groups (VU1 program 4) and the debris
-(program 7). They send the same packets as `Vu1Pkt_CallProg4` / `7`, with a VIF MARK in place of the packet's last
-NOP: the seam's flag (0x8000) and the stage's generation. The generation changes whenever a stage may have been
-loaded (a frame in which the stage is not drawn: its load job, or the stage not ready; or another model).
+The game names its static geometry to the renderer at the point where it hands it to VU1:
 
-The list reader (`es_find`) keeps such a call in a table of its own for the stage's life, by its address and the
-generation: no place is given up to another call, no part is found again by the cache's guess, and the mesh is read
-the long way only every `nativecheck`-th call (default 512, against the cache's 64; 0 never), in case the game writes
-into a mesh. Everything else (the fighters, the effects, the 2D) goes the way it went. The log's
-`engine seam` line counts the meshes sent from their copies, read the long way, kept, sent to the cache when the
-table was full, the tables let go and the generations.
+| What | VU1 program | Where it is named | Its generation changes when |
+|---|---|---|---|
+| The stage's meshes | 4 (plain groups), 7 (debris) | `src/battle/stgm_a.c` (`Port_EsStg4` / `Port_EsStg7`) | a frame the stage is not drawn in (its load job, or not ready), or another stage model |
+| The stage's animated objects | 8 | `src/sys/vu1_packet.c` `Vu1Pkt_CallProg8` | as the stage's |
+| The objects' model parts (the fighters) | 0 (lit), 1 (fade pass), 2 (flat: shadow, silhouette) | `src/sys/vu1_packet.c` `Vu1Pkt_CallProg0..2` | an object is bound to its model files (`BtlObjMdl_BindFiles`, `src/sys/gfxm_e_b.c`: the first bind writes the chains) |
+
+Not named: the ground shadows (program 6), whose chains the game builds every frame.
+
+Each named call packet carries, in place of its last NOP, a VIF MARK (`port/src/gs_marker.c`): the seam's flag
+(0x8000), the kind (0x4000: a model's), for a model's part the program (0x3000: a part is called with program 0 and
+with program 1, which make other draws) and the generation of that kind (12 bits). MARK does nothing on the PS2.
+
+The list reader (`es_find`, `port/src/gs/gs_core.c`) keeps such a call in a table of its own, found by its address
+(and program), instead of the cache of calls (`cc_find`), which finds parts by their address alone and has to guess
+when to give a place up and when to read a part again to see that it is the same:
+
+- an entry whose generation is not the call's is read again (the memory holds another stage or model now);
+- an entry not called for 300 lists may be taken by another call; no other entry is ever given up;
+- a kept call is read again the long way only every `nativecheck`-th call (default 512; the cache's every 64th; 0
+  never), in case the game writes into a mesh.
+
+The kept copies are the cache's own records, sent the same way (`cc_end`, `cc_replay`, and the drawing thread's kept
+parts): only how a call is found and how long it is trusted change. The log's `engine seam` line counts the calls sent
+from their copies, read the long way, kept, sent to the cache when the table was full, renewed for a new generation,
+places taken over, and the generations begun.
 
 `native=2` with `soakab=1` sets the seam against the cache stage by stage.
 
 ## Next steps
 
-In the order of what they are likely to save; each behind a setting, with the way it replaces kept for comparison.
+Each behind `native`, with the way it replaces kept for comparison, and each measured on a console before the next.
 
-1. **The stage's textures.** `StgModel_SetTexture` uploads the material's texture (`TexFile_UploadOne`) every time a
-   material is drawn, every frame, and the renderer finds the texture again by a number worked out from the uploaded
-   bytes (the fourth core's helper). Named at the seam by (texture file, index, generation), the number is known
-   without reading the bytes.
-2. **The fighters** (programs 0, 1, 2). The same seam in `gfxm_d_c.c` (the parts, their bones and light), with a
-   generation of the fighter's model (transformations and tag changes load another model into the same memory).
-   The constants (bones) come in the call packet already.
-3. **The calls sent straight to the drawing thread.** Once a mesh is named and kept, the list reader has nothing to
-   read but the call packet's constants: a side queue from the game thread to the drawing thread, in the list's order
-   through a marker, leaves the reader out for the 3D models.
-4. **Instanced draws.** Stages repeat meshes (railings, rocks, trees); TwinsanityEvolved draws a repeated mesh as one
-   instanced draw on the Vita.
-5. **The 2D and the effects** stay on the GS front end: they are many small draws whose state is the GS's.
+1. **The sea of Kame House** (`EftSurf_DrawMeshes`, `src/battle/eft_c.c`). About 900 triangles a frame are set up on
+   the game thread (their reflection, fog and fade worked out with the vector unit) and sent twice as single GS
+   triangles, each with its own PRIM, TEX0 and palette: about 1,800 primitives the list reader and the drawing thread
+   go through one by one. Natively: the surface's mesh (static data of the stage pack) on the chip once, the per-vertex
+   work in a vertex shader, and its two layers as two draws. To be measured first (`perfsum.py --parts` on that stage):
+   if the chip is what is slow there, the reflection's pixels are what to cut instead.
+2. **The calls sent straight to the drawing thread.** A named call that is kept leaves the list reader only its
+   packet's constants to read: a side queue from the game thread to the drawing thread, in the list's order through a
+   marker, leaves the reader out of the 3D models.
+3. **The textures.** The stage's materials (`StgModel_SetTexture`) and the fighters' textures are uploaded every
+   frame, and the renderer finds them by a number worked out from a sample of their bytes (on the fourth core with
+   CapUnlocker). Naming them at the seam saves that work, but only if the renderer can never take a texture for one
+   that is no longer in that memory: less to gain than it looked, and a risk; after the others.
+4. **The 2D and the effects** stay on the GS front end: many small draws whose state is the GS's. The screen-filling
+   effects are drawn at a lower resolution already (`fxlow`, outside the seam).
