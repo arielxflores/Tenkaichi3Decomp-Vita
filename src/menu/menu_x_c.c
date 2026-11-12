@@ -5,6 +5,7 @@
 #include "sys/save.h"
 #ifdef PORT_VITA
 #include "battle/col_c.h" /* (the game's plain font: Vita Settings' page number) */
+#include "sys/dma.h"         /* (its plate: one flat sprite) */
 #endif
 
 Option *gOption = NULL; /* 0x3BC364 */
@@ -619,7 +620,38 @@ extern void Font_PrintAsciiAt(s32 x, s32 y, char *str);
 extern void Font_FlushAll(void);
 extern FontStyle gFontStyle;
 extern void Gfx_AddDefaultEnv(void);
-extern void Dma_AddFillRect(s32 x, s32 y, s32 w, s32 h, u32 rgba);
+/* a flat rectangle at (x, y) of the 512 x 448 screen, one sprite of any width, blended (Dma_AddFillRect's packet,
+   which draws whole 32-pixel sprites only) */
+static void Option_VitaFlat(s32 x, s32 y, s32 w, s32 h, u32 rgba) {
+    u64 *p = Dma_BeginDirect();
+    x += 0x700;
+    y += 0x720;
+    p[0] = GIF_TAG(5, 0, 1);
+    p[1] = GIF_REG_AD;
+    p += 2;
+    p[0] = 0x44;
+    p[1] = GS_ALPHA_1;
+    p += 2;
+    p[0] = 0x30000;
+    p[1] = GS_TEST_1;
+    p += 2;
+    p[0] = 0;
+    p[1] = GS_FBA_1;
+    p += 2;
+    p[0] = 0x46;
+    p[1] = GS_PRIM;
+    p += 2;
+    p[0] = (u64)rgba | (0x3F800000ULL << 32);
+    p[1] = GS_RGBAQ;
+    p += 2;
+    p[0] = GIF_TAG_EX(1, 1, GIF_FLG_REGLIST, 2);
+    p[1] = GS_REG_XYZ2 | (GS_REG_XYZ2 << 4);
+    p += 2;
+    p[0] = GS_SET_XYZ(x << 4, y << 4, 0);
+    p[1] = GS_SET_XYZ((x + w) << 4, (y + h) << 4, 0);
+    p += 2;
+    Dma_EndDirect(p);
+}
 static void Option_VitaPageNumber(void) {
     static char text[16];
     FontStyle saved;
@@ -629,11 +661,10 @@ static void Option_VitaPageNumber(void) {
     }
     item = sVitaSetLevel == 1 ? sVitaItem1 : sVitaSetItem;
     sprintf(text, "Page %d/%d", item / 4 + 1, (VITA_L1_ITEMS + 3) / 4);
-    /* its own small plate: a darker panel framed by a lighter one (sprites of 32 pixels: the GS's window at 0x700,
-       0x720), the text in its middle */
+    /* its own small plate: a darker panel framed by a lighter one, the text in its middle */
     Gfx_AddDefaultEnv();
-    Dma_AddFillRect(0x700 + 0x196, 0x720 + 0x0A, 0x60, 0x24, 0x70D8B0E8);
-    Dma_AddFillRect(0x700 + 0x198, 0x720 + 0x0C, 0x5C, 0x20, 0x70402048);
+    Option_VitaFlat(0x196, 0x0A, 0x60, 0x24, 0x70D8B0E8);
+    Option_VitaFlat(0x198, 0x0C, 0x5C, 0x20, 0x70402048);
     saved = gFontStyle;
     gFontStyle.align = FONT_ALIGN_CENTER;
     gFontStyle.color = 0x80F0F0F0;
