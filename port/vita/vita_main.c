@@ -1265,7 +1265,7 @@ static void read_settings(void) {
         /* the released program: only the player's settings. The test runs leave theirs in the same file
            (mode=demo, film=...): a game started from its bubble goes to its title screen, not into a test fight */
         if (strcmp(line, "disc") != 0 && strcmp(line, "heap") != 0 && strcmp(line, "wide") != 0 && strcmp(line, "report") != 0 &&
-            strcmp(line, "fightres") != 0 && strcmp(line, "weather") != 0 && strcmp(line, "moveblur") != 0 && strcmp(line, "netwarm") != 0) {
+            strcmp(line, "fightres") != 0 && strcmp(line, "weather") != 0 && strcmp(line, "moveblur") != 0 && strcmp(line, "netwarm") != 0 && strcmp(line, "menuauto") != 0) {
             continue;
         }
 #endif
@@ -1305,6 +1305,9 @@ static void read_settings(void) {
         } else if (strcmp(line, "menuhi") == 0) { /* 0: the menus at 640 x 368 as the fights, as before */
             extern int gVitaMenuHi;
             gVitaMenuHi = atoi(eq) != 0;
+        } else if (strcmp(line, "menuauto") == 0) { /* 0: a menu screen too slow at 960 x 544 is still drawn so (vita_vgl.c) */
+            extern int gVitaMenuAuto;
+            gVitaMenuAuto = atoi(eq) != 0;
         } else if (strcmp(line, "fadepass") == 0) { /* VU1 program 1, the close-up shine: 0 not drawn, 2 its shine layer twice */
             extern int gPortFadePass;
             gPortFadePass = atoi(eq);

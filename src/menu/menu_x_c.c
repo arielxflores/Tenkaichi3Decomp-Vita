@@ -3,6 +3,9 @@
 #include "menu/menu_y.h"
 #include "sys/pad.h"
 #include "sys/save.h"
+#ifdef PORT_VITA
+#include "battle/col_c.h" /* (the game's plain font: Vita Settings' page number) */
+#endif
 
 Option *gOption = NULL; /* 0x3BC364 */
 
@@ -608,6 +611,33 @@ static void Option_VitaOpenScreen(void) {
     gOption->fromPage = 0;
     gOption->page = 1;
     OPT_VOICE(gOption->cursor);
+}
+
+/* Vita Settings' page number at the screen's top right, while it is open: the page of the setting chosen (or under
+   the cursor), of three, in the game's plain font (drawn and flushed here: the options draw no other text with it) */
+extern void Font_PrintAsciiAt(s32 x, s32 y, char *str);
+extern void Font_FlushAll(void);
+extern FontStyle gFontStyle;
+static void Option_VitaPageNumber(void) {
+    static char text[16];
+    FontStyle saved;
+    s32 item;
+    if (sVitaSetLevel <= 0 || gOption->picker != 5) {
+        return;
+    }
+    item = sVitaSetLevel == 1 ? sVitaItem1 : sVitaSetItem;
+    sprintf(text, "Page %d/%d", item / 4 + 1, (VITA_L1_ITEMS + 3) / 4);
+    saved = gFontStyle;
+    gFontStyle.align = FONT_ALIGN_RIGHT;
+    gFontStyle.color = 0x80F0F0F0;
+    gFontStyle.scale = 1.25f;
+    gFontStyle.shadowMode = FONT_SHADOW_OUTLINE8;
+    gFontStyle.shadowColor = 0x80301848;
+    gFontStyle.shadowDx = 1;
+    gFontStyle.shadowDy = 1;
+    Font_PrintAsciiAt(0x1F2, 0x14, text); /* (the menus are 512 x 448) */
+    gFontStyle = saved;
+    Font_FlushAll();
 }
 
 static void Option_VitaTouchInput(void) {
@@ -2960,6 +2990,7 @@ void Option_Draw(void) {
     IconWin_Draw();
 #ifdef PORT_VITA
     MsgWin_Draw(0, 0, gOption->voiceLine == 2 ? 24 : gOption->voiceLine); /* (the top page's second row is Vita Settings) */
+    Option_VitaPageNumber();
 #else
     MsgWin_Draw(0, 0, gOption->voiceLine);
 #endif

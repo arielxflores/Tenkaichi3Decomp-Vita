@@ -39,6 +39,10 @@ New
   narrowed to fit inside them. BT4's options now show these labels too (Vita Settings, Game, Unlock All, Screen and
   the rest): its disc's lettering is the mod's own, so it has its own set, made from that disc
   (`port/vita/vita_optart_bt4.h`); before, BT4's Vita Settings plates showed the PS2's captions.
+- **Vita Settings' page number** ("Page 1/3") at the top right while it is open, in BT3 and BT4.
+- **The dragon's screen (Shenron) keeps its pace**: a menu screen that the graphics chip cannot draw at 960 x 544
+  in the time the game gives each picture is drawn at the fights' size until it gets light again (`menuauto=0`
+  in bt3.txt keeps the menus' size whatever it costs).
 - **Unlock All, a switch**: Vita Settings → Unlock All (second page; in BT4's options next to Game) turns on every
   character and transformation, stage, song and item (Evolution Z items, Potaras) and 9,999,999 Zenni, for the save
   in play and each one loaded while it is on. Your save is copied aside first, and turning it off gives the save

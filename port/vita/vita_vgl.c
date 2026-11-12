@@ -88,6 +88,17 @@ int Vita_DialogCan(void) {
     return sScrW == 960 && sScrH == 544;
 }
 int gVitaMenuHi = 1;
+/* A menu screen the chip cannot draw at 960 x 544 in the time the game gives each of its pictures (the dragon's
+   screen, Shenron: its 3D sky and the dragon behind blended layers, at 30 pictures a second): drawn at the fights'
+   size while it is so. The chip's time per picture (pace_cb) against the blanks the game waits per picture (its
+   lists, GsGpu_FrameEnd): over nine tenths of them twelve times running at the menus' size, the fights' size; at the
+   fights' size, what the menus' size would take (the pixels' ratio) under six tenths of them for three seconds, the
+   menus' size again. Back to it as the menus end. bt3.txt menuauto=0: the menus at their size whatever they cost. */
+int gVitaMenuAuto = 1;
+static volatile int sMenuLow;       /* the menus drawn at the fights' size for now */
+static volatile int sMenuLowSaid;   /* (for the log, from the drawing thread) */
+static volatile unsigned sListBlanks = 1; /* blanks the game waits per picture (the least of the last sixteen) */
+static unsigned sMenuBad, sMenuGood, sMenuGpuLast;
 int gVitaSprInset = 1; /* bt3.txt sprinset=0: sprites' coordinates as given (see GsGpu_Draw_impl) */
 #define SCR_W sScrW
 #define SCR_H sScrH
@@ -5704,9 +5715,17 @@ static void scr_resized(int w, int h) {
 /* the picture's swap; the menus' size or the fights' asked for the next picture */
 static void swap_sized(void) {
     extern int gPortMenuMode; /* port/src/headless.c: the menus are running */
-    int menu = gVitaMenuHi && gPortMenuMode;
+    int menu = gVitaMenuHi && gPortMenuMode && !sMenuLow;
     int w = menu ? SCR_W_MENU : SCR_W_FIGHT, h = menu ? SCR_H_MENU : SCR_H_FIGHT;
     int change = w != sScrW || h != sScrH;
+    if (!gPortMenuMode && sMenuLow) {
+        sMenuLow = 0; /* (the next menus start at their own size) */
+    }
+    if (sMenuLowSaid != sMenuLow) {
+        sMenuLowSaid = sMenuLow;
+        Vita_Log("vgl: this menu screen at %s (the chip's time per picture %u us, %u blanks per picture)\n",
+                 sMenuLow ? "the fights' size: too slow at 960 x 544" : "960 x 544 again", sMenuGpuLast, sListBlanks);
+    }
     if (change) {
         rt_sync();
         vglSwapResolution(w, h);
@@ -6387,6 +6406,19 @@ static void t114_list_end_old(int drawn) {
     }
 }
 void GsGpu_FrameEnd(void) {
+    { /* the blanks the game waits per picture (menu_res_feed): the least of the last sixteen pictures' */
+        extern unsigned gPortVBlanks;
+        static unsigned last, ring[16], at;
+        unsigned now = gPortVBlanks, d = now - last, k, least = 4;
+        last = now;
+        ring[at++ & 15] = d >= 1 && d <= 4 ? d : 4;
+        for (k = 0; k < 16; k++) {
+            if (ring[k] != 0 && ring[k] < least) {
+                least = ring[k];
+            }
+        }
+        sListBlanks = least;
+    }
     al_frame_end(!gVitaGsSkip);
     flush();
     flush_bins_c(1);
@@ -9896,6 +9928,44 @@ static void pace_swap(int phase) { /* the drawing thread, around the swap */
 }
 /* vitaGL's display queue callback (the chip has finished the picture; vitaGL puts it up at the next blank when
    this returns) */
+/* (pace_cb) one picture's time on the chip: the menus' size kept or not */
+static void menu_res_feed(unsigned g) {
+    extern int gPortMenuMode;
+    unsigned budget = sListBlanks * 16683u;
+    sMenuGpuLast = g;
+    if (!gVitaMenuAuto || !gVitaMenuHi || !gPortMenuMode) {
+        sMenuBad = sMenuGood = 0;
+        return;
+    }
+    if (!sMenuLow) {
+        if (sScrW != SCR_W_MENU) {
+            return;
+        }
+        if (g > budget / 10u * 9u) {
+            if (++sMenuBad >= 12) {
+                sMenuLow = 1;
+                sMenuBad = sMenuGood = 0;
+            }
+        } else if (sMenuBad > 0) {
+            sMenuBad--;
+        }
+    } else {
+        unsigned long long full;
+        if (sScrW == SCR_W_MENU || sScrW == 0 || sScrH == 0) {
+            return;
+        }
+        full = (unsigned long long)g * (SCR_W_MENU * SCR_H_MENU) / (unsigned)(sScrW * sScrH);
+        if (full < budget / 10u * 6u) {
+            if (++sMenuGood >= 60u * 3u / sListBlanks) {
+                sMenuLow = 0;
+                sMenuBad = sMenuGood = 0;
+            }
+        } else {
+            sMenuGood = 0;
+        }
+    }
+}
+
 static void pace_cb(void *fb) {
     extern int Vita_InBattle(void);
     gVitaShown++;
@@ -9931,6 +10001,7 @@ static void pace_cb(void *fb) {
                 unsigned long long st = sDoneLast > r->tSw0 ? sDoneLast : r->tSw0, g = t - st;
                 unsigned bin = r->cov < 2000 ? 0 : r->cov < 2500 ? 1 : r->cov < 3000 ? 2 : r->cov < 3500 ? 3 : r->cov < 4000 ? 4 : r->cov < 4500 ? 5 : 6;
                 r->gpu = (unsigned)g;
+                menu_res_feed((unsigned)g);
                 if (gVitaFxSweep && !r->hold) {
                     unsigned m = r->fxm & 15;
                     gFxGpu[m][0] += g;
