@@ -299,6 +299,15 @@ void Vita_StartMenu(void) {
         }
     }
     bt4 = bt4_ready(&why);
+    {   /* a test of the menus (bt3.txt startmode=, the test runner's): BT3's, whichever game the player chose (that
+           choice, start.txt, left as it is) */
+        extern int gVitaStartMode;
+        if (gVitaStartMode != 0 && start_bt4_chosen()) {
+            Vita_Log("vita: startmode=%d (a test): Budokai Tenkaichi 3, though BT4 is chosen\n", gVitaStartMode);
+            bt4 = 0;
+            goto chosen;
+        }
+    }
     if (start_bt4_chosen()) {
         if (bt4_was_starting()) { /* (the last start of BT4 did not get going) */
             sceIoRemove(BT4_STARTING);
@@ -318,6 +327,7 @@ void Vita_StartMenu(void) {
             }
         }
     }
+chosen:
 #endif
     if (VitaEu_NeedsChoice()) {
         VitaEu_ChooseLanguage();
