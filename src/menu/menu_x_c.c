@@ -331,17 +331,13 @@ extern void Vita_ModsSummary(char *out, int size);
 static s32 sVitaSetLevel; /* 0 closed, 1..9 above */
 static s32 sVitaSetItem;  /* the setting chosen on level 1 */
 static s32 sVitaTouchBtn; /* the button chosen on level 2 */
-static s32 sVitaItem1;    /* level 1's item under the cursor: 0..3 the first page's, 4..7 the second's, 8..10 the third's (its plate: item % 4) */
-static s32 sVitaBtnSel;   /* level 14 (Buttons): the button under the cursor */
+static s32 sVitaItem1;    /* level 1's item under the cursor: 0..3 the first page's, 4..7 the second's, 8 and 9 the third's (its plate: item % 4) */
 static s32 sVitaFromTop;  /* Vita Settings is open on the top page (its second row) */
 static s32 sVitaRow2Hidden; /* the controller page's second row (the console's Vibration) is hidden */
 static s32 sVitaCheatArmed; /* level 7 and 12: CROSS was pressed once (7: 2 turned on, 3 turned off, 4 off but the
                                copy of the save was not there, 5 the copy could not be made; 12: 3 the other game
                                did not start) */
-#define VITA_L1_ITEMS 11
-extern int Vita_ButtonAction(int b);         /* port/vita/vita_gfx.c: what button b does in a fight (10: nothing) */
-extern void Vita_ButtonActionSet(int b, int a); /* (b < 0: every button its own action again) */
-static const char *const kVitaBtnName[11] = {"Cross", "Circle", "Square", "Triangle", "L1", "R1", "L2", "R2", "L3", "R3", "Nothing"};
+#define VITA_L1_ITEMS 10
 extern int Vita_GameSwitchCheck(void);
 extern void Vita_GameSwitch(void);
 /* (Save_UnlockAll: include/sys/save.h) */
@@ -413,13 +409,7 @@ static void Option_VitaSetGuide(void) {
     }
     switch (sVitaSetLevel) {
     case 1: /* the setting under the cursor, and what it is now */
-        if (v == 10) {
-            s32 k, changed = 0;
-            for (k = 0; k < 10; k++) {
-                changed += Vita_ButtonAction(k) != k;
-            }
-            sprintf(text, "Buttons: what each button does\nin a fight, any button any action\n(%s).", changed ? "changed" : "as the game has them");
-        } else if (v == 9) {
+        if (v == 9) {
             sprintf(text, "Screen: the camera, the screen's\nshake and its position.");
         } else if (v == 8) {
             sprintf(text, "Game: Budokai Tenkaichi 3, or Team\nBT4's Budokai Tenkaichi 4 mod\n(from your own BT4 disc).");
@@ -534,12 +524,6 @@ static void Option_VitaSetGuide(void) {
                       : sVitaCheatArmed ? "Press CROSS again: this game closes\nand BT4 starts. Options not saved\nyet are lost (Circle: no)."
                                         : "Team BT4's Budokai Tenkaichi 4\n(B14 Rev2). It then starts each\ntime, until changed back. CROSS.");
         break;
-    case 14: /* Buttons: the one under the cursor */
-        b = sVitaBtnSel;
-        spot = Vita_ButtonAction(b);
-        sprintf(more, spot == b ? "its own action" : spot == 10 ? "nothing (off)" : "%s's action", kVitaBtnName[spot]);
-        sprintf(text, "%s: %s.\nLeft / Right: its fight action.\nSquare: all back. Circle: done.", kVitaBtnName[b], more);
-        break;
     case 8:
         sprintf(text, v == 0 ? "ON: the game starts at its title\nscreen (no logos, opening film or\ncopyright page)."
                              : "OFF: the logos, the opening film\nand the copyright page, as the\ngame has them.");
@@ -569,7 +553,7 @@ static void Option_VitaSetLevel(s32 level, s32 value) {
         sVitaItem1 = value;
         value %= 4;
     }
-    Vita_OptionCaptions(level == 2 || level == 3 ? 0 : level == 12 || level == 14 || (level == 1 && sVitaItem1 >= 8) ? 5
+    Vita_OptionCaptions(level == 2 || level == 3 ? 0 : level == 12 || (level == 1 && sVitaItem1 >= 8) ? 5
                         : level == 7 || (level == 1 && sVitaItem1 >= 4) ? 3 : level == 10 ? 4 : 1);
     Option_DimPickers();
     gOption->value = value;
@@ -711,32 +695,6 @@ static void Option_VitaPill(s32 x, s32 y, s32 w, s32 h, s32 rad, u32 rim, u32 to
     Dma_EndDirect(p);
 }
 
-/* Buttons (level 14): the ten buttons and what each does, a plate each like the pickers' (the one under the cursor
-   lit as theirs are), on a darker panel over the pickers' place */
-static void Option_VitaButtonsDraw(void) {
-    static char line[10][24];
-    s32 k, a, y;
-    Option_VitaPill(0x74, 0x40, 0x180, 0x104, 10, 0x80B0A0B8, 0x70301838, 0x70200C28);
-    for (k = 0; k < 10; k++) {
-        y = 0x46 + k * 0x19;
-        if (k == sVitaBtnSel) {
-            Option_VitaPill(0x7C, y, 0x170, 0x16, 0, 0x80F8F0E8, 0x8040E8F8, 0x8008A0D8);
-        } else {
-            Option_VitaPill(0x7C, y, 0x170, 0x16, 0, 0x80F0E8F0, 0x80E0D8E0, 0x80988C98);
-        }
-    }
-    for (k = 0; k < 10; k++) {
-        y = 0x46 + k * 0x19;
-        a = Vita_ButtonAction(k);
-        gFontStyle.color = k == sVitaBtnSel ? 0x80102C80 : 0x80702878;
-        gFontStyle.align = FONT_ALIGN_LEFT;
-        Font_PrintAsciiAt(0x94, y + (0x16 - Font_GetGlyphHeight()) / 2, (char *)kVitaBtnName[k]);
-        sprintf(line[k], k == sVitaBtnSel ? "<  %s  >" : "%s", a == 10 ? "Nothing" : kVitaBtnName[a]);
-        gFontStyle.align = FONT_ALIGN_CENTER;
-        Font_PrintAsciiAt(0x7C + 0x170 - 0x5C, y + (0x16 - Font_GetGlyphHeight()) / 2, line[k]);
-    }
-}
-
 static void Option_VitaPageNumber(void) {
     static char text[16];
     FontStyle saved;
@@ -756,10 +714,6 @@ static void Option_VitaPageNumber(void) {
     gFontStyle.shadowColor = 0x80FFFFFF;
     gFontStyle.shadowDx = 1;
     gFontStyle.shadowDy = 1;
-    if (sVitaSetLevel == 14) {
-        Option_VitaButtonsDraw();
-        gFontStyle.scale = 1.0f;
-    }
     gFontStyle.align = FONT_ALIGN_CENTER;
     gFontStyle.color = 0x80702878;
     { /* (as large as fits between the round ends: 0x72 wide less the 0x1C of the two half circles, a little margin) */
@@ -802,8 +756,7 @@ static void Option_VitaTouchInput(void) {
         } else if (pressed & PADG_CROSS) {
             sVitaSetItem = v;
             Snd_PlaySe(1, 1);
-            sVitaBtnSel = 0;
-            Option_VitaSetLevel(v == 0 ? 2 : v == 1 ? 4 : v == 2 ? 5 : v == 3 ? 6 : v == 4 ? 7 : v == 5 ? 8 : v == 6 ? 9 : v == 7 ? 10 : v == 10 ? 14 : 12,
+            Option_VitaSetLevel(v == 0 ? 2 : v == 1 ? 4 : v == 2 ? 5 : v == 3 ? 6 : v == 4 ? 7 : v == 5 ? 8 : v == 6 ? 9 : v == 7 ? 10 : 12,
                                 v == 0 ? 0 : v == 1 ? !Port_ClashSquare() : v == 2 ? !Vita_Pad2Setting() : v == 3 ? !Option_VitaModsOn()
                                 : v == 4 ? !Port_Setting("unlock_all", 0) : v == 5 ? !Option_VitaQuickStart() : v == 6 ? !Option_VitaQuickSave() : 0);
         } else if (back && sVitaFromTop) { /* back to the top page, on Vita Settings */
@@ -901,24 +854,6 @@ static void Option_VitaTouchInput(void) {
                 Option_VitaSetGuide();
             }
         } else if (back) {
-            Snd_PlaySe(1, 2);
-            Option_VitaSetLevel(1, sVitaSetItem);
-        }
-        break;
-    case 14: /* Buttons: Up / Down a button, Left / Right its action, Square all back as they were */
-        if (pressed & (PADG_UP | PADG_DOWN)) {
-            sVitaBtnSel = (sVitaBtnSel + ((pressed & PADG_DOWN) ? 1 : 9)) % 10;
-            Snd_PlaySe(1, 0);
-            Option_VitaSetGuide();
-        } else if (pressed & (PADG_LEFT | PADG_RIGHT)) {
-            Vita_ButtonActionSet(sVitaBtnSel, (Vita_ButtonAction(sVitaBtnSel) + ((pressed & PADG_RIGHT) ? 1 : 10)) % 11);
-            Snd_PlaySe(1, 0);
-            Option_VitaSetGuide();
-        } else if (pressed & PADG_SQUARE) {
-            Vita_ButtonActionSet(-1, 0);
-            Snd_PlaySe(1, 1);
-            Option_VitaSetGuide();
-        } else if (back || (pressed & PADG_CROSS)) {
             Snd_PlaySe(1, 2);
             Option_VitaSetLevel(1, sVitaSetItem);
         }
@@ -1994,18 +1929,28 @@ s32 Option_Input(void) {
             }
             Snd_PlaySe(1, 0);
         } else if ((gPad[0].gamePressed & PADG_UP) && gOption->keyOld < 0) {
+#ifdef PORT_VITA
+            /* up the column of four (L2, L1, the upper and the lower face button), round to its foot: the console's
+               moved only between the two face buttons, so L1 / L2 / R1 / R2 could not be chosen to change */
+            gOption->keyCursor = (gOption->keyCursor & 4) | ((gOption->keyCursor + 3) & 3);
+#else
             if (gOption->keyCursor == 2 || gOption->keyCursor == 6) {
                 gOption->keyCursor++;
             } else {
                 gOption->keyCursor--;
             }
+#endif
             Snd_PlaySe(1, 0);
         } else if ((gPad[0].gamePressed & PADG_DOWN) && gOption->keyOld < 0) {
+#ifdef PORT_VITA
+            gOption->keyCursor = (gOption->keyCursor & 4) | ((gOption->keyCursor + 1) & 3);
+#else
             if (gOption->keyCursor == 3 || gOption->keyCursor == 7) {
                 gOption->keyCursor--;
             } else {
                 gOption->keyCursor++;
             }
+#endif
             Snd_PlaySe(1, 0);
         } else if ((gPad[0].gamePressed & PADG_TRIANGLE
 #ifdef PORT_VITA
@@ -2424,15 +2369,14 @@ static s32 sVitaPlatesHidden;
 
 static void Option_VitaTouchPlates(MFlash *flash) {
     /* per level: the plates used, and each plate's strip (0 the first, 1 the second) and row; 11 is level 1's second
-       page (Cheats, Quick Start / Quick Save, Tech Fixes), 13 its third (Game, Screen, Buttons); 14 Buttons' own list
-       (drawn by Option_VitaButtonsDraw: no plates) */
-    static const s8 kCount[15] = {0, 4, 4, 3, 2, 2, 2, 2, 2, 2, 2, 4, 2, 3, 0};
-    static const s8 kTex[15][4] = {{0}, {1, 1, 1, 1}, {1, 1, 1, 1}, {1, 1, 0, 0}, {1, 1, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0},
+       page (Cheats, Quick Start / Quick Save, Tech Fixes), 13 its third (Game, Screen) */
+    static const s8 kCount[14] = {0, 4, 4, 3, 2, 2, 2, 2, 2, 2, 2, 4, 2, 2};
+    static const s8 kTex[14][4] = {{0}, {1, 1, 1, 1}, {1, 1, 1, 1}, {1, 1, 0, 0}, {1, 1, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0},
                                    {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {1, 1, 0, 0}, {1, 1, 1, 1}, {1, 1, 0, 0},
-                                   {1, 1, 1, 0}, {0}};
-    static const s8 kRow[15][4] = {{0}, {0, 1, 4, 5}, {0, 1, 4, 7}, {5, 6, 1, 0}, {6, 7, 0, 0}, {0, 1, 0, 0}, {0, 1, 0, 0},
+                                   {1, 1, 0, 0}};
+    static const s8 kRow[14][4] = {{0}, {0, 1, 4, 5}, {0, 1, 4, 7}, {5, 6, 1, 0}, {6, 7, 0, 0}, {0, 1, 0, 0}, {0, 1, 0, 0},
                                    {0, 1, 0, 0}, {0, 1, 0, 0}, {0, 1, 0, 0}, {0, 1, 0, 0}, {0, 1, 4, 5}, {6, 7, 0, 0},
-                                   {0, 1, 4, 0}, {0}};
+                                   {0, 1, 0, 0}};
     MFlashRef ref;
     MFlashUv uv;
     char name[0x40];
@@ -2441,7 +2385,7 @@ static void Option_VitaTouchPlates(MFlash *flash) {
     if (lv == 1 && sVitaItem1 >= 4) {
         lv = sVitaItem1 >= 8 ? 13 : 11;
     }
-    if (gOption->picker != 5 || lv < 1 || lv > 14) {
+    if (gOption->picker != 5 || lv < 1 || lv > 13) {
         if (sVitaPlatesHidden) {
             for (i = 0; i < 4; i++) {
                 sprintf(name, "mc_select_plate_%d", i + 1);

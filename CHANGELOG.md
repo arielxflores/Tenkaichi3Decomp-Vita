@@ -41,9 +41,10 @@ New
   (`port/vita/vita_optart_bt4.h`); before, BT4's Vita Settings plates showed the PS2's captions.
 - **Vita Settings' page number** ("Page 1/3") at the top right while it is open, on a plate of its own like the
   pickers', in BT3 and BT4.
-- **Buttons**: Vita Settings → Buttons (third page; in BT4 the second) gives any of the ten fighting buttons any
-  one's action, or none: L1 / R1 / L2 / R2 on the face buttons and the other way round. The default layout stays
-  until changed; Square on the page puts it back. The menus keep their buttons.
+- **Control Type → Custom reaches L1, L2, R1 and R2**: the PS2's page let only the four face buttons be chosen to
+  change; now Up / Down go round each column, so every button can take any of the eight actions (the shoulder
+  buttons' actions on the face buttons and the other way round), in BT3 and BT4. The default layout stays until
+  changed.
 - **The dragon's screen (Shenron) keeps its pace**: a menu screen that the graphics chip cannot draw at 960 x 544
   in the time the game gives each picture is drawn at the fights' size until it gets light again (`menuauto=0`
   in bt3.txt keeps the menus' size whatever it costs).
