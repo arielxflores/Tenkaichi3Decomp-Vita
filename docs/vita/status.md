@@ -71,7 +71,7 @@ Build the development package (`BT3_VITA_DEV=1`, [building.md](building.md)), in
 
    then the same with `native=2` instead of `fxlow=2`. `python3 port/vita/tools/perfsum.py --ab log-vgl.txt` sets each
    stage's B battles (the setting on) against its A battles (off); `--parts` shows where the drawing thread's time goes.
-   For the sea of Kame House (the next step of [native.md](native.md)) run `perfsum.py --parts` on that stage alone.
+   For the sea of Kame House (stage 12; the next step of [native.md](native.md)) run `perfsum.py --parts` on that stage alone.
 
 When a picture is wrong: `film=` takes pictures into the log, `drawlog=` and `bislist=` find the draw
 ([development.md](development.md)); each change has its switch to tell whether it is the cause.
@@ -95,6 +95,10 @@ One line per stage run (the newest first). The run's folder is `port/build/runs/
 
 | Date | Build (commit) | Where | Setting | Stage | Verdict / figures | Run |
 |---|---|---|---|---|---|---|
+| 2026-11-12 | `513c136` (dev) | Console, vita-agent-use | `fxlow=2`, soakab, stage 12 (Kame House) | 2 (pictures) | Kame House is stage **12** (the island, the pink house; 22 is a canyon with a river, 23 a plain with a lake, 13 Namek at night, 16 space, 15 rocky mountains in rain). Splashes, auras, a ki blast over the sea drawn right with fxlow; an aura cut straight where it meets the sea is there with fxlow=0 too (the game's depth test) | `runs/kame-fx` |
+| 2026-11-12 | `f5dccab` (dev) | Console, vita-agent-use | `native=1 dpsplit=1`, one fight each, stages 12, 15 | 2 (speed, parts) | Kame House 29.5 fps (the November 2026 benchmark before the detailed stages' fixes: 24.9). The sea costs the game thread ~8.5 ms a frame (972 triangles looked at, ~900 drawn through the ordering table), the drawing thread's GS primitives ~230 ms / 2 s, the render thread 826 ms / 2 s (20,800 draws): no thread is full, so native.md's step 1 (the sea) would give processor time, not pictures a second | `runs/kame` |
+| 2026-11-12 | `513c136` + dpsplit (dev) | Console, vita-agent-use | `native=1 dpsplit=1`, one fight each, stages 20, 13, 16 | 2 (counters) | "not kept for another reason" 0 (before: "indices beyond a bank" in every report of a first fight); kept parts walked 1-20 ms / 2 s in first fights (stage 20: 20 against 272-467); the seam's line: 9,000-25,000 calls / 2 s sent from their copies, "to the cache (table full)" 0. dpsplit on by default | `runs/check-split` |
+| 2026-11-12 | `513c136` (dev) | Console, vita-agent-use | `native=2`, soakab, stages 20, 23 | 2 (speed, pictures) | fps B-A: 20: -0.4 (29.4 / 29.0), 23: +1.1 (28.1 / 29.2), all +0.3, near the 30 cap. List reader 500 -> 229 ms / 2 s (20) and 469 -> 189 (23); drawing thread 770 -> 649 and 877 -> 756. Pictures (8 B screenshots): stage, animated objects and fighters whole. The seam's own line was not printed (inside the processor counters' block; fixed in f5dccab). Verdict: works, B no slower; default still off until a fight with a transformation is looked at | `runs/ab-native` |
 | 2026-11-12 | `8d19e3f` (dev) | Console (PCH-1004, 3.65, CapUnlocker) through vita-agent-use | `fxlow=2`, soakab, stages 4, 20, 22 | 2 (speed, pictures) | Shaders built; "draws without their shader" 0 in all 110 reports; B drew 1-3 groups smaller per 2 s (3-9 screens). fps B-A: 4: -0.4, 20: -1.0, 22: +0.4, all -0.3, within the order of the battles: the first fight on stage 20 in each round (A in round 1, B in round 2) walked its kept parts 270-470 ms / 2 s against ~30 in the second (`513c136` logs why). Render thread on 22: 778 -> 665 ms / 2 s, draws handed over 17,200 -> 13,800. Pictures (8 B screenshots: blasts, dust, auras): drawn right, in front of and behind the fighters. Run stopped by hand at ~9 of 10 minutes (11 fights). Verdict: stays on | `runs/ab-fxlow` |
 
 ## Rules for whoever goes on
