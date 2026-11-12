@@ -230,7 +230,7 @@ def port_sources():
             (V / "vita_perf.c", "hard"), (V / "vita_vgl.c", "hard"), (V / "vita_touch.c", "hard"), (V / "vita_optart.c", "hard"),
             (V / "vita_text.c", "hard"), (V / "vita_audio.c", "gs"), (V / "vita_resample.c", "hard"), (S / "gs/snd_adx.c", "gs"), (S / "gs/snd_se.c", "gs"),
             (V / "vita_vufast_wrap.c", "hard"), (V / "vita_tls.c", "hard"), (V / "vita_clib.c", "hard"),
-            (V / "vita_crash.c", "hard"), (V / "vita_eu.c", "hard"), (V / "vita_read.c", "hard"), (V / "vita_start.c", "hard"), (V / "vita_pgo.c", "hard"),
+            (V / "vita_crash.c", "hard"), (V / "vita_eu.c", "hard"), (V / "vita_lang.c", "hard"), (V / "vita_read.c", "hard"), (V / "vita_start.c", "hard"), (V / "vita_pgo.c", "hard"),
             (V / "vita_iso.c", "hard")]
     # multiplayer: a match against another Vita, ad hoc or over Wi-Fi (z3xox's lockstep design); BT4's too
     out += [(V / "vita_net.c", "hard"), (V / "vita_warm.c", "hard")]

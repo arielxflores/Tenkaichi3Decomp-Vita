@@ -29,12 +29,15 @@
 #include <stdint.h>
 #include <string.h>
 #ifdef BT3_BT4
-#include "vita_optart_bt4.h" /* (the BT4 B14 Rev2 disc's lettering is the mod's own: patches made from it) */
+#include "vita_optart_bt4.h"   /* (the BT4 B14 Rev2 disc's lettering is the mod's own: patches made from it) */
+#include "vita_optart_bt4es.h" /* (and those of its Spanish release, in Spanish) */
+#define VITA_ART_ES
 #else
 #include "vita_optart.h"
 #endif
 
 extern void Vita_Log(const char *fmt, ...);
+extern const char *Vita_Tr(const char *english);
 
 static uint8_t *pack_at(void *res, int n) {
     uint32_t *w = (uint32_t *)res;
@@ -58,14 +61,27 @@ static Slot slot_of(uint8_t *table, int entry) {
     return s;
 }
 
+/* the text (UTF-8: the Spanish letters, which the Spanish discs' lettering has) into the slot as UTF-16 */
 static int write_slot(Slot s, const char *text) {
-    size_t i, n = strlen(text);
-    if (s.p == NULL || (n + 2) * 2 > s.size) {
+    const unsigned char *t = (const unsigned char *)text;
+    size_t i, n = 0;
+    if (s.p == NULL) {
+        return 0;
+    }
+    for (i = 0; t[i] != '\0'; i++) {
+        n += (t[i] & 0xC0) != 0x80;
+    }
+    if ((n + 2) * 2 > s.size) {
         return 0;
     }
     memset(s.p + 2, 0, s.size - 2);
-    for (i = 0; i < n; i++) {
-        s.p[2 + i * 2] = (uint8_t)text[i];
+    for (i = 0, n = 0; t[i] != '\0'; n++) {
+        unsigned c = t[i++];
+        if (c >= 0xC0 && (t[i] & 0xC0) == 0x80) { /* (two bytes: up to U+07FF) */
+            c = (c & 0x1F) << 6 | (t[i++] & 0x3F);
+        }
+        s.p[2 + n * 2] = (uint8_t)c;
+        s.p[3 + n * 2] = (uint8_t)(c >> 8);
     }
     return 1;
 }
@@ -89,21 +105,76 @@ typedef struct ArtSection {
     uint32_t hash;
 } ArtSection;
 
+/* The art of one disc's screens: the options screen's changes and caption sets, the versus menu's. BT4 has two, its
+   English and its Spanish release (the one whose bytes the screen has is used: Vita_Spanish, vita_lang.c, follows the
+   release that was started). */
+typedef struct ArtSet {
+    const ArtSection *opt;
+    unsigned optN;
+    const uint32_t (*optRuns)[3];
+    const uint8_t *optBytes;
+    const uint32_t (*capRuns)[2];
+    unsigned capN;
+    const uint8_t *cap[7];
+    const ArtSection *vs;
+    unsigned vsN;
+    const uint32_t (*vsRuns)[3];
+    const uint8_t *vsBytes;
+    const uint32_t (*netRuns)[2];
+    unsigned netCount;
+    const uint8_t *netT, *netOn;
+} ArtSet;
+#define COUNT(a) (sizeof(a) / sizeof((a)[0]))
+#define ART_SET(S) {(const ArtSection *)kOptArtSections##S, COUNT(kOptArtSections##S), kOptArtRuns##S, kOptArtBytes##S, kOptCapRuns##S, \
+                    COUNT(kOptCapRuns##S), {kOptCapT##S, kOptCapV##S, kOptCapL##S, kOptCapX##S, kOptCapY##S, kOptCapG##S, kOptCapH##S}, \
+                    (const ArtSection *)kVsArtSections##S, COUNT(kVsArtSections##S), kVsArtRuns##S, kVsArtBytes##S, kVsNetRuns##S, \
+                    COUNT(kVsNetRuns##S), kVsNetT##S, kVsNetN##S}
+static const ArtSet kArtSets[] = {
+    ART_SET(),
+#ifdef VITA_ART_ES
+    ART_SET(Es),
+#endif
+};
+static const ArtSet *sOpt = &kArtSets[0], *sVs = &kArtSets[0];
+
+/* the sections of `secs` whose bytes to replace are there as the set has them */
+static unsigned matching(void *res, const ArtSection *secs, unsigned n, const uint32_t (*runs)[3]);
+
 /* the runs of each section written over, when the bytes they replace are the USA disc's; returns the sections done */
+static uint32_t section_hash(void *res, const ArtSection *sec, const uint32_t (*runs)[3]) {
+    uint8_t *p0 = pack_at(res, sec->section);
+    uint32_t h = 2166136261u, i;
+    int k;
+    for (k = 0; k < sec->count; k++) {
+        const uint8_t *p = p0 + runs[sec->first + k][0];
+        for (i = 0; i < runs[sec->first + k][1]; i++) {
+            h = (h ^ p[i]) * 16777619u;
+        }
+    }
+    return h;
+}
+
+static unsigned matching(void *res, const ArtSection *secs, unsigned n, const uint32_t (*runs)[3]) {
+    unsigned s, m = 0;
+    for (s = 0; s < n; s++) {
+        m += secs[s].count > 0 && section_hash(res, &secs[s], runs) == secs[s].hash;
+    }
+    return m;
+}
+
+/* the runs of each section written over, when the bytes they replace are the disc's; returns the sections done */
 static unsigned apply(void *res, const ArtSection *secs, unsigned n, const uint32_t (*runs)[3], const uint8_t *bytes, const char *what) {
     unsigned s, k, done = 0;
     for (s = 0; s < n; s++) {
-        uint8_t *sec = pack_at(res, secs[s].section);
-        uint32_t h = 2166136261u;
-        for (k = 0; k < (unsigned)secs[s].count; k++) {
-            const uint8_t *p = sec + runs[secs[s].first + k][0];
-            uint32_t i;
-            for (i = 0; i < runs[secs[s].first + k][1]; i++) {
-                h = (h ^ p[i]) * 16777619u;
-            }
+        uint32_t h;
+        uint8_t *sec;
+        if (secs[s].count == 0) { /* (a screen this disc needs no change of) */
+            continue;
         }
+        sec = pack_at(res, secs[s].section);
+        h = section_hash(res, &secs[s], runs);
         if (h != secs[s].hash) {
-            Vita_Log("%s: section %d is not the USA disc's (%08x), left alone\n", what, secs[s].section, (unsigned)h);
+            Vita_Log("%s: section %d is not the disc's (%08x), left alone\n", what, secs[s].section, (unsigned)h);
             continue;
         }
         for (k = 0; k < (unsigned)secs[s].count; k++) {
@@ -125,14 +196,24 @@ void Vita_OptionArt(void *res) {
         Vita_Log("optart: not the options screen's pack, left alone\n");
         return;
     }
-    done = apply(res, (const ArtSection *)kOptArtSections, sizeof(kOptArtSections) / sizeof(kOptArtSections[0]), kOptArtRuns, kOptArtBytes, "optart");
+    {   /* which disc's screen it is: the set whose bytes it has */
+        unsigned best = 0, m;
+        sOpt = &kArtSets[0];
+        for (k = 0; k < COUNT(kArtSets); k++) {
+            if ((m = matching(res, kArtSets[k].opt, kArtSets[k].optN, kArtSets[k].optRuns)) > best) {
+                best = m;
+                sOpt = &kArtSets[k];
+            }
+        }
+    }
+    done = apply(res, sOpt->opt, sOpt->optN, sOpt->optRuns, sOpt->optBytes, "optart");
     {   /* the captions of Touch Buttons in place (as patched): the other set can take turns with them */
         uint8_t *sec = pack_at(res, 14);
-        const uint8_t *b = kOptCapT;
+        const uint8_t *b = sOpt->cap[0];
         int same = 1;
-        for (k = 0; k < sizeof(kOptCapRuns) / sizeof(kOptCapRuns[0]) && same; k++) {
-            same = memcmp(sec + kOptCapRuns[k][0], b, kOptCapRuns[k][1]) == 0;
-            b += kOptCapRuns[k][1];
+        for (k = 0; k < sOpt->capN && same; k++) {
+            same = memcmp(sec + sOpt->capRuns[k][0], b, sOpt->capRuns[k][1]) == 0;
+            b += sOpt->capRuns[k][1];
         }
         if (same) {
             sCapSec = sec;
@@ -144,12 +225,12 @@ void Vita_OptionArt(void *res) {
     {
         uint8_t *t = pack_at(res, 33);
 #ifndef BT3_BT4
-        lines += put_line(t, 25, 28, "Touch, clashes, Unlock All, the\nscreen, BT4 and more.");
+        lines += put_line(t, 25, 28, Vita_Tr("Touch, clashes, Unlock All, the\nscreen, BT4 and more."));
 #else
-        lines += put_line(t, 25, 28, "Touch buttons, clashes, a\nsecond controller and mods.");
+        lines += put_line(t, 25, 28, Vita_Tr("Touch buttons, clashes, the\nscreen, the language and more."));
 #endif
 #ifndef BT3_BT4 /* (BT4's options keep the console's voice picker: its guide line stays) */
-        lines += put_line(t, 19, 20, "The language of the menus and\nthe text, and of the voices.");
+        lines += put_line(t, 19, 20, Vita_Tr("The language of the menus and\nthe text, and of the voices."));
 #endif
         lines += put_line(t, 40, 27, "");
         lines += put_line(t, 41, 23, "");
@@ -157,7 +238,8 @@ void Vita_OptionArt(void *res) {
         sGuide[1] = slot_of(t, 23);
         sGuideNext = 0;
     }
-    Vita_Log("optart: %u of 3 pictures and %u of 4 lines changed for the Vita\n", done, lines);
+    Vita_Log("optart: %u of %u pictures and %u of 4 lines changed for the Vita (%s disc)\n", done, sOpt->optN, lines,
+             sOpt == &kArtSets[0] ? "the English" : "the Spanish");
 }
 
 /* the versus menu as unpacked: its section 8 when the battle types' lettering is the disc's (NULL: not, or not up), its
@@ -166,9 +248,21 @@ static uint8_t *sVsSec8, *sVsText;
 static int sVsNetOn;
 static uint8_t sVsLines[3][128];
 
+/* 1: section 8 of the versus menu has the battle types' lettering as the set has it */
+static int vs_net_there(uint8_t *sec, const ArtSet *set) {
+    const uint8_t *b = set->netT;
+    unsigned k;
+    for (k = 0; k < set->netCount; k++) {
+        if (memcmp(sec + set->netRuns[k][0], b, set->netRuns[k][1]) != 0) {
+            return 0;
+        }
+        b += set->netRuns[k][1];
+    }
+    return 1;
+}
+
 void Vita_VersusArt(void *res) {
     unsigned done, k;
-    const uint8_t *b = kVsNetT;
     uint8_t *sec;
     sVsSec8 = sVsText = NULL;
     sVsNetOn = 0;
@@ -176,15 +270,16 @@ void Vita_VersusArt(void *res) {
         Vita_Log("vsart: not the versus menu's pack, left alone\n");
         return;
     }
-    done = apply(res, (const ArtSection *)kVsArtSections, sizeof(kVsArtSections) / sizeof(kVsArtSections[0]), kVsArtRuns, kVsArtBytes, "vsart");
     sec = pack_at(res, 8);
-    for (k = 0; k < sizeof(kVsNetRuns) / sizeof(kVsNetRuns[0]); k++) {
-        if (memcmp(sec + kVsNetRuns[k][0], b, kVsNetRuns[k][1]) != 0) {
+    sVs = &kArtSets[0];
+    for (k = 0; k < COUNT(kArtSets); k++) { /* (which disc's: the set whose battle types' lettering it has) */
+        if (vs_net_there(sec, &kArtSets[k])) {
+            sVs = &kArtSets[k];
             break;
         }
-        b += kVsNetRuns[k][1];
     }
-    if (k == sizeof(kVsNetRuns) / sizeof(kVsNetRuns[0])) {
+    done = apply(res, sVs->vs, sVs->vsN, sVs->vsRuns, sVs->vsBytes, "vsart");
+    if (vs_net_there(sec, sVs)) {
         sVsSec8 = sec;
         sVsText = pack_at(res, 21);
     }
@@ -214,10 +309,10 @@ int Vita_VersusNetPlates(int on) {
     if (on == sVsNetOn) {
         return 1;
     }
-    b = on ? kVsNetN : kVsNetT;
-    for (k = 0; k < sizeof(kVsNetRuns) / sizeof(kVsNetRuns[0]); k++) {
-        memcpy(sVsSec8 + kVsNetRuns[k][0], b, kVsNetRuns[k][1]);
-        b += kVsNetRuns[k][1];
+    b = on ? sVs->netOn : sVs->netT;
+    for (k = 0; k < sVs->netCount; k++) {
+        memcpy(sVsSec8 + sVs->netRuns[k][0], b, sVs->netRuns[k][1]);
+        b += sVs->netRuns[k][1];
     }
     for (k = 0; k < 3; k++) { /* (lines 5, 6, 7: the table's entries 6, 7, 8) */
         Slot sl = slot_of(sVsText, (int)k + 6);
@@ -226,7 +321,7 @@ int Vita_VersusNetPlates(int on) {
         }
         if (on) {
             memcpy(sVsLines[k], sl.p, sl.size);
-            write_slot(sl, kVsNetLine[k]);
+            write_slot(sl, Vita_Tr(kVsNetLine[k]));
         } else {
             memcpy(sl.p, sVsLines[k], sl.size);
         }
@@ -259,7 +354,13 @@ int Vita_VersusNetStatus(const char *text, int keep) {
         max = sizeof(t) - 1;
     }
     for (i = 0; i < max && text[i] != '\0'; i++) {
-        unsigned char c = (unsigned char)text[i];
+        unsigned char c = (unsigned char)text[i], d = (unsigned char)text[i + 1];
+        if ((c == 0xC2 || c == 0xC3) && (d & 0xC0) == 0x80 && i + 1 < max) { /* (a Spanish letter: Latin-1) */
+            t[i] = (char)c;
+            t[i + 1] = (char)d;
+            i++;
+            continue;
+        }
         t[i] = c == '\n' || (c >= 0x20 && c < 0x7F) ? (char)c : '?';
     }
     t[i] = '\0';
@@ -274,7 +375,7 @@ void Vita_VersusNetHelp(void) {
         return;
     }
     for (k = 0; k < 3; k++) {
-        write_slot(slot_of(sVsText, k + 6), kVsNetLine[k]);
+        write_slot(slot_of(sVsText, k + 6), Vita_Tr(kVsNetLine[k]));
     }
 }
 
@@ -284,7 +385,7 @@ void Vita_IconArt(void *boot) {
         Vita_Log("iconart: not the boot file, left alone\n");
         return;
     }
-    done = apply(boot, (const ArtSection *)kIconArtSections, sizeof(kIconArtSections) / sizeof(kIconArtSections[0]), kIconArtRuns, kIconArtBytes, "iconart");
+    done = apply(boot, (const ArtSection *)kIconArtSections, COUNT(kIconArtSections), kIconArtRuns, kIconArtBytes, "iconart");
     Vita_Log("iconart: %u of 1 icon file changed for the Vita (L3 / R3)\n", done);
 }
 
@@ -310,15 +411,14 @@ int Vita_OptionGuide(const char *text) {
    type's picker) are the same in every set. The menus upload a picture each time they draw it, so the change shows
    at once. */
 void Vita_OptionCaptions(int set) {
-    static const uint8_t *const kSet[7] = {kOptCapT, kOptCapV, kOptCapL, kOptCapX, kOptCapY, kOptCapG, kOptCapH};
-    const uint8_t *b = kSet[set >= 0 && set < 7 ? set : 0];
+    const uint8_t *b = sOpt->cap[set >= 0 && set < 7 ? set : 0];
     unsigned k;
     if (sCapSec == NULL || set == sCapSet) {
         return;
     }
-    for (k = 0; k < sizeof(kOptCapRuns) / sizeof(kOptCapRuns[0]); k++) {
-        memcpy(sCapSec + kOptCapRuns[k][0], b, kOptCapRuns[k][1]);
-        b += kOptCapRuns[k][1];
+    for (k = 0; k < sOpt->capN; k++) {
+        memcpy(sCapSec + sOpt->capRuns[k][0], b, sOpt->capRuns[k][1]);
+        b += sOpt->capRuns[k][1];
     }
     sCapSet = set;
 }

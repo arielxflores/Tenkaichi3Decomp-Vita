@@ -1062,11 +1062,13 @@ static struct {
 extern volatile int gVitaDialogOn;
 extern int Vita_DialogCan(void);
 
+extern const char *Vita_Tr(const char *english); /* (vita_lang.c: in Spanish when the game is) */
+
 static void pair_say(const char *fmt, ...) {
     char text[sizeof(sPair.line)];
     va_list ap;
     va_start(ap, fmt);
-    vsnprintf(text, sizeof(text), fmt, ap);
+    vsnprintf(text, sizeof(text), Vita_Tr(fmt), ap);
     va_end(ap);
     if (strcmp(text, sPair.line) != 0) {
         snprintf(sPair.line, sizeof(sPair.line), "%s", text);
@@ -1078,7 +1080,7 @@ static void pair_fail(const char *fmt, ...) {
     char text[sizeof(sPair.line)];
     va_list ap;
     va_start(ap, fmt);
-    vsnprintf(text, sizeof(text), fmt, ap);
+    vsnprintf(text, sizeof(text), Vita_Tr(fmt), ap);
     va_end(ap);
     snprintf(sPair.line, sizeof(sPair.line), "%s", text);
     sPair.lineGen++;

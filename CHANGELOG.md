@@ -12,6 +12,9 @@ New
   voices. Based on Matteo Santoro's work.
 - **Budokai Tenkaichi 4** (experimental): Team BT4's B14 Rev2 through NauTaro's BT4decomp, from your own BT4 disc's
   image or files in `ux0:data/bt3/bt4/`; chosen in the start menu. See the README.
+- **BT4 in Spanish**: with Team BT4's Spanish release in `ux0:data/bt3/bt4/es/` beside the English one, BT4's
+  **Options → Vita Settings → Language** switches between them (the game starts again in the one chosen): the
+  game's text and voices, and the port's own rows, guide lines and Multiplayer plates, in Spanish.
 - **Vita Settings, a second page** (from the PC version, z3xox's): **Cheats → Unlock All** in the game (every
   character, stage, song and item, and the most Zenni: the game's own debug unlock), **Quick Start** (no logos,
   opening film or copyright page), **Quick Save** (saving and loading without the memory card window, on by

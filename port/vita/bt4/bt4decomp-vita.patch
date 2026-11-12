@@ -2680,7 +2680,7 @@ index c0c0ba1..91f869d 100644
      TM_RES(22);
      IconWin_Init(MPACK_AT(gTourMenu->res, 21), res);
 diff --git a/src/menu/menu_x_c.c b/src/menu/menu_x_c.c
-index d89aefe..8d563a1 100644
+index d89aefe..6c9435d 100644
 --- a/src/menu/menu_x_c.c
 +++ b/src/menu/menu_x_c.c
 @@ -7,6 +7,10 @@
@@ -2744,7 +2744,7 @@ index d89aefe..8d563a1 100644
          }
      } while (0);
      return 1;
-@@ -211,9 +236,664 @@ s32 Option_Run(s32 section) {
+@@ -211,9 +236,713 @@ s32 Option_Run(s32 section) {
      return 0;
  }
  
@@ -2843,7 +2843,7 @@ index d89aefe..8d563a1 100644
 +   console's two-way pickers, captioned from the second caption strip, whose rows take turns between two sets
 +   (vita_optart.c Vita_OptionCaptions):
 +     level 1: Touch, Clashes / 2nd Pad, Mods, the four settings, and on a second page (Down from the lower row) Game,
-+              Unlock All / Screen (the console's Screen page: back from it to the top page). Vita Settings is the
++              Unlock All / Screen (the console's Screen page: back from it to the top page), Language. Vita Settings is the
 +              top page's second row (the console's Screen), opened in place as Save / Load; the controller page's
 +              second row is hidden;
 +     level 2: Touch: L2, R2 / L3, R3, laid out as the rear pad's quarters; level 3: where the chosen one is touched,
@@ -2853,6 +2853,9 @@ index d89aefe..8d563a1 100644
 +     level 6: Mods: ON / OFF, the files of ux0:data/bt3/mods (port/vita/vita_file.c), from the next start;
 +     level 7: Game: BT3 / BT4, back to the package's Budokai Tenkaichi 3 (port/vita/vita_start.c, as the start menu's
 +              Game): CROSS twice, as this game closes for it;
++     level 10: Language: English / Espanol, Team BT4's English or Spanish release (its text and voices; the port's
++              own text follows, port/vita/vita_lang.c): CROSS twice, as the game starts again in it
++              (port/vita/vita_start.c Vita_Bt4LangSwitch; the Spanish release's files in ux0:data/bt3/bt4/es);
 +     level 9: Unlock All: ON / OFF, a switch (CROSS twice either way), as in BT3's options: ON gives every fighter
 +              and form, stage, song and item and 9,999,999 Zenni (Save_UnlockAll, the records list kept) to the save
 +              now and to each save loaded; the save as it was is copied aside first, and OFF gives it its own unlocks
@@ -2875,14 +2878,18 @@ index d89aefe..8d563a1 100644
 +static s32 sVitaSetLevel; /* 0 closed, 1..6 above */
 +static s32 sVitaSetItem;  /* the setting chosen on level 1 */
 +static s32 sVitaTouchBtn; /* the button chosen on level 2 */
-+static s32 sVitaItem1;    /* level 1's item under the cursor: 0..3 the first page's, 4..6 the second's (its plate: item % 4) */
++static s32 sVitaItem1;    /* level 1's item under the cursor: 0..3 the first page's, 4..7 the second's (its plate: item % 4) */
 +static s32 sVitaFromTop;  /* Vita Settings is open on the top page (its second row, the console's Screen) */
 +static s32 sVitaRow2Hidden; /* the controller page's second row (the console's Vibration) is hidden */
 +static s32 sVitaGameArmed; /* level 7 and 9: CROSS was pressed once (7: 2 the other game did not start; 9: 2 turned
 +                              on, 3 turned off, 4 off but the copy of the save was not there, 5 the copy could not be
 +                              made) */
-+#define VITA_L1_ITEMS 7
++#define VITA_L1_ITEMS 8
 +extern void Vita_GameSwitch(void);
++extern const char *Vita_Tr(const char *english);
++extern int Vita_Spanish(void);
++extern int Vita_Bt4LangThere(int lang);
++extern void Vita_Bt4LangSwitch(int lang);
 +extern void Vita_Log(const char *fmt, ...);
 +extern int Vita_UnlockBackupWrite(const void *save, int size);
 +extern int Vita_UnlockBackupRead(void *save, int size);
@@ -2933,7 +2940,8 @@ index d89aefe..8d563a1 100644
 +    static const char *const kName[4] = {"L2", "R2", "L3", "R3"};
 +    static const char *const kQuarter[4] = {"upper left", "upper right", "lower left", "lower right"};
 +    static const char *const kCorner[4] = {"bottom left", "bottom right", "top left", "top right"};
-+    char text[120], more[64];
++    static const char *const kLang[2] = {"English", "Espa\303\261ol"};
++    char text[200], more[96]; /* (UTF-8: the Spanish letters take two bytes) */
 +    s32 b, spot, v = gOption->value;
 +
 +    if (sVitaSetLevel == 1) {
@@ -2941,22 +2949,24 @@ index d89aefe..8d563a1 100644
 +    }
 +    switch (sVitaSetLevel) {
 +    case 1: /* the setting under the cursor, and what it is now */
-+        if (v == 6) {
-+            sprintf(text, "Screen: the camera, the screen's\nshake, its position and the tag\nteam's HUD.");
++        if (v == 7) {
++            sprintf(text, Vita_Tr("Language: %s. Team BT4's English\nor Spanish release: text, voices."), kLang[Vita_Spanish()]);
++        } else if (v == 6) {
++            sprintf(text, Vita_Tr("Screen: the camera, the screen's\nshake, its position and the tag\nteam's HUD."));
 +        } else if (v == 5) {
-+            sprintf(text, "Unlock All (%s): every fighter and\nform, stage, song and item, and\n9,999,999 Zenni.", Port_Setting("unlock_all", 0) ? "ON" : "OFF");
++            sprintf(text, Vita_Tr("Unlock All (%s): every fighter and\nform, stage, song and item, and\n9,999,999 Zenni."), Vita_Tr(Port_Setting("unlock_all", 0) ? "ON" : "OFF"));
 +        } else if (v == 4) {
-+            sprintf(text, "Game: Team BT4's Budokai Tenkaichi\n4, or Budokai Tenkaichi 3.");
++            sprintf(text, Vita_Tr("Game: Team BT4's Budokai Tenkaichi\n4, or Budokai Tenkaichi 3."));
 +        } else if (v == 0) {
-+            sprintf(text, "Touch: where L2, R2, L3 and R3\nare touched.");
++            sprintf(text, Vita_Tr("Touch: where L2, R2, L3 and R3\nare touched."));
 +        } else if (v == 1) {
-+            sprintf(text, "Clashes: %s\nwins beam and rush clashes.", Port_ClashSquare() ? "pressing Square fast" : "turning the left stick");
++            sprintf(text, Vita_Tr("Clashes: %s\nwins beam and rush clashes."), Vita_Tr(Port_ClashSquare() ? "pressing Square fast" : "turning the left stick"));
 +        } else if (v == 2) {
-+            sprintf(text, "2nd Pad: a second controller\nis player 2 (PS TV): %s.", Vita_Pad2Setting() ? "ON" : "OFF");
++            sprintf(text, Vita_Tr("2nd Pad: a second controller\nis player 2 (PS TV): %s."), Vita_Tr(Vita_Pad2Setting() ? "ON" : "OFF"));
 +        } else if (Option_VitaModsOn()) {
 +            s32 k, line = 0, sp = -1;
 +            Vita_ModsSummary(more, 50);
-+            sprintf(text, "Mods (ux0:data/bt3/mods): ON.\nIn use: %s.", more);
++            sprintf(text, Vita_Tr("Mods (ux0:data/bt3/mods): ON.\nIn use: %s."), more);
 +            for (k = 0; text[k] != '\0'; k++) { /* (lines of up to 34 letters, broken at spaces) */
 +                if (text[k] == '\n') {
 +                    line = 0;
@@ -2973,72 +2983,86 @@ index d89aefe..8d563a1 100644
 +                }
 +            }
 +        } else {
-+            sprintf(text, "Mods: files in ux0:data/bt3/mods\nreplace the disc's: OFF.");
++            sprintf(text, Vita_Tr("Mods: files in ux0:data/bt3/mods\nreplace the disc's: OFF."));
 +        }
 +        break;
 +    case 2: /* the button under the cursor, and where it is now */
 +        b = v;
 +        spot = Vita_TouchGetSpot(b);
 +        if (spot == 0) {
-+            sprintf(more, "the rear touch pad's\n%s quarter", kQuarter[b]);
++            sprintf(more, Vita_Tr("the rear touch pad's\n%s quarter"), Vita_Tr(kQuarter[b]));
 +        } else if (spot == 1) {
-+            sprintf(more, "the screen's %s\ncorner", kCorner[b]);
++            sprintf(more, Vita_Tr("the screen's %s\ncorner"), Vita_Tr(kCorner[b]));
 +        } else {
-+            sprintf(more, b < 2 ? "SELECT + %c only" : "not on the touch panels", kName[b][0]);
++            sprintf(more, Vita_Tr(b < 2 ? "SELECT + %c only" : "not on the touch panels"), kName[b][0]);
 +        }
-+        sprintf(text, "%s is %s.\nChoose a button to change it.", kName[b], more);
++        sprintf(text, Vita_Tr("%s is %s.\nChoose a button to change it."), kName[b], more);
 +        break;
 +    case 3: /* the place under the cursor */
 +        b = sVitaTouchBtn;
 +        if (v == 0) {
-+            sprintf(text, "%s on the rear touch pad's\n%s quarter, where a grip\nattachment's %s presses.", kName[b], kQuarter[b], kName[b]);
++            sprintf(text, Vita_Tr("%s on the rear touch pad's\n%s quarter, where a grip\nattachment's %s presses."), kName[b], Vita_Tr(kQuarter[b]), kName[b]);
 +        } else if (v == 1) {
-+            sprintf(text, "%s on the screen's %s\ncorner.", kName[b], kCorner[b]);
++            sprintf(text, Vita_Tr("%s on the screen's %s\ncorner."), kName[b], Vita_Tr(kCorner[b]));
 +        } else if (b < 2) {
-+            sprintf(text, "%s not on the touch panels\n(SELECT + %c still gives it).", kName[b], kName[b][0]);
++            sprintf(text, Vita_Tr("%s not on the touch panels\n(SELECT + %c still gives it)."), kName[b], kName[b][0]);
 +        } else {
-+            sprintf(text, "%s not on the touch panels.", kName[b]);
++            sprintf(text, Vita_Tr("%s not on the touch panels."), kName[b]);
 +        }
 +        break;
 +    case 4:
-+        sprintf(text, v == 0 ? "Square: press it again and again\nto win beam and rush clashes."
-+                             : "Stick: turn the left stick round\nto win clashes, as on the PS2.");
++        sprintf(text, "%s", Vita_Tr(v == 0 ? "Square: press it again and again\nto win beam and rush clashes."
++                             : "Stick: turn the left stick round\nto win clashes, as on the PS2."));
 +        break;
 +    case 5:
-+        sprintf(text, v == 0 ? "ON: a second controller plays\nas player 2 (Versus: Multiplayer)."
-+                             : "OFF: a second controller is not\nused.");
++        sprintf(text, "%s", Vita_Tr(v == 0 ? "ON: a second controller plays\nas player 2 (Versus: Multiplayer)."
++                             : "OFF: a second controller is not\nused."));
 +        break;
 +    case 7:
-+        sprintf(text, v == 1 ? "Budokai Tenkaichi 4: the game you\nare playing now."
++        sprintf(text, "%s", Vita_Tr(v == 1 ? "Budokai Tenkaichi 4: the game you\nare playing now."
 +                      : sVitaGameArmed == 2 ? "Budokai Tenkaichi 3 could not be\nstarted (see the log)."
 +                      : sVitaGameArmed ? "Budokai Tenkaichi 3. Game starts\neach time, until changed back.\nPress again to confirm."
-+                                       : "Budokai Tenkaichi 3. Game starts\neach time, until changed back.");
++                                       : "Budokai Tenkaichi 3. Game starts\neach time, until changed back."));
++        break;
++    case 10: /* English / Espanol: the game started again in the other (CROSS twice) */
++        if (v == Vita_Spanish()) {
++            sprintf(text, Vita_Tr("%s: the language you are\nplaying in now."), kLang[v]);
++        } else if (!Vita_Bt4LangThere(v)) {
++            sprintf(text, Vita_Tr("Not there: copy that release's\n.iso into %s"), v ? "ux0:data/bt3/bt4/es/" : "ux0:data/bt3/bt4/");
++        } else if (sVitaGameArmed == 2) {
++            sprintf(text, "%s", Vita_Tr("The game could not be started\nagain (see the log)."));
++        } else if (sVitaGameArmed) {
++            sprintf(text, Vita_Tr("Press again to confirm: the\ngame starts again in %s."), kLang[v]);
++        } else {
++            sprintf(text, "%s", Vita_Tr(v ? "Espa\303\261ol: Team BT4's Spanish\nrelease, its text and voices.\nThe game starts again."
++                                          : "English: Team BT4's English\nrelease, its text and voices.\nThe game starts again."));
++        }
 +        break;
 +    case 9: {
 +        s32 on = Port_Setting("unlock_all", 0);
 +        if (sVitaGameArmed == 2) {
-+            sprintf(text, "Done: everything is unlocked. It\nis saved as you leave the options.");
++            sprintf(text, Vita_Tr("Done: everything is unlocked. It\nis saved as you leave the options."));
 +        } else if (sVitaGameArmed == 3) {
-+            sprintf(text, "Done: your save's own unlocks and\nZenni are back. Saved as you\nleave the options.");
++            sprintf(text, Vita_Tr("Done: your save's own unlocks and\nZenni are back. Saved as you\nleave the options."));
 +        } else if (sVitaGameArmed == 4) {
-+            sprintf(text, "OFF: no longer given to each save.\nWhat is unlocked stays (there was\nno copy of the save from before).");
++            sprintf(text, Vita_Tr("OFF: no longer given to each save.\nWhat is unlocked stays (there was\nno copy of the save from before)."));
 +        } else if (sVitaGameArmed == 5) {
-+            sprintf(text, "Not turned on: the copy of your\nsave could not be made (see the\nlog).");
++            sprintf(text, Vita_Tr("Not turned on: the copy of your\nsave could not be made (see the\nlog)."));
 +        } else if (v == 0) {
-+            sprintf(text, on ? "ON: everything is unlocked, for\neach save loaded."
++            sprintf(text, "%s", Vita_Tr(on ? "ON: everything is unlocked, for\neach save loaded."
 +                          : sVitaGameArmed ? "Press CROSS again to unlock\neverything (Circle: no)."
-+                                           : "Every fighter and form, stage, song\nand item (Evolution Z, Potara),\n9,999,999 Zenni. CROSS twice.");
++                                           : "Every fighter and form, stage, song\nand item (Evolution Z, Potara),\n9,999,999 Zenni. CROSS twice."));
 +        } else {
-+            sprintf(text, !on ? "OFF: your save's own unlocks."
++            sprintf(text, "%s", Vita_Tr(!on ? "OFF: your save's own unlocks."
 +                          : sVitaGameArmed ? "Press CROSS again: the unlocks and\nZenni go back to how they were\n(Circle: no)."
 +                          : Vita_UnlockBackupThere() ? "Your save's unlocks and Zenni as\nthey were before ON. CROSS twice."
-+                                                     : "Stops unlocking each save; what is\nunlocked stays. CROSS twice.");
++                                                     : "Stops unlocking each save; what is\nunlocked stays. CROSS twice."));
 +        }
 +        break;
 +    }
 +    default:
-+        sprintf(text, v == 0 ? "ON: files in ux0:data/bt3/mods\nreplace the disc's, from the\nnext start."
-+                             : "OFF: the disc's files only, from\nthe next start.");
++        sprintf(text, "%s", Vita_Tr(v == 0 ? "ON: files in ux0:data/bt3/mods\nreplace the disc's, from the\nnext start."
++                             : "OFF: the disc's files only, from\nthe next start."));
 +        break;
 +    }
 +    gOption->voiceLine = Vita_OptionGuide(text);
@@ -3061,7 +3085,7 @@ index d89aefe..8d563a1 100644
 +        sVitaItem1 = value;
 +        value %= 4;
 +    }
-+    Vita_OptionCaptions(level == 2 || level == 3 ? 0 : level == 7 || level == 9 || (level == 1 && sVitaItem1 >= 4) ? 6 : 1);
++    Vita_OptionCaptions(level == 2 || level == 3 ? 0 : level == 10 ? 2 : level == 7 || level == 9 || (level == 1 && sVitaItem1 >= 4) ? 6 : 1);
 +    Option_DimPickers();
 +    gOption->value = value;
 +    OPT_PLATE(OPT_CLIP_PICK, "fl_on_start");
@@ -3171,7 +3195,7 @@ index d89aefe..8d563a1 100644
 +        return;
 +    }
 +    item = sVitaSetLevel == 1 ? sVitaItem1 : sVitaSetItem;
-+    sprintf(text, "Page %d/%d", item / 4 + 1, (VITA_L1_ITEMS + 3) / 4);
++    sprintf(text, Vita_Tr("Page %d/%d"), item / 4 + 1, (VITA_L1_ITEMS + 3) / 4);
 +    /* its own small plate, like the pickers' (a capsule, a light rim, a shaded body), the text in its middle in their
 +       colours */
 +    Gfx_AddDefaultEnv();
@@ -3251,9 +3275,9 @@ index d89aefe..8d563a1 100644
 +        } else if (pressed & PADG_CROSS) {
 +            sVitaSetItem = v;
 +            Snd_PlaySe(1, 1);
-+            Option_VitaSetLevel(v == 0 ? 2 : v == 1 ? 4 : v == 2 ? 5 : v == 3 ? 6 : v == 4 ? 7 : 9,
++            Option_VitaSetLevel(v == 0 ? 2 : v == 1 ? 4 : v == 2 ? 5 : v == 3 ? 6 : v == 4 ? 7 : v == 7 ? 10 : 9,
 +                                v == 0 ? 0 : v == 1 ? !Port_ClashSquare() : v == 2 ? !Vita_Pad2Setting() : v == 3 ? !Option_VitaModsOn()
-+                                : v == 4 ? 1 : !Port_Setting("unlock_all", 0));
++                                : v == 4 ? 1 : v == 7 ? Vita_Spanish() : !Port_Setting("unlock_all", 0));
 +        } else if (back && sVitaFromTop) { /* back to the top page, on Vita Settings */
 +            OPT_PLATE(OPT_CLIP_PICK, "fl_off_start");
 +            Snd_PlaySe(1, 2);
@@ -3324,6 +3348,31 @@ index d89aefe..8d563a1 100644
 +            } else if (sVitaGameArmed == 1) {
 +                Snd_PlaySe(1, 1);
 +                Vita_GameSwitch(); /* (comes back only when BT3 could not be started) */
++                sVitaGameArmed = 2;
++                Option_VitaSetGuide();
++            } else {
++                sVitaGameArmed = 1;
++                Snd_PlaySe(1, 0);
++                Option_VitaSetGuide();
++            }
++        } else if (back) {
++            Snd_PlaySe(1, 2);
++            Option_VitaSetLevel(1, sVitaSetItem);
++        }
++        break;
++    case 10: /* Language: English / Espanol, CROSS twice on the other (the game starts again in it) */
++        if (pressed & (PADG_LEFT | PADG_RIGHT)) {
++            sVitaGameArmed = 0;
++            Option_VitaSetMove(v ^ 1);
++        } else if (pressed & PADG_CROSS) {
++            if (v == Vita_Spanish()) { /* (this one) */
++                Snd_PlaySe(1, 1);
++                Option_VitaSetLevel(1, sVitaSetItem);
++            } else if (!Vita_Bt4LangThere(v)) {
++                Snd_PlaySe(1, 7);
++            } else if (sVitaGameArmed == 1) {
++                Snd_PlaySe(1, 1);
++                Vita_Bt4LangSwitch(v); /* (comes back only when the game could not be started again) */
 +                sVitaGameArmed = 2;
 +                Option_VitaSetGuide();
 +            } else {
@@ -3409,7 +3458,7 @@ index d89aefe..8d563a1 100644
  /*
   * Pad 0, one state per frame; does nothing until the movie accepts input. Returns 0 when the screen is over
   * (faded out), else 1. Option.state:
-@@ -265,8 +945,13 @@ s32 Option_Input(void) {
+@@ -265,8 +994,13 @@ s32 Option_Input(void) {
      case OPT_ST_TOP:
          if (gOption->greeted == 0) {
              if (Voice_GetStat(0) == MVOICE_IDLE) {
@@ -3423,7 +3472,7 @@ index d89aefe..8d563a1 100644
                  gOption->greeted = 1;
              }
          }
-@@ -276,10 +961,14 @@ s32 Option_Input(void) {
+@@ -276,10 +1010,14 @@ s32 Option_Input(void) {
              } else {
                  OPT_PLATE(OPT_CLIP_ROW, "fl_off_start");
              }
@@ -3438,7 +3487,7 @@ index d89aefe..8d563a1 100644
              if (gOption->cursor == OPT_ITEM_EXIT) {
                  OPT_PLATE(OPT_CLIP_BOTTOM, "fl_on_start");
              } else {
-@@ -295,10 +984,14 @@ s32 Option_Input(void) {
+@@ -295,10 +1033,14 @@ s32 Option_Input(void) {
              } else {
                  OPT_PLATE(OPT_CLIP_ROW, "fl_off_start");
              }
@@ -3453,7 +3502,7 @@ index d89aefe..8d563a1 100644
              if (gOption->cursor == OPT_ITEM_EXIT) {
                  OPT_PLATE(OPT_CLIP_BOTTOM, "fl_on_start");
              } else {
-@@ -328,6 +1021,11 @@ s32 Option_Input(void) {
+@@ -328,6 +1070,11 @@ s32 Option_Input(void) {
                  OPT_PLATE(OPT_CLIP_PICK, "fl_on_start");
                  gOption->picker = 0;
              } else if (gOption->state == OPT_ITEM_SCREEN) {
@@ -3465,7 +3514,7 @@ index d89aefe..8d563a1 100644
                  Flash_GotoLabel(&gOption->flash[0], "fl_menu_change", 1);
                  OPT_PLATE(OPT_CLIP_ROW, "fl_off_start");
                  gOption->cursor = OPT_ITEM_TYPE;
-@@ -761,6 +1459,11 @@ s32 Option_Input(void) {
+@@ -761,6 +1508,11 @@ s32 Option_Input(void) {
                  OPT_PLATE(OPT_CLIP_ROW_CTRL, "fl_off_start");
              }
              gOption->cursor--;
@@ -3477,7 +3526,7 @@ index d89aefe..8d563a1 100644
              if (gOption->cursor < OPT_ITEM_KEYS) {
                  gOption->cursor = OPT_ITEM_CTRL_RESET;
              }
-@@ -785,6 +1488,11 @@ s32 Option_Input(void) {
+@@ -785,6 +1537,11 @@ s32 Option_Input(void) {
                  OPT_PLATE(OPT_CLIP_ROW_CTRL, "fl_off_start");
              }
              gOption->cursor++;
@@ -3489,7 +3538,7 @@ index d89aefe..8d563a1 100644
              if (gOption->cursor > OPT_ITEM_CTRL_RESET) {
                  gOption->cursor = OPT_ITEM_KEYS;
              }
-@@ -808,6 +1516,9 @@ s32 Option_Input(void) {
+@@ -808,6 +1565,9 @@ s32 Option_Input(void) {
              gOption->pad = 0;
              Option_DimPickers();
              if (gOption->state == OPT_ITEM_VIB) {
@@ -3499,7 +3548,7 @@ index d89aefe..8d563a1 100644
                  OPT_PLATE(OPT_CLIP_ROW_CTRL, "fl_ok");
                  gOption->ctrlKind = 0;
                  gOption->picker = 2;
-@@ -815,15 +1526,22 @@ s32 Option_Input(void) {
+@@ -815,15 +1575,22 @@ s32 Option_Input(void) {
                  OPT_PLATE(OPT_CLIP_PICK, "fl_on_start");
                  OPT_PLATE(OPT_CLIP_VIB_OFF, "fl_ok");
                  Snd_PlaySe(1, 1);
@@ -3522,7 +3571,7 @@ index d89aefe..8d563a1 100644
              } else {
                  OPT_PLATE(OPT_CLIP_BOTTOM, "fl_ok");
              }
-@@ -892,6 +1610,38 @@ s32 Option_Input(void) {
+@@ -892,6 +1659,38 @@ s32 Option_Input(void) {
          }
          break;
      case OPT_ST_KEYS_PAD:
@@ -3561,7 +3610,7 @@ index d89aefe..8d563a1 100644
          if (((gPad[0].gamePressed & PADG_LEFT) || (gPad[0].gamePressed & PADG_RIGHT)) && gOption->keyEdit == 0) {
              OPT_PLATE(OPT_CLIP_KEY_OFF, "fl_off_start");
              gOption->value ^= 1;
-@@ -967,20 +1717,34 @@ s32 Option_Input(void) {
+@@ -967,20 +1766,34 @@ s32 Option_Input(void) {
              }
              Snd_PlaySe(1, 0);
          } else if ((gPad[0].gamePressed & PADG_UP) && gOption->keyOld < 0) {
@@ -3597,7 +3646,7 @@ index d89aefe..8d563a1 100644
              /* original bug: address comparisons again, always true */
              if (gOption->key[0] != gSaveData->keyEdit[0] || gOption->key[1] != gSaveData->keyEdit[1]) {
                  gOption->dirty = 1;
-@@ -1025,13 +1789,20 @@ s32 Option_Input(void) {
+@@ -1025,13 +1838,20 @@ s32 Option_Input(void) {
                  gOption->keyOld = gSaveData->keyEdit[gOption->pad][gOption->keyRow];
              }
          }
@@ -3620,7 +3669,7 @@ index d89aefe..8d563a1 100644
                  gSaveData->keyEdit[gOption->pad][gOption->keyRow] = 0;
              }
              Snd_PlaySe(1, 0);
-@@ -1054,6 +1825,10 @@ s32 Option_Input(void) {
+@@ -1054,6 +1874,10 @@ s32 Option_Input(void) {
          }
          break;
      case OPT_ITEM_VIB:
@@ -3631,7 +3680,7 @@ index d89aefe..8d563a1 100644
          if ((gPad[0].gamePressed & PADG_LEFT) || (gPad[0].gamePressed & PADG_RIGHT)) {
              OPT_PLATE(OPT_CLIP_VIB_OFF, "fl_off_start");
              OPT_PLATE(OPT_CLIP_PICK, "fl_off_start");
-@@ -1319,6 +2094,111 @@ s32 Option_Input(void) {
+@@ -1319,6 +2143,111 @@ s32 Option_Input(void) {
                          Flash_ClipSetUv(flash, &ref, &uv); \
                      }
  
@@ -3692,12 +3741,12 @@ index d89aefe..8d563a1 100644
 +
 +static void Option_VitaTouchPlates(MFlash *flash) {
 +    /* per level: the plates used, and each plate's strip (0 the first, 1 the second) and row; 8 is level 1's second
-+       page (Game, Unlock All) */
-+    static const s8 kCount[10] = {0, 4, 4, 3, 2, 2, 2, 2, 3, 2};
-+    static const s8 kTex[10][4] = {{0}, {1, 1, 1, 1}, {1, 1, 1, 1}, {1, 1, 0, 0}, {1, 1, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0},
-+                                   {1, 1, 0, 0}, {1, 1, 1, 0}, {0, 0, 0, 0}};
-+    static const s8 kRow[10][4] = {{0}, {0, 1, 4, 5}, {0, 1, 4, 7}, {5, 6, 1, 0}, {6, 7, 0, 0}, {0, 1, 0, 0}, {0, 1, 0, 0},
-+                                   {6, 7, 0, 0}, {0, 1, 4, 0}, {0, 1, 0, 0}};
++       page (Game, Unlock All, Screen, Language); 10 Language's English / Espanol (the caption set 2) */
++    static const s8 kCount[11] = {0, 4, 4, 3, 2, 2, 2, 2, 4, 2, 2};
++    static const s8 kTex[11][4] = {{0}, {1, 1, 1, 1}, {1, 1, 1, 1}, {1, 1, 0, 0}, {1, 1, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0},
++                                   {1, 1, 0, 0}, {1, 1, 1, 1}, {0, 0, 0, 0}, {1, 1, 0, 0}};
++    static const s8 kRow[11][4] = {{0}, {0, 1, 4, 5}, {0, 1, 4, 7}, {5, 6, 1, 0}, {6, 7, 0, 0}, {0, 1, 0, 0}, {0, 1, 0, 0},
++                                   {6, 7, 0, 0}, {0, 1, 4, 5}, {0, 1, 0, 0}, {0, 1, 0, 0}};
 +    MFlashRef ref;
 +    MFlashUv uv;
 +    char name[0x40];
@@ -3706,7 +3755,7 @@ index d89aefe..8d563a1 100644
 +    if (lv == 1 && sVitaItem1 >= 4) {
 +        lv = 8;
 +    }
-+    if (gOption->picker != 5 || lv < 1 || lv > 9) {
++    if (gOption->picker != 5 || lv < 1 || lv > 10) {
 +        if (sVitaPlatesHidden) {
 +            for (i = 0; i < 4; i++) {
 +                sprintf(name, "mc_select_plate_%d", i + 1);
@@ -3743,7 +3792,7 @@ index d89aefe..8d563a1 100644
  /* Per frame: sets up every clip of the movie from the screen's state and draws the screen. */
  void Option_Draw(void) {
      MFlashRef ref;
-@@ -1368,6 +2248,8 @@ void Option_Draw(void) {
+@@ -1368,6 +2297,8 @@ void Option_Draw(void) {
          IconWin_SetIcon(2);
      } else if (gOption->state == YOPT_BGM) {
          IconWin_SetIcon(3);
@@ -3752,7 +3801,7 @@ index d89aefe..8d563a1 100644
      } else if (gOption->state == YOPT_CTRL || gOption->state >= YOPT_KEYS) {
          IconWin_SetIcon(4);
      } else {
-@@ -1375,6 +2257,13 @@ void Option_Draw(void) {
+@@ -1375,6 +2306,13 @@ void Option_Draw(void) {
      }
  
      TagHudScreen_Restore(flash);
@@ -3766,7 +3815,7 @@ index d89aefe..8d563a1 100644
      switch (gOption->page) {
          case 0:
              rows4 = 4;
-@@ -1383,6 +2272,10 @@ void Option_Draw(void) {
+@@ -1383,6 +2321,10 @@ void Option_Draw(void) {
                  uv.y0 = i * 0x20;
                  uv.x1 = 0x200;
                  uv.y1 = i * 0x20 + 0x20;
@@ -3777,7 +3826,7 @@ index d89aefe..8d563a1 100644
                  sprintf(name, "mc_menu_plate_%d", i + 1);
                  Option_SetMenuText(flash, &ref, name, uv);
              }
-@@ -1605,6 +2498,11 @@ void Option_Draw(void) {
+@@ -1605,6 +2547,11 @@ void Option_Draw(void) {
              sprintf(name, "mc_menu_plate_%d", 4);
              Flash_FindLabel(flash, NULL, name, &ref);
              Flash_ClipSetFlags(flash, &ref, 2, 0);
@@ -3789,7 +3838,7 @@ index d89aefe..8d563a1 100644
              uv.y0 = 0x20;
              uv.x0 = 0;
              uv.x1 = 0x100;
-@@ -1768,6 +2666,9 @@ void Option_Draw(void) {
+@@ -1768,6 +2715,9 @@ void Option_Draw(void) {
              break;
      }
  
@@ -3799,7 +3848,7 @@ index d89aefe..8d563a1 100644
      /* the two-way picker's captions */
      if (gOption->picker == 4 || gOption->picker == 2) {
          baseY = 0;
-@@ -1823,6 +2724,9 @@ void Option_Draw(void) {
+@@ -1823,6 +2773,9 @@ void Option_Draw(void) {
              Flash_ClipSetFlags(flash, &ref, 2, 0);
          }
      }
@@ -3809,7 +3858,7 @@ index d89aefe..8d563a1 100644
  
      /* the volume window: ten numbered plates per volume */
      for (i = 0; i < 3; i++) {
-@@ -1989,7 +2893,8 @@ void Option_Draw(void) {
+@@ -1989,7 +2942,8 @@ void Option_Draw(void) {
      IconWin_Draw();
      if(gOption->page==1 && gOption->cursor==OPT_ITEM_TAG_HUD && gOption->state==OPT_ITEM_SCREEN)
          TagHudScreen_Description();
@@ -3819,7 +3868,7 @@ index d89aefe..8d563a1 100644
      ColorFade_Draw();
      if (gOption->mcBusy) {
          gOption->mcBusy = McFlow_Update();
-@@ -2014,6 +2919,10 @@ void Option_PlateGoto(s32 unused, s32 clip, char *label) {
+@@ -2014,6 +2968,10 @@ void Option_PlateGoto(s32 unused, s32 clip, char *label) {
  
      switch (clip) {
          case OPT_CLIP_ROW:
@@ -3830,7 +3879,7 @@ index d89aefe..8d563a1 100644
              sprintf(name, "mc_menu_plate_%d", gOption->cursor);
              break;
          case OPT_CLIP_ROW_SCREEN:
-@@ -2178,6 +3087,13 @@ void Option_UpdateReset(void) {
+@@ -2178,6 +3136,13 @@ void Option_UpdateReset(void) {
                  if (!(gSaveData->flags & 4)) {
                      gSaveData->flags |= 4;
                  }
@@ -3844,7 +3893,7 @@ index d89aefe..8d563a1 100644
                  for (i = 0; i < 2; i++) {
                      gSaveData->keyEdit[i][0] = 2;
                      gSaveData->keyEdit[i][1] = 1;
-@@ -2187,6 +3103,10 @@ void Option_UpdateReset(void) {
+@@ -2187,6 +3152,10 @@ void Option_UpdateReset(void) {
                      gSaveData->keyEdit[i][5] = 5;
                      gSaveData->keyEdit[i][6] = 6;
                      gSaveData->keyEdit[i][7] = 7;
@@ -3855,7 +3904,7 @@ index d89aefe..8d563a1 100644
                  }
              }
              gOption->resetStep = 3;
-@@ -2275,6 +3195,12 @@ void Option_OnSaved(void) {
+@@ -2275,6 +3244,12 @@ void Option_OnSaved(void) {
  /* Frees the screen. */
  void Option_Term(void) {
      s32 i;

@@ -113,10 +113,12 @@ static int bt4_ready(const char **why) {
         *why = "this package has no BT4 program";
         return 0;
     }
-    if (!(exists("ux0:data/bt3/bt4/SLUS_219.78") && exists("ux0:data/bt3/bt4/BIN/DBZ4.BIN"))) {
+    if (!(exists("ux0:data/bt3/bt4/SLUS_219.78") && exists("ux0:data/bt3/bt4/BIN/DBZ4.BIN")) &&
+        !(exists("ux0:data/bt3/bt4/es/SLUS_219.78") && exists("ux0:data/bt3/bt4/es/BIN/DBZ4.BIN"))) { /* (es: the Spanish release) */
         extern int Vita_IsoFind(const char *dir, const char *file, int keep, char *out, int size, int *seen);
         char iso[300];
-        if (!Vita_IsoFind("ux0:data/bt3/bt4", "BIN/DBZ4.BIN", 0, iso, sizeof(iso), NULL)) { /* (or its .iso: vita_iso.c) */
+        if (!Vita_IsoFind("ux0:data/bt3/bt4", "BIN/DBZ4.BIN", 0, iso, sizeof(iso), NULL) &&
+            !Vita_IsoFind("ux0:data/bt3/bt4/es", "BIN/DBZ4.BIN", 0, iso, sizeof(iso), NULL)) { /* (or its .iso: vita_iso.c) */
             *why = "copy your BT4 B14 Rev2 disc's .iso (or its SLUS_219.78,\n  BIN and DATA) to ux0:data/bt3/bt4/";
             return 0;
         }
@@ -138,9 +140,74 @@ static void start_bt4(void) {
     psvDebugScreenPrintf("\e[H\e[2J");
 }
 #else
-/* (BT4's program) its first pictures are up: it got going (the BT3 program's guard, above) */
-void Vita_Bt4Started(void) {
+/* BT4's language (Vita Settings > Language, src/menu/menu_x_c.c): its English or its Spanish release (vita_main.c
+   find_disc: the English one in ux0:data/bt3/bt4, the Spanish one in ux0:data/bt3/bt4/es). The choice is kept in
+   bt3_settings.txt (bt4lang= 0 English, 1 Spanish) only once the game got going in it: until then it is tried, from
+   lang_try.txt ("n1": the next start tries Spanish; "s1": this start is trying it). A try that did not get going is
+   dropped at the next start, which is in the language kept. */
+#define BT4_LANG_TRY "ux0:data/bt3/bt4/lang_try.txt"
+extern int Port_Setting(const char *name, int def);
+extern void Port_SettingSave(const char *name, int value);
+extern void Port_SettingsWrite(void);
+
+static int read_try(char *state) {
+    char b[4] = {0};
+    SceUID fd = sceIoOpen(BT4_LANG_TRY, SCE_O_RDONLY, 0);
+    if (fd < 0) {
+        return -1;
+    }
+    sceIoRead(fd, b, sizeof(b) - 1);
+    sceIoClose(fd);
+    *state = b[0];
+    return b[1] == '1' ? 1 : b[1] == '0' ? 0 : -1;
+}
+
+/* (vita_main.c find_disc) the language to start in: 0 English, 1 Spanish (-1: none chosen yet) */
+int Vita_Bt4LangStart(void) {
+    char state = 0;
+    int lang = read_try(&state);
+    if (lang >= 0 && state == 'n') {
+        write_text(BT4_LANG_TRY, lang ? "s1" : "s0");
+        Vita_Log("vita: BT4 in %s, as chosen in the options (kept once the game gets going)\n", lang ? "Spanish" : "English");
+        return lang;
+    }
+    if (lang >= 0) {
+        sceIoRemove(BT4_LANG_TRY);
+        Vita_Log("vita: BT4 in %s did not get going the last time: the language kept instead\n", lang ? "Spanish" : "English");
+    }
+    return Port_Setting("bt4lang", -1);
+}
+
+/* (Vita Settings > Language) the game started again in `lang`; returns only when it could not be */
+void Vita_Bt4LangSwitch(int lang) {
+    int r;
+    write_text(BT4_LANG_TRY, lang ? "n1" : "n0");
+    write_text(BT4_STARTING, "1");
+    Vita_Log("vita: the options chose BT4 in %s: the game starts again\n", lang ? "Spanish" : "English");
+    sceKernelDelayThread(100000);
+    r = sceAppMgrLoadExec(BT4_PROGRAM, NULL, NULL);
+    sceIoRemove(BT4_LANG_TRY);
     sceIoRemove(BT4_STARTING);
+    Vita_Log("vita: BT4 could not be started again (%08x)\n", (unsigned)r);
+}
+
+/* (BT4's program) its first pictures are up: it got going (the BT3 program's guard, above); a language being tried
+   is kept */
+void Vita_Bt4Started(void) {
+    char state = 0;
+    int lang = read_try(&state);
+    sceIoRemove(BT4_STARTING);
+    if (lang >= 0 && state == 's') {
+        extern int Vita_Spanish(void);
+        sceIoRemove(BT4_LANG_TRY);
+        if (lang == Vita_Spanish()) {
+            Port_SettingSave("bt4lang", lang);
+            Port_SettingsWrite();
+            Vita_Log("vita: BT4 got going in %s: kept\n", lang ? "Spanish" : "English");
+        } else { /* (that release is not there: the other one started) */
+            Vita_Log("vita: BT4 was to start in %s, but that release is not there: not kept\n", lang ? "Spanish" : "English");
+        }
+    }
 }
 #endif
 

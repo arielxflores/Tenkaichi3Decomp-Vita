@@ -1182,7 +1182,11 @@ static int find_below(const char *dir, int depth, char *out, size_t size) {
     while (!found && sceIoDread(d, &e) > 0) {
         char sub[300];
         if (!SCE_S_ISDIR(e.d_stat.st_mode) || e.d_name[0] == '.' || strcasecmp(e.d_name, "saves") == 0 ||
-            strcasecmp(e.d_name, "shcache") == 0 || strcasecmp(e.d_name, "mods") == 0 || strcasecmp(e.d_name, "dump") == 0) {
+            strcasecmp(e.d_name, "shcache") == 0 || strcasecmp(e.d_name, "mods") == 0 || strcasecmp(e.d_name, "dump") == 0
+#ifdef BT3_BT4
+            || strcasecmp(e.d_name, "es") == 0 /* (BT4's Spanish release: find_disc) */
+#endif
+            ) {
             continue;
         }
         snprintf(sub, sizeof(sub), "%s/%s", dir, e.d_name);
@@ -1191,6 +1195,35 @@ static int find_below(const char *dir, int depth, char *out, size_t size) {
     sceIoDclose(d);
     return found;
 }
+
+#ifdef BT3_BT4
+/* BT4's two releases: the English one in ux0:data/bt3/bt4 (its files or its .iso, as BT3's disc is found), the Spanish
+   one in ux0:data/bt3/bt4/es (the same way); the language chosen (Vita Settings > Language: vita_start.c
+   Vita_Bt4LangStart) picks which, the other when that one is not there. vita_bt4.c tells from the programs which
+   release it is (and so the language of the port's own text, vita_lang.c). */
+#define BT4_ES_DIR HOME "/es"
+static int sBt4There[2]; /* the English release is there, the Spanish one */
+
+int Vita_Bt4LangThere(int lang) {
+    return sBt4There[lang != 0];
+}
+
+static int bt4_es_find(char *out, size_t size, int keep) {
+    extern int Vita_IsoFind(const char *dir, const char *file, int keep, char *out, int size, int *seen);
+    if (has_slus(BT4_ES_DIR)) {
+        snprintf(out, size, "%s", BT4_ES_DIR);
+        return 1;
+    }
+    return Vita_IsoFind(BT4_ES_DIR, VITA_PROGRAM, keep, out, (int)size, NULL);
+}
+
+static int bt4_en_there(void) {
+    extern int Vita_IsoFind(const char *dir, const char *file, int keep, char *out, int size, int *seen);
+    char found[256];
+    return has_slus(HOME) || find_below(HOME "/disc", 1, found, sizeof(found)) || find_below(HOME "/disk", 1, found, sizeof(found)) ||
+           find_below(HOME, 2, found, sizeof(found)) || Vita_IsoFind(HOME, VITA_PROGRAM, 0, found, sizeof(found), NULL);
+}
+#endif
 
 static void find_disc(void) {
     extern int Vita_IsoMount(const char *path);
@@ -1203,6 +1236,21 @@ static void find_disc(void) {
     if (len > 4 && strcasecmp(gVitaDisc + len - 4, ".iso") == 0 && !Vita_IsoMount(gVitaDisc)) { /* (disc= naming the image) */
         logf_("vita: %s is not a disc image that can be read\n", gVitaDisc);
     }
+#ifdef BT3_BT4
+    if (strcmp(gVitaDisc, VITA_DISC_DEFAULT) == 0) {
+        extern int Vita_Bt4LangStart(void);
+        int lang = Vita_Bt4LangStart();
+        sBt4There[0] = bt4_en_there();
+        sBt4There[1] = bt4_es_find(found, sizeof(found), 0);
+        logf_("vita: BT4's English release %s, its Spanish release %s; the language chosen: %s\n", sBt4There[0] ? "there" : "not there",
+              sBt4There[1] ? "there (" BT4_ES_DIR ")" : "not there", lang == 1 ? "Spanish" : lang == 0 ? "English" : "none yet");
+        if (sBt4There[1] && (lang == 1 || !sBt4There[0]) && bt4_es_find(found, sizeof(found), 1)) {
+            logf_("vita: the disc's files are those of BT4's Spanish release: %s\n", found);
+            snprintf(gVitaDisc, sizeof(gVitaDisc), "%s", found);
+            return;
+        }
+    }
+#endif
     if (has_slus(gVitaDisc)) {
         return;
     }

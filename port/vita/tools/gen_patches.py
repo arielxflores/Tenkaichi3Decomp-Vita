@@ -1,12 +1,14 @@
 """Builds the art changes for the Vita (port/vita/vita_optart.h) from the USA disc's files:
 
-    python3 gen_patches.py <folder> <out.h> [bt4]
+    python3 gen_patches.py <folder> <out.h> [bt3|bt4] [es]
 
 <folder> holds tools/ (this folder) and what the changes apply to: opt_s1.bin (file 454, section 1 unpacked: the
 options screen), vs_s1.bin (file 449, section 1 unpacked: the versus menu) and boot.bin (file 5, the boot file:
 its member 8 holds the button icons of the game's text). With bt4: the same files of the BT4 B14 Rev2 disc (the
 options screen is its pzs4us1.afs member 453, the versus menu member 448's first section), whose lettering is the
-mod's own: vita_optart_bt4.h, for the BT4 program; its sound page keeps Change Voice."""
+mod's own: vita_optart_bt4.h, for the BT4 program; its sound page keeps Change Voice. With es: the same of a Spanish disc
+(BT4: Team BT4's Spanish release), the new lettering in Spanish and the tables' names ending in Es (kOptArtRunsEs ...):
+vita_optart_bt4es.h, which vita_optart.c takes for a disc whose art is that one."""
 import sys, struct, numpy as np
 sys.path.insert(0, sys.argv[1] + '/tools')
 from bt3tex import *
@@ -17,6 +19,16 @@ import vita_icons
 
 base = sys.argv[1]
 BT4 = len(sys.argv) > 3 and sys.argv[3] == 'bt4'
+ES = len(sys.argv) > 4 and sys.argv[4] == 'es'
+# the new lettering in Spanish (es): the words the Vita adds; the rest as in English
+TR_ES = {'Vita Settings': 'Ajustes Vita', 'Controller Settings': 'Ajustes del Mando', 'Language': 'Idioma',
+         'Rear': 'Trasero', 'Front': 'Frontal', 'Touch': 'T\u00e1ctil', 'Clashes': 'Choques', '2nd Pad': 'Mando 2',
+         'Square': 'Cuadrado', 'Stick': 'Palanca', 'Unlock All': 'Desbloquear', 'Quick Start': 'Inicio R\u00e1pido',
+         'Quick Save': 'Guardado R\u00e1pido', 'Tech Fixes': 'Arreglos', 'Z Counter': 'Contador Z',
+         'Bombardment': 'Bombardeo', 'Game': 'Juego', 'Screen': 'Pantalla', 'Multiplayer': 'Multijugador',
+         'Two Controllers': 'Dos Mandos', 'Ad Hoc: Host': 'Ad Hoc: Crear', 'Ad Hoc: Join': 'Ad Hoc: Unirse'}
+def T(text):
+    return TR_ES.get(text, text) if ES else text
 u = open(base + '/opt_s1.bin', 'rb').read()
 packs = {'opt': u, 'vs': open(base + '/vs_s1.bin', 'rb').read(), 'boot': open(base + '/boot.bin', 'rb').read()}
 
@@ -58,6 +70,7 @@ def label_job(section, entry_i, jobs, style_cell, pack='opt', base_sec=None, kee
     clear = int(np.argmin(colors[:, 3].astype(int) * 1000 + colors[:, :3].astype(int).sum(1)))
     w = t['w']
     for cell, text, x, align in jobs:
+        text = T(text)
         g = render(text, 18, x, 22, w, 32, fill, outl, sh, tracking=0.5, align=align)
         if maxw is not None:
             cols = np.where(g[..., 3].max(0) > 40)[0]
@@ -161,7 +174,13 @@ def runs_of(patches):
     return out
 
 def emit(lines, out, macro, name):
-    """the C tables of one screen: kXxxRuns, kXxxBytes, kXxxSections"""
+    """the C tables of one screen: kXxxRuns, kXxxBytes, kXxxSections (nothing to change: one section of no runs)"""
+    if not out:
+        lines.append(f'static const uint32_t k{name}Runs[][3] = {{{{0, 0, 0}}}}; /* (nothing changed) */')
+        lines.append(f'static const uint8_t k{name}Bytes[1] = {{0}};')
+        lines.append(f'static const struct {{ int section, first, count; uint32_t hash; }} k{name}Sections[] = {{{{0, 0, 0, 0x811C9DC5u}}}};')
+        print(name, 'nothing changed')
+        return
     blob = bytearray()
     tab = []
     for section, runs in out:
@@ -186,7 +205,8 @@ def emit(lines, out, macro, name):
 # the options screen. The controller page's second row: Vibration -> Vita Settings; the sound page's third row:
 # Change Voice -> Language (the text's language and the voices: Option_VitaLang) (normal and highlighted strips)
 for e in (1, 3):
-    label_job(16, e, [(128, 'Vita Settings', 4, 'left')] + ([] if BT4 else [(64, 'Language', 4, 'left')]), 128)
+    label_job(16, e, [(128, 'Vita Settings', 4, 'left')] + ([] if BT4 else [(64, 'Language', 4, 'left')]) +
+              ([(96, 'Controller Settings', 4, 'left')] if ES else []), 128)
 # the top page's second row: Screen -> Vita Settings (the Screen page is opened from Vita Settings' third page)
 for e in (0, 2):
     label_job(16, e, [(32, 'Vita Settings', 4, 'left')], 32)
@@ -213,7 +233,7 @@ def art_job(section, entry_i, y0, img):
     previews.append(colors[idx])
     patches.append((section, sec, new))
 
-if True:
+if not ES:  # (Spanish: the top page's Mando and the title stay; Tipo de Control -> Ajustes del Mando, above)
     # Controls: the top page's fourth row, Controller -> Controls; the controller page's first row, Control Type ->
     # Controller Settings; the controller page's title, Controller -> Controls. Made of the disc's own letters
     # (glyphart.py): the rows' from Controller, Screen, BGM Test (BT4: Screen Adjust), Vibration and Change Voice,
@@ -281,9 +301,10 @@ for e in (1, 3):
                               (160, 'Mods', 128.5, 'center'), (192, 'Square', 128.5, 'center'), (224, 'Stick', 128.5, 'center')],
                       64, base_sec=cap_v, keep=False, maxw=CAP_W)
 cap_l = bytearray(cap_t)
-for e in (1, 3):
-    cap_l = label_job(14, e, [(0, 'Espa\u00f1ol', 128.5, 'center'), (32, 'Deutsch', 128.5, 'center'),
-                              (128, 'Fran\u00e7ais', 128.5, 'center'), (160, 'Italiano', 128.5, 'center')],
+for e in (1, 3):  # (BT4: its Language row's two, the English and the Spanish release)
+    cap_l = label_job(14, e, [(0, 'English', 128.5, 'center'), (32, 'Espa\u00f1ol', 128.5, 'center')] if BT4 else
+                      [(0, 'Espa\u00f1ol', 128.5, 'center'), (32, 'Deutsch', 128.5, 'center'),
+                       (128, 'Fran\u00e7ais', 128.5, 'center'), (160, 'Italiano', 128.5, 'center')],
                       64, base_sec=cap_l, keep=False, maxw=CAP_W)
 # a fourth: Vita Settings' second page (Unlock All, Quick Start, Quick Save, Tech Fixes); a fifth: the Tech Fixes' two (Z Counter, Bombardment). Normal and Custom stay in every set (the control
 # type's picker, whichever set was put in last).
@@ -306,7 +327,7 @@ for e in (1, 3):
 cap_h = bytearray(cap_t)
 for e in (1, 3):
     cap_h = label_job(14, e, [(0, 'Game', 128.5, 'center'), (32, 'Unlock All', 128.5, 'center'), (128, 'Screen', 128.5, 'center'),
-                              (192, 'BT3', 128.5, 'center'), (224, 'BT4', 128.5, 'center')],
+                              (160, 'Language', 128.5, 'center'), (192, 'BT3', 128.5, 'center'), (224, 'BT4', 128.5, 'center')],
                       64, base_sec=cap_h, keep=False, maxw=CAP_W)
 def differs(k):
     return k < len(cap_t) and any(cap_t[k] != c[k] for c in (cap_v, cap_l, cap_x, cap_y, cap_g, cap_h))
@@ -324,7 +345,7 @@ while i < len(cap_t):
 
 # the versus menu: the second plate, 1P VS 2P -> Multiplayer (the plates' strip, plain and highlighted)
 patches, previews = [], []
-for e in (0, 1):
+for e in (0, 1) if not ES else ():  # (the Spanish disc's own reads Multijugador)
     label_job(8, e, [(32, 'Multiplayer', 4, 'left')], 32, pack='vs')
 out_vs = runs_of(patches)
 
@@ -403,7 +424,13 @@ for e in (2, 3):
 lines += ['', '/* The button icons of the game\'s text (file 5, the boot file, member 8): L3 and R3 drawn as plates like L1, not as',
           '   the PS2\'s sticks, and held down the same. */']
 emit(lines, out_icons, 'ICONART_S', 'IconArt')
-open(sys.argv[2], 'w').write('\n'.join(lines) + '\n')
+text = '\n'.join(lines) + '\n'
+if ES:
+    import re
+    text = re.sub(r'\b(k(?:OptArt|OptCap|VsArt|VsNet|IconArt)\w*?)(\[|\b)', r'\1Es\2', text)
+    text = re.sub(r'\b(OPTART|VSART|ICONART)_S(\d+)', r'\1_ES_S\2', text)
+    text = text.replace("from the USA disc's files", "from the Spanish disc's files")
+open(sys.argv[2], 'w').write(text)
 
 # previews: decode the patched sections again
 vis = []

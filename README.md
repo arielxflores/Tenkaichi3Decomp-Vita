@@ -208,7 +208,17 @@ ux0:data/bt3/bt4/DATA/PZS4US0.AFS     (to PZS4US3.AFS, and the other files of th
 Then choose it in the game, **Options → Vita Settings → Game → BT4** (on the third page: Down from the lower row,
 twice), or hold SELECT while the game starts and choose **Game** in the [start menu](#start-menu). The
 way back is the same plate in BT4's own Vita Settings, or the start menu. BT4 keeps its own saves,
-settings and log in `ux0:data/bt3/bt4/`. The PC version's online play, Tag Team battles and its other PC features are
+settings and log in `ux0:data/bt3/bt4/`.
+
+**BT4 in Spanish**: Team BT4's Spanish release has the game's text and voices in Spanish. To keep both releases, put
+the English one in `ux0:data/bt3/bt4/` as above and the Spanish one in `ux0:data/bt3/bt4/es/` (its `.iso`, or its
+`SLUS_219.78`, `BIN` and `DATA`). Then choose in BT4's **Options → Vita Settings → Language** (second page):
+**English** or **Español**, CROSS twice, and the game starts again in it. The options' Vita rows, Vita Settings'
+guide lines and the versus menu's Multiplayer are in Spanish too. With only one of the two releases on the memory
+card, BT4 starts in that one. If the game does not get going in the language just chosen, the next start goes back
+to the one before.
+
+The PC version's online play, Tag Team battles and its other PC features are
 not part of the Vita's. Should BT4 crash or freeze before its first pictures, the next start says so and starts BT3
 instead (`ux0:data/bt3/bt4/log.txt` and `crash.txt` tell what happened: please attach them to a report).
 
