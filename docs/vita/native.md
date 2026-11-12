@@ -32,10 +32,11 @@ group remembering its texture (never found the same), the sea of Kame House in a
 game thread, which has room: 35-40% busy). Next: textures bound by their names without GS memory's emulation in
 between (the ~30,000 texture lookups every two seconds), then the calls sent straight to the drawing thread.
 
-## Experiments (branch `native-next`, off, not yet run on a console)
+## The steps after the first ones (2026-11-12)
 
-The four steps left after the first ones, written to be measured with `port/vita/tools/settings/native_next_ab.txt`
-(each with the value 2: the soak's B battles have them, its A battles not):
+Measured on the console with `port/vita/tools/settings/native_next_ab.txt` (each with the value 2: the soak's B
+battles have them, its A battles not; [status.md](status.md)). `texbind` and `seavtx` on by default, `esdirect` off
+(no gain measured), `dpjoin` removed:
 
 | Setting | What | Where |
 |---|---|---|

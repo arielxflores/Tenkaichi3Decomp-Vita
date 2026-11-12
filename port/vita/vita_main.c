@@ -1547,13 +1547,13 @@ static void read_settings(void) {
         } else if (strcmp(line, "updest") == 0) { /* native textures, step 2: each upload's destination remembers what it left there; the texture keys take the rectangle's number from it: 0 off, 1 on (default), 2 in the soak's B battles (gs_core.c Gs_DestRect) */
             extern int gVitaUpDest;
             gVitaUpDest = atoi(eq);
-        } else if (strcmp(line, "seavtx") == 0) { /* the surfaces' (the sea's) corners tested and projected once a frame each, not once for each of their triangles: 0 off (default), 1 on, 2 in the soak's B battles (src/battle/eft_c.c sea_tri) */
+        } else if (strcmp(line, "seavtx") == 0) { /* the surfaces' (the sea's) corners tested and projected once a frame each, not once for each of their triangles: 0 off, 1 on (default), 2 in the soak's B battles (src/battle/eft_c.c sea_tri) */
             extern int gVitaSeaVtx;
             gVitaSeaVtx = atoi(eq);
         } else if (strcmp(line, "esdirect") == 0) { /* the seam's call packets of the models' parts done as what they are (their constants into VU memory, the program's registers) instead of read code by code: 0 off (default), 1 on, 2 in the soak's B battles (gs_core.c es_direct) */
             extern int gVitaEsDirect;
             gVitaEsDirect = atoi(eq);
-        } else if (strcmp(line, "texbind") == 0) { /* native textures, step 3: textures bound by the names of what their destinations hold, a destination unbound at another's write: 0 off (default), 1 on, 2 in the soak's B battles (gs_core.c Gs_TexNames, vita_vgl.c texture_get_k) */
+        } else if (strcmp(line, "texbind") == 0) { /* native textures, step 3: textures bound by the names of what their destinations hold, a destination unbound at another's write: 0 off, 1 on (default), 2 in the soak's B battles (gs_core.c Gs_TexNames, vita_vgl.c texture_get_k) */
             extern int gVitaTexBind;
             gVitaTexBind = atoi(eq);
         } else if (strcmp(line, "updestlog") == 0) {

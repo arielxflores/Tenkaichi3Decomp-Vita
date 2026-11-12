@@ -1372,8 +1372,8 @@ static inline void EftV_Scale3(f32 *o, f32 s) {
    projected six times. A mesh's corners are now numbered once (the same place, texture place and colour: the same
    corner), and in a frame each corner is tested and projected once; a triangle whose three corners lie inside the
    planes is queued from them, as EftSurf_DrawPolyOtClipped / EftSurf_DrawTriOtClipped would queue it unclipped. A
-   triangle with a corner outside goes their way, clipped. 0 off (default), 1 on, 2 in the soak's B battles. ---- */
-int gVitaSeaVtx = 0;
+   triangle with a corner outside goes their way, clipped. 0 off, 1 on (default), 2 in the soak's B battles. ---- */
+int gVitaSeaVtx = 1;
 unsigned gVitaSeaVtxN[4]; /* for the log: triangles queued from the corners worked out once, corners worked out, corners found worked out, meshes numbered */
 typedef struct SeaV { s32 scr[4]; Vec4 st; u32 stamp; s32 inside; s32 pad[2]; } __attribute__((aligned(16))) SeaV;
 typedef struct SeaMesh { EftSurfMesh *mesh; struct EftSurfTri *tris; s32 triCount, nv; u16 *idx; SeaV *v; void *raw; } SeaMesh;

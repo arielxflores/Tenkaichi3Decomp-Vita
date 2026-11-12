@@ -29,7 +29,10 @@ Faster
   there; the kept parts are drawn with what does not change worked out once; the effects' particles are read as
   runs. On three heavy stages the list reader works a third of what it did and the drawing thread about two thirds:
   the pictures a second were at the 30 cap already, what this gives is room in the busy moments and for a console
-  without the fourth core. Development build: `native=0`, `nativetex=0`, `updest=0`, `dpfast=0`, `fxrun=0` go back.
+  without the fourth core. The textures are then found by the names of what their uploads left (a quarter less time
+  in the texture lookups), and the sea's corners are worked out once a frame each instead of once for each triangle
+  that has them. Development build: `native=0`, `nativetex=0`, `updest=0`, `dpfast=0`, `fxrun=0`, `texbind=0`,
+  `seavtx=0` go back.
 
 New
 

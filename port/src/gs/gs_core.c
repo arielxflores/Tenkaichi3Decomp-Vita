@@ -1119,7 +1119,7 @@ int Gs_DestRect(uint32_t bp, uint32_t bw, uint32_t psm, uint32_t w, uint32_t h, 
    (sBind1): the names of what they hold (their rectangles' numbers, rect) are the texture's, and the renderer finds
    its texture by these names (vita_vgl.c texture_get_k, sBind2), checked the long way every 64th time. A texture
    that lies in no destination, or one unbound, is found the long way as before. ---- */
-int gVitaTexBind = 0; /* 0 off (default), 1 on, 2 in the soak's B battles */
+int gVitaTexBind = 1; /* 0 off, 1 on (default), 2 in the soak's B battles */
 int Gs_TexBindOn(void) {
     extern int gVitaAbSide;
     return dest_on() && (gVitaTexBind == 2 ? gVitaAbSide == 1 : gVitaTexBind != 0);
@@ -5350,8 +5350,8 @@ static void frame_tail(void) {
    (src/sys/vu1_packet.c Vu1Pkt_CallProg0..2: in the DMA tag FLUSHE and UNPACK V4-32 of n quadwords at 0, then the n
    quadwords, MSCALF, BASE, OFFSET and the seam's MARK) is done as what it is: its constants copied into VU memory, the
    program's call and its double buffer's registers set, the MARK taken, instead of the VIF codes read one by one. The
-   call itself then goes the seam's way (es_find: sent from its kept copy) as before. 0 off (default), 1 on, 2 in the
-   soak's B battles. ---- */
+   call itself then goes the seam's way (es_find: sent from its kept copy) as before. 0 off (default: no gain measured
+   on the console, 2026-11-12), 1 on, 2 in the soak's B battles. ---- */
 int gVitaEsDirect = 0;
 unsigned gVitaEsDirectN[2];     /* for the log: call packets the direct way; -  */
 static int es_direct_on(void) {
