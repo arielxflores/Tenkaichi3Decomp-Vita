@@ -1,6 +1,6 @@
 # Changes (PS Vita port)
 
-## 1.2 (in progress)
+## 1.2
 
 New
 
@@ -57,7 +57,8 @@ New
   (`port/vita/vita_optart_bt4.h`); before, BT4's Vita Settings plates showed the PS2's captions.
 - **Vita Settings' page number** ("Page 1/3") at the top right while it is open, on a plate of its own like the
   pickers', in BT3 and BT4.
-- **The Options screen's rows** are Vita Settings, Controls, Sound, Save/Load (BT3 and BT4).
+- **The Options screen's rows** are Vita Settings, Controls, Sound, Save/Load (BT3 and BT4); in BT3 the Sound row
+  reads Language/Sound (Idioma/Sonido) and its page opens on Language.
 - **Controls**: the Options screen's Controller row and its page's title read Controls, the page's Control Type row
   reads Controller Settings, in the disc's own lettering (BT3 and BT4), and Dende's lines for the two trade
   places to match.
@@ -76,7 +77,8 @@ New
 - A crash writes `ux0:data/bt3/crash.txt` and closes the game, instead of leaving it frozen (with the kubridge
   plugin, which most setups have).
 - The log has a line a minute with the picture rate and the memory in use, for bug reports.
-- `bt3.txt` `fightres=720` draws the fights at 720 x 408 instead of 640 x 368 (sharper; about the same speed).
+- `bt3.txt` `fightres=720` keeps the fights at 720 x 408 whatever the scene (`fightres=640` at 640 x 368; by
+  default the size follows the graphics chip's time, see Sharper fights).
 - `bt3.txt` `weather=light` / `weather=off` and `moveblur=0` (from the PC version): the haze of big see-through
   sprites some stages have, and the scenery's blur while the view turns fast, thinned out or left out (lighter work
   for the graphics chip on those stages).
