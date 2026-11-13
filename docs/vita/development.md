@@ -30,6 +30,9 @@ all of them. The full list, each with a comment, is `read_settings` in `port/vit
 | `logsplit=<KB>` | The log in parts of that size (`log-part2-vgl.txt`, ...) |
 | `wide=0` | The PS2's 4:3 picture (also in the release) |
 | `msaa=0/2/4` | The GPU's multisampling |
+| `fightres=auto/640/720/960` | The fights' size: by the chip's time, 720 x 408 or 640 x 368 (`auto`, the default; `vgl: the fight at ...` in the log), or always that size |
+| `fxhalf=0` | The full-screen passes (the outline, the table passes, the glow) in full precision, not half |
+| `shbank=1` | Every shader the run compiles or reads from the card added to `ux0:data/bt3/shbank.bin` (BT4's program: `shbank-bt4.bin`); `port/vita/tools/shbank.py` makes them into `port/vita/shbank.bin`, the bank the VPK carries (`app0:shbank.bin`: the shaders read from it, not compiled) |
 | `touchlr=rear/front/off`, `touchlog=1` | Where L2, R2, L3 and R3 are touched, all four (over the player's Vita Settings → Touch); the touches in the log |
 | `soak=1` | With `mode=demo`: duels and three-against-three team battles one after another without end (`port/src/headless.c`), to find what goes wrong after a long time |
 | `perf=0` | No processor counters (libperf), to measure the speed as the release has it |

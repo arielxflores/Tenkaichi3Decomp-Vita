@@ -19,7 +19,8 @@
  * Conventions: GS alpha 0x80 is 1.0 (vertex alpha / 128, texture alpha doubled when decoded). A vertex is given
  * to the chip in clip space with w = 1 / Q, so that texture coordinates are interpolated with perspective as the
  * GS does with S, T, Q. GS depth grows towards the viewer: depth = z / zmax with GEQUAL / GREATER.
- * The shaders are compiled at run time (libshacccg.suprx) once and kept in ux0:data/bt3/shcache.
+ * The shaders come from the bank in the VPK (app0:shbank.bin), else compiled at run time (libshacccg.suprx) once and
+ * kept in ux0:data/bt3/shcache (sh_cached).
  */
 #include <stdio.h>
 #include <stdint.h>
@@ -73,10 +74,27 @@ int gVitaPbufMb;  /* bt3.txt pbuf=<MB>: the parameter buffer, 0 vitaGL's default
    sizes): the same picture, its edges and textures sharper, for the graphics chip's time (the pixels: 1.25 and 2.2
    times as many). The effects that sample neighbouring pixels (the outline, the glow's first pass) keep their width
    on the screen. */
-int gVitaFightW = 640;
+int gVitaFightW; /* (bt3.txt fightres=<size>; 0: auto) */
 static int sFightH = 368;
-#define SCR_W_FIGHT gVitaFightW
-#define SCR_H_FIGHT sFightH
+/* The fights' size chosen as they go (bt3.txt fightres=auto, the default; Killzone: Mercenary's dynamic resolution,
+   Digital Foundry's "Inside Killzone: Mercenary"): 720 x 408 while the chip has the time for it, 640 x 368 while it
+   has not. At 640 x 368 the chip spends 7 to 16 ms on most stages' pictures of the 33 ms the game gives each (the
+   log's chip time per picture, build 280), and at 720 x 408 about 1.45 times that (stage 12: 11.0 against 15.9 ms):
+   the fights sharper with no picture lost. The chip's time of each picture (pace_cb) decides, the change made at a
+   picture's end as the menus' (swap_sized): up when what 720 x 408 would take stays under six tenths of the
+   picture's time for three seconds, down at once when a picture at 720 x 408 takes over eight and a half tenths of
+   it three times; after a step down the next step up waits longer each time in that fight (5 s, 10 s, 20 s ...).
+   Each fight begins at 640 x 368 (the start's new textures). Only with the display memory made at 960 x 544 (the
+   menus at their size, no multisampling). 960 x 544 is not chosen so: its chip time is out of proportion (stage 3:
+   8 ms at 640 x 368, 56 at 960 x 544). bt3.txt fightres=640, 720 or 960: that size always. */
+int gVitaFightAuto = 1;
+static volatile int sFightHi;   /* (auto) the fights at 720 x 408 now */
+static int sFightHiSaid;        /* (for the log, from the drawing thread) */
+static unsigned sFightGood, sFightBad, sFightSettle, sFightDowns, sFightGpuLast;
+static unsigned long long sFightHold; /* (process time) no step up before */
+unsigned gVitaFightRes[3];      /* for the log: steps up, steps down, pictures drawn at 720 x 408 */
+#define SCR_W_FIGHT (gVitaFightAuto && sFightHi ? 720 : gVitaFightW)
+#define SCR_H_FIGHT (gVitaFightAuto && sFightHi ? 408 : sFightH)
 #define SCR_W_BASE 640 /* (the width the effects' pixel distances were made for) */
 #define SCR_W_MENU 960
 #define SCR_H_MENU 544
@@ -436,11 +454,109 @@ typedef struct Variant { GLuint prog; GLint test, tex, u[6]; } Variant;
 static int sNoProj = 1;
 static Variant sVar[5][2048]; /* (+ 1024 the colour scaled by its own alpha here, blended with factor one) */  /* (+ 128 a picture drawn here as the texture, its alpha as stored; + 256 and without its alpha, TCC 0) */
 static GLuint sFragVar[2048]; /* (f + 8: the texture read straight from the coordinates, not divided by Q: the GPU profile) */
-/* the pixel shaders compiled once and kept on the memory card (ux0:data/bt3/shcache, by a hash of their
-   source): the shader compiler takes ~0.2 s a program, 140 programs at the start; read back, a few ms */
+/* The shaders, compiled once (the shader compiler takes ~0.2 s a program, 140 programs at the start) and then read
+   back in a few ms: first from the bank shipped in the VPK (app0:shbank.bin: every program the game uses, as the
+   Vita's own compiler made them; the idea of Grarak's MH3 port, its "offline shader bank": no compiling at the
+   start, and the compiler, libshacccg.suprx, not needed for those), then from the memory card (ux0:data/bt3/shcache,
+   by a hash of their source), else compiled and kept there. The pixel shaders' variants and, since build 307, the
+   vertex shaders and the effects' too. bt3.txt shbank=1 (the bank's making): every program of the run compiled or
+   read from the card, not the bank, and written to ux0:data/bt3/shbank.bin (BT4's program: shbank-bt4.bin), which
+   tools/shbank.py makes into port/vita/shbank.bin. */
 extern int gVglSafe2;
 static uint32_t sShBin[4096];
-unsigned gVitaShCache[3]; /* for the log: read from the card, compiled and written, compiled (not written) */
+unsigned gVitaShCache[5]; /* for the log: read from the card, compiled and written, compiled (not written), from the bank, written to the bank's file */
+int gVitaShHarvest;       /* bt3.txt shbank=1 */
+typedef struct ShBankEntry { uint64_t h; uint32_t off, size; } ShBankEntry;
+static uint8_t *sBank;
+static ShBankEntry *sBankIx;
+static unsigned sBankN;
+static int sBankTried;
+static void sh_bank_load(void) {
+    SceUID fd;
+    SceOff size;
+    unsigned off, n = 0;
+    sBankTried = 1;
+    if (gVitaShHarvest || (gVglSafe2 & 32768) || (fd = sceIoOpen("app0:shbank.bin", SCE_O_RDONLY, 0)) < 0) {
+        return;
+    }
+    size = sceIoLseek(fd, 0, SCE_SEEK_END);
+    sceIoLseek(fd, 0, SCE_SEEK_SET);
+    if (size < 8 || size > 4 * 1024 * 1024 || (sBank = (uint8_t *)malloc((size_t)size)) == NULL) {
+        sceIoClose(fd);
+        return;
+    }
+    if (sceIoRead(fd, sBank, (SceSize)size) != (int)size || memcmp(sBank, "BT3SHBK1", 8) != 0) {
+        sceIoClose(fd);
+        free(sBank);
+        sBank = NULL;
+        Vita_Log("vgl: the shader bank (app0:shbank.bin) is not one: compiled as before\n");
+        return;
+    }
+    sceIoClose(fd);
+    for (off = 8; off + 12 <= (unsigned)size; n++) { /* entries: hash (8 bytes), size (4), the binary, to 4 bytes */
+        uint32_t sz;
+        memcpy(&sz, sBank + off + 8, 4);
+        if (sz == 0 || off + 12 + sz > (unsigned)size) {
+            break;
+        }
+        off += 12 + ((sz + 3u) & ~3u);
+    }
+    sBankIx = (ShBankEntry *)malloc(sizeof(ShBankEntry) * (n + 1));
+    if (sBankIx == NULL) {
+        free(sBank);
+        sBank = NULL;
+        return;
+    }
+    for (off = 8; sBankN < n; sBankN++) {
+        uint32_t sz;
+        memcpy(&sBankIx[sBankN].h, sBank + off, 8);
+        memcpy(&sz, sBank + off + 8, 4);
+        sBankIx[sBankN].off = off + 12;
+        sBankIx[sBankN].size = sz;
+        off += 12 + ((sz + 3u) & ~3u);
+    }
+    Vita_Log("vgl: the shader bank: %u programs (%u KB)\n", sBankN, (unsigned)(size / 1024));
+}
+/* (bt3.txt shbank=1) a program added to ux0:data/bt3/shbank.bin, once a run (the runs add to it: tools/shbank.py
+   keeps one of each) */
+static void sh_bank_write(uint64_t h, const void *bin, unsigned n) {
+    static uint64_t done[1024];
+    static unsigned doneN;
+    unsigned i;
+    SceUID fd;
+    SceOff at;
+    uint8_t head[12];
+    static const uint8_t kPad[4] = {0, 0, 0, 0};
+    for (i = 0; i < doneN; i++) {
+        if (done[i] == h) {
+            return;
+        }
+    }
+#ifdef BT3_BT4
+    fd = sceIoOpen("ux0:data/bt3/shbank-bt4.bin", SCE_O_WRONLY | SCE_O_CREAT | SCE_O_APPEND, 0777);
+#else
+    fd = sceIoOpen("ux0:data/bt3/shbank.bin", SCE_O_WRONLY | SCE_O_CREAT | SCE_O_APPEND, 0777);
+#endif
+    if (fd < 0) {
+        return;
+    }
+    at = sceIoLseek(fd, 0, SCE_SEEK_END);
+    if (at == 0) {
+        sceIoWrite(fd, "BT3SHBK1", 8);
+    }
+    memcpy(head, &h, 8);
+    memcpy(head + 8, &n, 4);
+    sceIoWrite(fd, head, 12);
+    sceIoWrite(fd, bin, n);
+    if (n & 3u) {
+        sceIoWrite(fd, kPad, 4 - (n & 3u));
+    }
+    sceIoClose(fd);
+    if (doneN < 1024) {
+        done[doneN++] = h;
+    }
+    gVitaShCache[4]++;
+}
 static int sh_cached(GLuint sh, const char *src, GLint len) {
     char path[96];
     uint64_t h = 1469598103934665603ull;
@@ -448,6 +564,9 @@ static int sh_cached(GLuint sh, const char *src, GLint len) {
     GLsizei bl = 0;
     SceUID fd;
     int i;
+    if (len < 0) {
+        len = (GLint)strlen(src);
+    }
     for (i = 0; i < len; i++) {
         h = (h ^ (uint8_t)src[i]) * 1099511628211ull;
     }
@@ -456,7 +575,24 @@ static int sh_cached(GLuint sh, const char *src, GLint len) {
         static int first = 1;
         if (first) {
             first = 0;
-            Vita_Log("vgl: start: the first pixel shader from the card\n");
+            Vita_Log("vgl: start: the first shader from the bank or the card\n");
+        }
+    }
+    if (!sBankTried) {
+        sh_bank_load();
+    }
+    if (sBankN > 0) { /* (the bank: by its hashes, in the order written; a few hundred at most) */
+        unsigned k;
+        for (k = 0; k < sBankN; k++) {
+            if (sBankIx[k].h == h) {
+                glShaderBinary(1, &sh, 0, sBank + sBankIx[k].off, (GLsizei)sBankIx[k].size);
+                glGetShaderiv(sh, GL_COMPILE_STATUS, &ok);
+                if (ok) {
+                    gVitaShCache[3]++;
+                    return 1;
+                }
+                break;
+            }
         }
     }
     sceIoMkdir("ux0:data/bt3/shcache", 0777);
@@ -469,6 +605,9 @@ static int sh_cached(GLuint sh, const char *src, GLint len) {
             glGetShaderiv(sh, GL_COMPILE_STATUS, &ok);
             if (ok) {
                 gVitaShCache[0]++;
+                if (gVitaShHarvest) {
+                    sh_bank_write(h, sShBin, (unsigned)n);
+                }
                 return 1;
             }
         }
@@ -481,6 +620,9 @@ static int sh_cached(GLuint sh, const char *src, GLint len) {
     }
     memset(sShBin, 0, 64);
     vglGetShaderBinary(sh, (GLsizei)sizeof(sShBin), &bl, sShBin);
+    if (gVitaShHarvest && bl > 64 && bl < (GLsizei)sizeof(sShBin)) {
+        sh_bank_write(h, sShBin, (unsigned)bl);
+    }
     if (bl > 64 && bl < (GLsizei)sizeof(sShBin) && (fd = sceIoOpen(path, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0777)) >= 0) {
         int n = sceIoWrite(fd, sShBin, (SceSize)bl);
         sceIoClose(fd);
@@ -706,8 +848,7 @@ static void shader_init(void) {
 
     sNoProj = !(gVglSafe & 8388608);
     src = kVert; len = (GLint)sizeof(kVert) - 1;
-    glShaderSource(vs, 1, &src, &len);
-    glCompileShader(vs);
+    sh_cached(vs, src, len);
     glGetShaderiv(vs, GL_COMPILE_STATUS, &ok);
     if (!ok) {
         log[0] = 0; glGetShaderInfoLog(vs, sizeof(log) - 1, NULL, log); log[sizeof(log) - 1] = 0;
@@ -715,8 +856,7 @@ static void shader_init(void) {
         return;
     }
     src = kFrag; len = (GLint)sizeof(kFrag) - 1; ok = 0;
-    glShaderSource(fs, 1, &src, &len);
-    glCompileShader(fs);
+    sh_cached(fs, src, len);
     glGetShaderiv(fs, GL_COMPILE_STATUS, &ok);
     if (!ok) {
         log[0] = 0; glGetShaderInfoLog(fs, sizeof(log) - 1, NULL, log); log[sizeof(log) - 1] = 0;
@@ -742,8 +882,7 @@ static void shader_init(void) {
     if (gVglLean && !((unsigned)gVglSafe & 0x80000000u)) { /* (the lean modulate variants' vertex shader) */
         GLuint vsm = glCreateShader(GL_CG_VERTEX_SHADER_EXT);
         src = kVertM; len = (GLint)sizeof(kVertM) - 1; ok = 0;
-        glShaderSource(vsm, 1, &src, &len);
-        glCompileShader(vsm);
+        sh_cached(vsm, src, len);
         glGetShaderiv(vsm, GL_COMPILE_STATUS, &ok);
         if (ok) {
             sVsM = vsm;
@@ -755,8 +894,7 @@ static void shader_init(void) {
     if (sNoProj && !(gVglSafe & 1073741824)) { /* (the colour straight across the screen: kVertNP) */
         GLuint vsn = glCreateShader(GL_CG_VERTEX_SHADER_EXT);
         src = kVertNP; len = (GLint)sizeof(kVertNP) - 1; ok = 0;
-        glShaderSource(vsn, 1, &src, &len);
-        glCompileShader(vsn);
+        sh_cached(vsn, src, len);
         glGetShaderiv(vsn, GL_COMPILE_STATUS, &ok);
         if (ok) {
             sVsNP = vsn;
@@ -772,9 +910,8 @@ static void shader_init(void) {
         int k, good = 1;
         char *zc = zclamp_src(kVertStage, "    vPos = sv * uK1 + sv.w * uK2;\n", ZCLAMP_V, &len);
         src = zc != NULL ? zc : kVertStage; ok = 0;
-        glShaderSource(vs2, 1, &src, &len);
+        sh_cached(vs2, src, len);
         free(zc);
-        glCompileShader(vs2);
         glGetShaderiv(vs2, GL_COMPILE_STATUS, &ok);
         if (!ok) {
             log[0] = 0; glGetShaderInfoLog(vs2, sizeof(log) - 1, NULL, log); log[sizeof(log) - 1] = 0;
@@ -812,9 +949,8 @@ static void shader_init(void) {
         int k, good = 1;
         char *zc = zclamp_src(kVertFt, "    vPos = sv * uF[16] + sv.w * uF[17];\n", ZCLAMP_V, &len);
         src = zc != NULL ? zc : kVertFt; ok = 0;
-        glShaderSource(vs3, 1, &src, &len);
+        sh_cached(vs3, src, len);
         free(zc);
-        glCompileShader(vs3);
         glGetShaderiv(vs3, GL_COMPILE_STATUS, &ok);
         if (!ok) {
             log[0] = 0; glGetShaderInfoLog(vs3, sizeof(log) - 1, NULL, log); log[sizeof(log) - 1] = 0;
@@ -864,8 +1000,7 @@ static void shader_init(void) {
             src = zc != NULL ? zc : srcs[k]; ok = 0;
             (void)lens;
             Vita_Log("vgl: start: the direct %s vertex shader\n", k == 0 ? "fighter" : "stage");
-            glShaderSource(vsd, 1, &src, &len);
-            glCompileShader(vsd);
+            sh_cached(vsd, src, len);
             glGetShaderiv(vsd, GL_COMPILE_STATUS, &ok);
             if (!ok) {
                 log[0] = 0; glGetShaderInfoLog(vsd, sizeof(log) - 1, NULL, log); log[sizeof(log) - 1] = 0;
@@ -885,8 +1020,8 @@ static void shader_init(void) {
                 }
             }
         }
-        Vita_Log("vgl: %d shader variants built (textures read %s); pixel shaders: %u from the card, %u compiled and kept, %u compiled\n", built,
-                 sNoProj ? "straight from the coordinates" : "divided by Q", gVitaShCache[0], gVitaShCache[1], gVitaShCache[2]);
+        Vita_Log("vgl: %d shader variants built (textures read %s); shaders so far: %u from the bank, %u from the card, %u compiled and kept, %u compiled\n", built,
+                 sNoProj ? "straight from the coordinates" : "divided by Q", gVitaShCache[3], gVitaShCache[0], gVitaShCache[1], gVitaShCache[2]);
         dp_init();
         ol_init();
         fx_init();
@@ -999,10 +1134,9 @@ static void vu_shader_init(void) {
     {
         char *zc = zclamp_src(kVertVu, "    float z = 2.0f * s.z / uC[17].z - s.w;\n", "    if (s.w > 0.0f) { z = clamp(z, -s.w, s.w); }\n", &len);
         src = zc != NULL ? zc : kVertVu;
-        glShaderSource(vs, 1, &src, &len);
+        sh_cached(vs, src, len);
         free(zc);
     }
-    glCompileShader(vs);
     glGetShaderiv(vs, GL_COMPILE_STATUS, &ok);
     if (!ok) {
         log[0] = 0; glGetShaderInfoLog(vs, sizeof(log) - 1, NULL, log); log[sizeof(log) - 1] = 0;
@@ -1010,8 +1144,7 @@ static void vu_shader_init(void) {
         return;
     }
     src = kFrag; len = (GLint)sizeof(kFrag) - 1; ok = 0;
-    glShaderSource(fs, 1, &src, &len);
-    glCompileShader(fs);
+    sh_cached(fs, src, len);
     glGetShaderiv(fs, GL_COMPILE_STATUS, &ok);
     if (!ok) {
         return;
@@ -1527,14 +1660,23 @@ int GsGpu_Init(void) {
         gVitaMenuHi = 0; /* (the menus' size only without multisampling) */
     }
     /* (the display takes only its own sizes: 640 x 368, 720 x 408 and 960 x 544 here) */
+    if (gVitaFightW != 0) { /* (bt3.txt fightres=<size>: that size always) */
+        gVitaFightAuto = 0;
+    } else {
+        gVitaFightW = 640;
+    }
+    if (gVitaFightAuto && !gVitaMenuHi) { /* (the display memory made at the fights' size: no room for 720 x 408) */
+        gVitaFightAuto = 0;
+    }
     gVitaFightW = gVitaFightW >= 840 ? 960 : gVitaFightW >= 680 ? 720 : 640;
     sFightH = gVitaFightW == 960 ? 544 : gVitaFightW == 720 ? 408 : 368;
     /* the display memory made for the menus' size when they are drawn at it; the fights' size from the
        first picture on (the boot logos and the films are not the menus) */
     vglInitExtended(0x1000000, gVitaMenuHi ? SCR_W_MENU : SCR_W_FIGHT, gVitaMenuHi ? SCR_H_MENU : SCR_H_FIGHT, 0x1800000,
                     gVitaMsaa == 4 ? SCE_GXM_MULTISAMPLE_4X : gVitaMsaa == 2 ? SCE_GXM_MULTISAMPLE_2X : SCE_GXM_MULTISAMPLE_NONE);
-    Vita_Log("vgl: multisampling %s; menus at %s, fights at %d x %d\n", gVitaMsaa == 4 ? "4x" : gVitaMsaa == 2 ? "2x" : "off",
-             gVitaMenuHi ? "960 x 544" : "the fights' size", SCR_W_FIGHT, SCR_H_FIGHT);
+    Vita_Log("vgl: multisampling %s; menus at %s, fights at %s\n", gVitaMsaa == 4 ? "4x" : gVitaMsaa == 2 ? "2x" : "off",
+             gVitaMenuHi ? "960 x 544" : "the fights' size",
+             gVitaFightAuto ? "720 x 408 or 640 x 368, by the chip's time" : gVitaFightW == 960 ? "960 x 544" : gVitaFightW == 720 ? "720 x 408" : "640 x 368");
     vglSetDisplayCallback(pace_cb); /* (the pictures shown in step with the game's clock) */
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClearDepthf(0.0f);
@@ -1578,7 +1720,8 @@ int GsGpu_Init(void) {
         gVitaLazyUnpack = 1;
     }
     rt_start(); /* (last, vitaGL is set up) */
-    Vita_Log("vita: vitaGL back end started\n");
+    Vita_Log("vita: vitaGL back end started (shaders: %u from the bank, %u from the card, %u compiled and kept, %u compiled%s)\n",
+             gVitaShCache[3], gVitaShCache[0], gVitaShCache[1], gVitaShCache[2], gVitaShHarvest ? "; shbank=1: written to ux0:data/bt3/shbank.bin" : "");
     return 1;
 }
 
@@ -5279,6 +5422,30 @@ static const char kFragOl[] =
     "    float e = (h > r || h > l || h > d || h > u) ? uP.x : 0.0f;\n"
     "    return float4(e, e, e, 0.0f);\n"
     "}\n";
+/* The full-screen passes' arithmetic in half precision (the chip's pixel units do twice the work in it, as the
+   game's own pixel shaders here; the GITS port's shaders gained about a quarter of their time so): the outline, the
+   table passes from the ids and from the fog byte, the glow's three. Their values are the GS's bytes (up to 255:
+   exact in half precision) and colours; the texture coordinates stay in full precision, and the passes that work
+   on the depth (up to 65535) stay in it all. A half one that does not compile: the full one. bt3.txt fxhalf=0: all
+   in full precision. */
+int gVitaFxHalf = 1;
+static const char kFragOlH[] =
+    "uniform sampler2D uTex;\n"
+    "uniform float4 uP;\n"
+    "half tb(half a) {\n"
+    "    half g = floor(a * 128.0 + 0.5);\n"
+    "    half c = frac(g * 0.03125) * 256.0;\n"
+    "    return a > 0.998 ? 0.0 : (c < 0.5 ? 128.0 : c);\n"
+    "}\n"
+    "half4 main(float2 t0 : TEXCOORD0, float2 t1 : TEXCOORD1, float2 t2 : TEXCOORD2, float2 t3 : TEXCOORD3, float2 t4 : TEXCOORD4) : COLOR {\n"
+    "    half h = tb((half)tex2D(uTex, t0).a);\n"
+    "    half r = tb((half)tex2D(uTex, t1).a);\n"
+    "    half l = tb((half)tex2D(uTex, t2).a);\n"
+    "    half d = tb((half)tex2D(uTex, t3).a);\n"
+    "    half u = tb((half)tex2D(uTex, t4).a);\n"
+    "    half e = (h > r || h > l || h > d || h > u) ? (half)uP.x : 0.0;\n"
+    "    return half4(e, e, e, 0.0);\n"
+    "}\n";
 int gVitaFilm;              /* bt3.txt film=<n> */
 static GLuint sOlProg, sOlTex[3];
 static GLint sOlU[3];        /* uV, uP, uTex */
@@ -5297,8 +5464,7 @@ static void ol_init(void) {
     }
     vs = glCreateShader(GL_CG_VERTEX_SHADER_EXT);
     src = kVertOl; len = (GLint)sizeof(kVertOl) - 1;
-    glShaderSource(vs, 1, &src, &len);
-    glCompileShader(vs);
+    sh_cached(vs, src, len);
     glGetShaderiv(vs, GL_COMPILE_STATUS, &ok);
     if (!ok) {
         log[0] = 0; glGetShaderInfoLog(vs, sizeof(log) - 1, NULL, log); log[sizeof(log) - 1] = 0;
@@ -5306,10 +5472,23 @@ static void ol_init(void) {
         return;
     }
     fs = glCreateShader(GL_CG_FRAGMENT_SHADER_EXT);
-    src = kFragOl; len = (GLint)sizeof(kFragOl) - 1; ok = 0;
-    glShaderSource(fs, 1, &src, &len);
-    glCompileShader(fs);
-    glGetShaderiv(fs, GL_COMPILE_STATUS, &ok);
+    ok = 0;
+    if (gVitaFxHalf) {
+        src = kFragOlH; len = (GLint)sizeof(kFragOlH) - 1;
+        sh_cached(fs, src, len);
+        glGetShaderiv(fs, GL_COMPILE_STATUS, &ok);
+        if (!ok) {
+            log[0] = 0; glGetShaderInfoLog(fs, sizeof(log) - 1, NULL, log); log[sizeof(log) - 1] = 0;
+            Vita_Log("vgl: outline pixel shader in half precision not compiled (%s): in full\n", log);
+            glDeleteShader(fs);
+            fs = glCreateShader(GL_CG_FRAGMENT_SHADER_EXT);
+        }
+    }
+    if (!ok) {
+        src = kFragOl; len = (GLint)sizeof(kFragOl) - 1;
+        sh_cached(fs, src, len);
+        glGetShaderiv(fs, GL_COMPILE_STATUS, &ok);
+    }
     if (!ok) {
         log[0] = 0; glGetShaderInfoLog(fs, sizeof(log) - 1, NULL, log); log[sizeof(log) - 1] = 0;
         Vita_Log("vgl: outline pixel shader not compiled: %s\n", log);
@@ -5493,6 +5672,16 @@ static const char kFragTblIds[] =
     "    float4 c = tex2D(uClut, float2((idx + 0.5f) * (1.0f / 256.0f), 0.5f));\n"
     "    return float4(c.rgb, saturate(c.a * (255.0f / 128.0f)));\n"
     "}\n";
+static const char kFragTblIdsH[] =
+    "uniform sampler2D uSrc;\n"
+    "uniform sampler2D uClut;\n"
+    "half4 main(float2 t0 : TEXCOORD0) : COLOR {\n"
+    "    half a = (half)tex2D(uSrc, t0).a;\n"
+    "    half s = floor(a * 255.0 + 0.5);\n"
+    "    half idx = (s > 233.5 && fmod(s, 2.0) < 0.5) ? (s + 254.0) * 0.5 : a > 0.998 ? 255.0 : floor(a * 128.0 + 0.5);\n"
+    "    half4 c = (half4)tex2D(uClut, float2(((float)idx + 0.5f) * (1.0f / 256.0f), 0.5f));\n"
+    "    return half4(c.rgb, saturate(c.a * (255.0 / 128.0)));\n"
+    "}\n";
 static const char kFragTblFog[] =
     "uniform sampler2D uSrc;\n"
     "uniform sampler2D uClut;\n"
@@ -5525,6 +5714,14 @@ static const char kFragTblByte[] = /* a table pass from that byte */
     "    float4 c = tex2D(uClut, float2((idx + 0.5f) * (1.0f / 256.0f), 0.5f));\n"
     "    return float4(c.rgb, saturate(c.a * (255.0f / 128.0f)));\n"
     "}\n";
+static const char kFragTblByteH[] =
+    "uniform sampler2D uSrc;\n"
+    "uniform sampler2D uClut;\n"
+    "half4 main(float2 t0 : TEXCOORD0) : COLOR {\n"
+    "    half idx = floor((half)tex2D(uSrc, t0).r * 255.0 + 0.5);\n"
+    "    half4 c = (half4)tex2D(uClut, float2(((float)idx + 0.5f) * (1.0f / 256.0f), 0.5f));\n"
+    "    return half4(c.rgb, saturate(c.a * (255.0 / 128.0)));\n"
+    "}\n";
 static GLuint sDepthTex, sFxProg[5]; /* copy, table from the ids, table from the fog, (163) fog byte, table from it */
 static GLint sFxU[5][4];                      /* uV, uSrc, uClut, uP */
 static int sDepthByteIsFog;    /* the drawing thread: what the depth page's top byte holds now */
@@ -5534,6 +5731,18 @@ static struct { uint32_t hash; unsigned last; int used; } sClut[16]; /* (the dra
 static uint32_t sClutPx[16][256]; /* (the slots' entries: a table is reused only when every entry is the same) */
 static GLuint sClutTex[16];                                           /* (the thread that draws: the slots' textures) */
 typedef struct TblOp { State d; int src, slot, upload; float zmax; uint32_t cbp; uint32_t px[256]; } TblOp;
+static GLuint fx_prog(const char *frag, int len, const char *what);
+/* the pass in half precision when it compiles (gVitaFxHalf), else in full */
+static GLuint fx_prog_h(const char *half, int hlen, const char *frag, int len, const char *what) {
+    GLuint p = 0;
+    if (gVitaFxHalf && half != NULL) {
+        p = fx_prog(half, hlen, what);
+        if (p == 0) {
+            Vita_Log("vgl: %s in half precision not made: in full\n", what);
+        }
+    }
+    return p != 0 ? p : fx_prog(frag, len, what);
+}
 static GLuint fx_prog(const char *frag, int len, const char *what) {
     static GLuint vs;
     GLuint fs, prog;
@@ -5543,8 +5752,7 @@ static GLuint fx_prog(const char *frag, int len, const char *what) {
     if (vs == 0) {
         vs = glCreateShader(GL_CG_VERTEX_SHADER_EXT);
         src = kVertFx; l = (GLint)sizeof(kVertFx) - 1;
-        glShaderSource(vs, 1, &src, &l);
-        glCompileShader(vs);
+        sh_cached(vs, src, l);
         glGetShaderiv(vs, GL_COMPILE_STATUS, &ok);
         if (!ok) {
             log[0] = 0; glGetShaderInfoLog(vs, sizeof(log) - 1, NULL, log); log[sizeof(log) - 1] = 0;
@@ -5555,8 +5763,7 @@ static GLuint fx_prog(const char *frag, int len, const char *what) {
     }
     fs = glCreateShader(GL_CG_FRAGMENT_SHADER_EXT);
     src = frag; ok = 0;
-    glShaderSource(fs, 1, &src, &len);
-    glCompileShader(fs);
+    sh_cached(fs, src, len);
     glGetShaderiv(fs, GL_COMPILE_STATUS, &ok);
     if (!ok) {
         log[0] = 0; glGetShaderInfoLog(fs, sizeof(log) - 1, NULL, log); log[sizeof(log) - 1] = 0;
@@ -5626,10 +5833,10 @@ static void fx_init(void) {
         return;
     }
     sFxProg[0] = fx_prog(kFragCopy, (int)sizeof(kFragCopy) - 1, "copy");
-    sFxProg[1] = fx_prog(kFragTblIds, (int)sizeof(kFragTblIds) - 1, "table (ids)");
+    sFxProg[1] = fx_prog_h(kFragTblIdsH, (int)sizeof(kFragTblIdsH) - 1, kFragTblIds, (int)sizeof(kFragTblIds) - 1, "table (ids)");
     sFxProg[2] = fx_prog(kFragTblFog, (int)sizeof(kFragTblFog) - 1, "table (fog)");
     sFxProg[3] = fx_prog(kFragFogCopy, (int)sizeof(kFragFogCopy) - 1, "fog byte");
-    sFxProg[4] = fx_prog(kFragTblByte, (int)sizeof(kFragTblByte) - 1, "table (fog byte)");
+    sFxProg[4] = fx_prog_h(kFragTblByteH, (int)sizeof(kFragTblByteH) - 1, kFragTblByte, (int)sizeof(kFragTblByte) - 1, "table (fog byte)");
     for (k = 0; k < 5; k++) {
         sFxU[k][0] = sFxProg[k] ? glGetUniformLocation(sFxProg[k], "uV") : -1;
         sFxU[k][1] = sFxProg[k] ? glGetUniformLocation(sFxProg[k], "uSrc") : -1;
@@ -5727,6 +5934,14 @@ static void swap_sized(void) {
         sMenuLowSaid = sMenuLow;
         Vita_Log("vgl: this menu screen at %s (the chip's time per picture %u us, %u blanks per picture)\n",
                  sMenuLow ? "the fights' size: too slow at 960 x 544" : "960 x 544 again", sMenuGpuLast, sListBlanks);
+    }
+    if (sFightHiSaid != sFightHi) {
+        sFightHiSaid = sFightHi;
+        Vita_Log("vgl: the fight at %s (the chip's time per picture %u us, %u blanks per picture)\n",
+                 sFightHi ? "720 x 408: the chip has the time" : "640 x 368: the chip short of time at 720 x 408", sFightGpuLast, sListBlanks);
+    }
+    if (!menu && sScrW == 720 && gVitaFightAuto) {
+        gVitaFightRes[2]++;
     }
     if (change) {
         rt_sync();
@@ -6119,6 +6334,39 @@ static const char kFragGlowAdd[] =
     "float4 main(float2 t0 : TEXCOORD0) : COLOR {\n"
     "    return float4(tex2D(uSrc, t0).rgb * uC.rgb, 0.0f);\n"
     "}\n";
+static const char kFragGlowDownH[] =
+    "uniform sampler2D uSrc;\n"
+    "uniform float4 uP;\n"
+    "uniform float4 uC;\n"
+    "half4 main(float2 t0 : TEXCOORD0) : COLOR {\n"
+    "    half3 s = half3(0.0, 0.0, 0.0);\n"
+    "    half4 c;\n"
+    "    c = (half4)tex2D(uSrc, t0 + float2(-3.75f, -1.4f) * uP.xy); s += c.rgb * c.a;\n"
+    "    c = (half4)tex2D(uSrc, t0 + float2(-1.25f, -1.4f) * uP.xy); s += c.rgb * c.a;\n"
+    "    c = (half4)tex2D(uSrc, t0 + float2( 1.25f, -1.4f) * uP.xy); s += c.rgb * c.a;\n"
+    "    c = (half4)tex2D(uSrc, t0 + float2( 3.75f, -1.4f) * uP.xy); s += c.rgb * c.a;\n"
+    "    c = (half4)tex2D(uSrc, t0 + float2(-3.75f,  1.4f) * uP.xy); s += c.rgb * c.a;\n"
+    "    c = (half4)tex2D(uSrc, t0 + float2(-1.25f,  1.4f) * uP.xy); s += c.rgb * c.a;\n"
+    "    c = (half4)tex2D(uSrc, t0 + float2( 1.25f,  1.4f) * uP.xy); s += c.rgb * c.a;\n"
+    "    c = (half4)tex2D(uSrc, t0 + float2( 3.75f,  1.4f) * uP.xy); s += c.rgb * c.a;\n"
+    "    return half4(s * 0.125 * (half3)uC.rgb, 1.0);\n"
+    "}\n";
+static const char kFragGlowBlurH[] =
+    "uniform sampler2D uSrc;\n"
+    "uniform float4 uP;\n"
+    "half4 main(float2 t0 : TEXCOORD0) : COLOR {\n"
+    "    half3 s = (half3)tex2D(uSrc, t0).rgb * 0.2432;\n"
+    "    s += ((half3)tex2D(uSrc, t0 + uP.xy).rgb + (half3)tex2D(uSrc, t0 - uP.xy).rgb) * 0.2048;\n"
+    "    s += ((half3)tex2D(uSrc, t0 + 2.0f * uP.xy).rgb + (half3)tex2D(uSrc, t0 - 2.0f * uP.xy).rgb) * 0.1221;\n"
+    "    s += ((half3)tex2D(uSrc, t0 + 3.0f * uP.xy).rgb + (half3)tex2D(uSrc, t0 - 3.0f * uP.xy).rgb) * 0.0516;\n"
+    "    return half4(s, 1.0);\n"
+    "}\n";
+static const char kFragGlowAddH[] =
+    "uniform sampler2D uSrc;\n"
+    "uniform float4 uC;\n"
+    "half4 main(float2 t0 : TEXCOORD0) : COLOR {\n"
+    "    return half4((half3)tex2D(uSrc, t0).rgb * (half3)uC.rgb, 0.0);\n"
+    "}\n";
 static GLuint sGlowProg[3];
 static GLint sGlowU[3][4]; /* uV, uSrc, uP, uC */
 static int sGlowOn;
@@ -6130,9 +6378,9 @@ static void glow_init(void) {
         Vita_Log("vgl: native glow off (safe2=1024)\n");
         return;
     }
-    sGlowProg[0] = fx_prog(kFragGlowDown, (int)sizeof(kFragGlowDown) - 1, "glow (down)");
-    sGlowProg[1] = fx_prog(kFragGlowBlur, (int)sizeof(kFragGlowBlur) - 1, "glow (blur)");
-    sGlowProg[2] = fx_prog(kFragGlowAdd, (int)sizeof(kFragGlowAdd) - 1, "glow (add)");
+    sGlowProg[0] = fx_prog_h(kFragGlowDownH, (int)sizeof(kFragGlowDownH) - 1, kFragGlowDown, (int)sizeof(kFragGlowDown) - 1, "glow (down)");
+    sGlowProg[1] = fx_prog_h(kFragGlowBlurH, (int)sizeof(kFragGlowBlurH) - 1, kFragGlowBlur, (int)sizeof(kFragGlowBlur) - 1, "glow (blur)");
+    sGlowProg[2] = fx_prog_h(kFragGlowAddH, (int)sizeof(kFragGlowAddH) - 1, kFragGlowAdd, (int)sizeof(kFragGlowAdd) - 1, "glow (add)");
     for (k = 0; k < 3; k++) {
         sGlowU[k][0] = sGlowProg[k] ? glGetUniformLocation(sGlowProg[k], "uV") : -1;
         sGlowU[k][1] = sGlowProg[k] ? glGetUniformLocation(sGlowProg[k], "uSrc") : -1;
@@ -9987,6 +10235,63 @@ static void menu_res_feed(unsigned g) {
     }
 }
 
+/* (pace_cb) one fight picture's time on the chip: 720 x 408 or 640 x 368 for the next (gVitaFightAuto, above) */
+static void fight_res_feed(unsigned g) {
+    extern int gPortMenuMode;
+    extern int Vita_InBattle(void);
+    unsigned budget = sListBlanks * 16683u;
+    unsigned long long now;
+    if (!gVitaFightAuto) {
+        return;
+    }
+    if (gPortMenuMode || !Vita_InBattle()) {
+        sFightHi = 0; /* (each fight begins at 640 x 368) */
+        sFightGood = sFightBad = sFightDowns = 0;
+        sFightSettle = 8;
+        sFightHold = 0;
+        return;
+    }
+    sFightGpuLast = g;
+    if (sFightSettle > 0) { /* (the first pictures of a fight, or after a change: drawn at the size before, or the new
+                               size's targets just made) */
+        sFightSettle--;
+        return;
+    }
+    now = sceKernelGetProcessTimeWide();
+    if (!sFightHi) {
+        if (sScrW != 640) {
+            return;
+        }
+        if (g / 2u * 3u < budget / 10u * 6u && now >= sFightHold) { /* (what 720 x 408 would take: about 1.45 times) */
+            if (++sFightGood >= 90u / (sListBlanks > 0 ? sListBlanks : 1u) * 2u) { /* (three seconds of pictures) */
+                sFightHi = 1;
+                sFightGood = sFightBad = 0;
+                sFightSettle = 4;
+                gVitaFightRes[0]++;
+            }
+        } else {
+            sFightGood = 0;
+        }
+    } else {
+        if (sScrW != 720) {
+            return;
+        }
+        if (g > budget / 20u * 17u) {
+            if (++sFightBad >= 3) {
+                unsigned sh = sFightDowns < 5 ? sFightDowns : 5;
+                sFightHi = 0;
+                sFightGood = sFightBad = 0;
+                sFightSettle = 4;
+                sFightHold = now + (5000000ull << sh); /* (5 s, 10 s, 20 s ... up to 160 s) */
+                sFightDowns++;
+                gVitaFightRes[1]++;
+            }
+        } else if (g < budget / 10u * 7u && sFightBad > 0) {
+            sFightBad--;
+        }
+    }
+}
+
 static void pace_cb(void *fb) {
     extern int Vita_InBattle(void);
     gVitaShown++;
@@ -10023,6 +10328,7 @@ static void pace_cb(void *fb) {
                 unsigned bin = r->cov < 2000 ? 0 : r->cov < 2500 ? 1 : r->cov < 3000 ? 2 : r->cov < 3500 ? 3 : r->cov < 4000 ? 4 : r->cov < 4500 ? 5 : 6;
                 r->gpu = (unsigned)g;
                 menu_res_feed((unsigned)g);
+                fight_res_feed((unsigned)g);
                 if (gVitaFxSweep && !r->hold) {
                     unsigned m = r->fxm & 15;
                     gFxGpu[m][0] += g;
@@ -10165,6 +10471,10 @@ void Vita_PaceLog(void) { /* vita_main.c, with the log's other lines */
         }
     }
     Vita_Log("%s\n", line);
+    if (gVitaFightAuto && (gVitaFightRes[0] | gVitaFightRes[1] | gVitaFightRes[2]) != 0) {
+        Vita_Log("vita:   the fights' size by the chip's time: %u steps up to 720 x 408, %u down to 640 x 368; %u pictures at 720 x 408 "
+                 "(the chip's last picture %u us)\n", gVitaFightRes[0], gVitaFightRes[1], gVitaFightRes[2], sFightGpuLast);
+    }
     for (j = 0; j < sPaceMissN; j++) {
         const PaceRec *r = &sPaceMiss[j];
         unsigned long long b = r->tTick;
@@ -10187,6 +10497,7 @@ void Vita_PaceLog(void) { /* vita_main.c, with the log's other lines */
     memset(gPace, 0, sizeof(gPace));
     memset(gPaceHist, 0, sizeof(gPaceHist));
     memset(gPaceGpu, 0, sizeof(gPaceGpu));
+    memset(gVitaFightRes, 0, sizeof(gVitaFightRes));
 }
 void Vita_ListDone(unsigned us) { /* gs_core.c, after every list (on the thread that ran it) */
     int drawn = !gVitaGsSkip;

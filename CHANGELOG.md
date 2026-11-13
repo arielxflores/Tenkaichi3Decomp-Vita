@@ -12,6 +12,14 @@ New
   voices. Based on Matteo Santoro's work.
 - **Budokai Tenkaichi 4** (experimental): Team BT4's B14 Rev2 through NauTaro's BT4decomp, from your own BT4 disc's
   image or files in `ux0:data/bt3/bt4/`; chosen in the start menu. See the README.
+- **Sharper fights**: fights are drawn at 720 x 408 whenever the graphics chip has the time for it and drop to
+  640 x 368 the moment a heavy scene needs it (Killzone: Mercenary's dynamic resolution); `fightres=640` in
+  `bt3.txt` keeps them at 640 x 368.
+- **Faster effects**: the outline, the glow and the colour-table passes do their arithmetic in half precision, as
+  the game's own pixel shaders already did.
+- **Shaders shipped ready-made** (the offline shader bank of Grarak's MH3 port): every shader now goes through the
+  cache, the vertex and effect shaders too (they were compiled at every start), and the VPK can carry them all
+  already compiled.
 - **BT4 in Spanish**: with Team BT4's Spanish release in `ux0:data/bt3/bt4/es/` beside the English one, BT4's
   **Options → Vita Settings → Language** switches between them (the game starts again in the one chosen): the
   game's text and voices, and the port's own rows, guide lines and Multiplayer plates, in Spanish.

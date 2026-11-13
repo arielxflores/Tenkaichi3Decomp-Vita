@@ -458,6 +458,11 @@ def vpk():
     if bt4.exists():
         extra += ["-a", f"{bt4}=bt4.bin"]
         print(f"the package carries BT4's program ({bt4})")
+    # the shader bank (vita_vgl.c sh_cached: the programs as the Vita's compiler made them, tools/shbank.py)
+    bank = ROOT / "port/vita/shbank.bin"
+    if bank.exists():
+        extra += ["-a", f"{bank}=shbank.bin"]
+        print(f"the package carries the shader bank ({bank.stat().st_size} bytes)")
     run("vita-pack-vpk", "-s", OUT / "param.sfo", "-b", OUT / "eboot.bin", *extra, OUT / VPK)
     print(f"{OUT / VPK}: {(OUT / VPK).stat().st_size} bytes")
 

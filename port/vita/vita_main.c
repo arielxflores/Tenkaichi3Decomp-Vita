@@ -1353,9 +1353,16 @@ static void read_settings(void) {
             gVitaGameFxOff = (gVitaGameFxOff & ~(64 | 128)) | (strcmp(eq, "off") == 0 ? 64 : strcmp(eq, "light") == 0 ? 128 : 0);
         } else if (strcmp(line, "moveblur") == 0) { /* the scenery's blur while the view turns or moves fast: 0 off */
             gVitaGameFxOff = (gVitaGameFxOff & ~32) | (atoi(eq) == 0 ? 32 : 0);
-        } else if (strcmp(line, "fightres") == 0) { /* the fights drawn at 640 x 368 (default), 720 x 408 or 960 x 544 (vita_vgl.c) */
+        } else if (strcmp(line, "fxhalf") == 0) { /* 0: the full-screen passes in full precision (vita_vgl.c) */
+            extern int gVitaFxHalf;
+            gVitaFxHalf = atoi(eq) != 0;
+        } else if (strcmp(line, "shbank") == 0) { /* 1: the run's shaders written to ux0:data/bt3/shbank.bin, the bank's making (vita_vgl.c) */
+            extern int gVitaShHarvest;
+            gVitaShHarvest = atoi(eq) != 0;
+        } else if (strcmp(line, "fightres") == 0) { /* the fights drawn at 720 x 408 or 640 x 368 by the chip's time (auto,
+                                                     the default), or always at 640 x 368, 720 x 408 or 960 x 544 (vita_vgl.c) */
             extern int gVitaFightW;
-            gVitaFightW = atoi(eq);
+            gVitaFightW = strcmp(eq, "auto") == 0 ? 0 : atoi(eq);
         } else if (strcmp(line, "wide") == 0) {
             extern int gVitaWide;
             gVitaWide = atoi(eq) != 0; /* wide=0: the console's 4:3 picture with bars at the sides */

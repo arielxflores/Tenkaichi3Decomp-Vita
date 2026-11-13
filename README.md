@@ -30,7 +30,9 @@ the Vita version here, not upstream.
   (grip attachments made for PS4 Remote Play work with it).
 
 Fights run at the PS2 version's 30 fps. A few stages with heavy effects drop below that at times, most noticeably
-Kame House (its reflective sea), where it can go down to about 26 fps.
+Kame House (its reflective sea), where it can go down to about 26 fps. Fights are drawn at 720 x 408 while the
+graphics chip has the time for it and at 640 x 368 while it has not (the dynamic resolution of Killzone: Mercenary),
+so they are as sharp as the moment allows without losing pictures.
 
 Two players: on a PS TV (or a Vita with a second controller paired), the second DualShock is player 2: the Versus
 Menu's Multiplayer → Two Controllers is the PS2's two-controller mode. Two Vitas can also play the versus mode against
@@ -342,8 +344,9 @@ Multiplayer is new: when something goes wrong, `ux0:data/bt3/log.txt` from both 
 - The port runs the Vita at its standard maximum clocks (CPU 444 MHz, GPU 222 MHz); no overclocking plugin is
   used or needed.
 - Optional settings go in `ux0:data/bt3/bt3.txt`, one per line: `wide=0` shows the PS2's original 4:3 picture,
-  `disc=<folder>` reads the game files from another folder, `fightres=720` draws the fights at 720 x 408 instead of
-  640 x 368 (sharper, about the same speed; `fightres=960`, the screen's own resolution, is slower), `lang=0` to
+  `disc=<folder>` reads the game files from another folder, `fightres=640` or `fightres=720` draws the fights always
+  at 640 x 368 or 720 x 408 instead of choosing between the two as they go (`fightres=960`, the screen's own
+  resolution, is slower), `lang=0` to
   `4` sets the language (English, Spanish, German, French, Italian), `asyncread=0` reads the game's files on its
   own thread as before. `weather=light` or `weather=off` thins out or leaves out the haze some stages have drifting
   over them (Desert and Rocky Area at noon, Rocky Area in the evening, Kami's Lookout; a little on Glacier, Muscle
