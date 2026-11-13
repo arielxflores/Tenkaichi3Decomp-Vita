@@ -22,15 +22,16 @@ geometry to VU1 (the "engine seam"), and keep reading the GIF stream for 2D only
 | rac1-native-game (Ratchet & Clank) | "Not drawn by emulating the PS2's graphics chip": the renderer reads what the game decided to draw |
 | TwinsanityEvolved (Crash Twinsanity, Vita) | The decompilation's platform layer is the seam; meshes, skins and particles drawn by the engine |
 
-## Where it stands (2026-11-12)
+## Where it stands (2026-11-13)
 
 On by default since the console runs of 2026-11-12 ([status.md](status.md)): `native` (the seam below), `nativetex`
 and `updest` (the textures named by the game, and each upload's destination remembering what it left), `dpfast`
-(kept parts drawn with what does not change worked out once), `fxrun` (the effects' quad particles read as runs).
-Measured and left: the stage's same-state groups as one draw (the copying cost more than the draws), each kept
-group remembering its texture (never found the same), the sea of Kame House in a vertex shader (its work is on the
-game thread, which has room: 35-40% busy). Next: textures bound by their names without GS memory's emulation in
-between (the ~30,000 texture lookups every two seconds), then the calls sent straight to the drawing thread.
+(kept parts drawn with what does not change worked out once), `fxrun` (the effects' quad particles read as runs),
+then `texbind` (textures bound by their names) and `seavtx` (the sea's corners worked out once a frame). Off:
+`esdirect` (no gain measured). Measured and left: the stage's same-state groups as one draw (the copying cost more
+than the draws; `dpjoin`, without copying, never found a pair), each kept group remembering its texture (never found
+the same), the sea of Kame House in a vertex shader (its work is on the game thread, which has room: 35-40% busy;
+`seavtx` takes the part of it that was done more than once). Next: the [Next steps](#next-steps) below.
 
 ## The steps after the first ones (2026-11-12)
 
@@ -79,20 +80,20 @@ places taken over, and the generations begun.
 
 ## Next steps
 
-Each behind `native`, with the way it replaces kept for comparison, and each measured on a console before the next.
+Each behind a switch of its own, with the way it replaces kept for comparison, and each measured on a console before
+the next. What was on this list and is done: the textures named by the game and bound by their names (`nativetex`,
+`updest`, `texbind`), the sea's corners once (`seavtx`; the sea in a vertex shader was measured as not worth it, see
+above), the list reader's part of the named calls (`esdirect`, no gain).
 
-1. **The sea of Kame House** (`EftSurf_DrawMeshes`, `src/battle/eft_c.c`). About 900 triangles a frame are set up on
-   the game thread (their reflection, fog and fade worked out with the vector unit) and sent twice as single GS
-   triangles, each with its own PRIM, TEX0 and palette: about 1,800 primitives the list reader and the drawing thread
-   go through one by one. Natively: the surface's mesh (static data of the stage pack) on the chip once, the per-vertex
-   work in a vertex shader, and its two layers as two draws. To be measured first (`perfsum.py --parts` on that stage):
-   if the chip is what is slow there, the reflection's pixels are what to cut instead.
+1. **Without the fourth core.** The room these steps give (the list reader about a third of what it did, the drawing
+   thread about two thirds) is meant for a console without CapUnlocker; it has not been measured there yet
+   ([status.md](status.md)). The first thing to run: what is left to cut depends on it.
 2. **The calls sent straight to the drawing thread.** A named call that is kept leaves the list reader only its
    packet's constants to read: a side queue from the game thread to the drawing thread, in the list's order through a
-   marker, leaves the reader out of the 3D models.
-3. **The textures.** The stage's materials (`StgModel_SetTexture`) and the fighters' textures are uploaded every
-   frame, and the renderer finds them by a number worked out from a sample of their bytes (on the fourth core with
-   CapUnlocker). Naming them at the seam saves that work, but only if the renderer can never take a texture for one
-   that is no longer in that memory: less to gain than it looked, and a risk; after the others.
+   marker, leaves the reader out of the 3D models. `esdirect` showed that doing the packets faster inside the reader
+   gains nothing: the gain, if any, is in not reading them at all.
+3. **The texture lookups' number.** ~30,000 every two seconds (every kept group's and strip's state): `texbind` made
+   each cheaper, not fewer. A kept group whose state names the same texture as the frame before could skip it, once
+   the binding says nothing was written there.
 4. **The 2D and the effects** stay on the GS front end: many small draws whose state is the GS's. The screen-filling
    effects are drawn at a lower resolution already (`fxlow`, outside the seam).

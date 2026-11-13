@@ -31,3 +31,6 @@ port/tests/ps2float/*.o
 /play.sh
 install.log
 port/build_release/
+
+# a developer's own instructions for Claude Code (CLAUDE.md)
+CLAUDE.local.md

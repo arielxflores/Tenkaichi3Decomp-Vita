@@ -28,7 +28,8 @@ mkdir -p "$SDK/fake/gnu"
 
 if [ $# -eq 0 ]; then
     set -- port/vita/vita_vgl.c port/vita/vita_main.c port/vita/vita_gfx.c port/src/gs/gs_core.c port/src/gs/gs_vu1.c \
-        port/src/gs_marker.c src/battle/stgm_a.c src/sys/vu1_packet.c src/sys/gfxm_e_b.c src/sys/gfxm_d_c.c
+        port/src/gs_marker.c src/battle/stgm_a.c src/battle/eft_c.c src/battle/eft_d.c src/menu/menu_x_c.c \
+        src/sys/vu1_packet.c src/sys/gfxm_b_b.c src/sys/gfxm_e_b.c src/sys/gfxm_d_c.c
 fi
 if [ -n "$WARN" ]; then
     DIAG="-Wall -Wextra -Wno-unused-parameter -Wno-sign-compare"
@@ -37,11 +38,13 @@ else
 fi
 fail=0
 for f in "$@"; do
+    # (the game's files with the headers port/vita/build.py's GAME forces on them: port_compat.h's 64-bit u64)
+    case "$f" in src/*) GAMEINC="-include port_libm.h -include port_compat.h" ;; *) GAMEINC= ;; esac
     # (the flags of port/vita/build.py's COMMON; -D__regparm__: an x86 attribute of the host's pthread.h)
     out=$(clang --target=armv7a-none-eabi -mfloat-abi=hard -mcpu=cortex-a9 -mfpu=neon -fsyntax-only -std=gnu99 $DIAG \
         -DPORT_VITA=1 -DPORT_VITA_FIXED=1 '-DPORT_VITA_SFX="-vgl.txt"' -DPORT_VITA_GFX=1 -DPORT_VITA_VGL=1 \
         -DMPEG2_PLAYER=1 -DPORT_VITA_SOUND=1 -DPORT_VITA_NATIVE=1 '-D__regparm__(x)=' \
-        -Iinclude -Iport/include -Iport/src -Iport/vita -Iport/src/gs -Iport/vita/sdlshim -include port/vita/vita_cold.h \
+        -Iinclude -Iport/include -Iport/src -Iport/vita -Iport/src/gs -Iport/vita/sdlshim -include port/vita/vita_cold.h $GAMEINC \
         -I"$SDK/vita-headers/include" -I"$SDK/vitaGL/source" -I"$SDK/vitaShaRK/source" -I"$SDK/samples/common" \
         -I"$SDK/fake" -isystem /usr/include -isystem /usr/include/x86_64-linux-gnu "$f" 2>&1) || fail=1
     if [ -n "$out" ]; then

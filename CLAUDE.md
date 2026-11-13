@@ -5,10 +5,9 @@ is, the rules, building, setting up the console and the emulator (an agent on th
 it over the network), testing, comparing the old way against the new, and where the work stands. The details are in
 the documents it points to.
 
-**ALWAYS ANSWER THE DEVELOPER IN ITALIAN**: every message, question, summary and report, in every session, whatever
-language the files, the tools' output or the developer's pasted text are in. This is the developer's standing
-instruction. The repository's documents, comments and commit messages stay in English, in the plain style of the
-existing ones.
+The repository's documents, comments and commit messages are in English, in the plain style of the existing ones. A
+developer's own instructions (the language to answer in, their fork and its pull request, their console) go in a
+`CLAUDE.local.md` beside this file, which git ignores.
 
 ## 1. What this is
 
@@ -17,10 +16,8 @@ for the Vita, with a renderer on vitaGL. It is not an emulator. Lineage:
 
 - `z3xox/Tenkaichi3Decomp`: the matching decompilation and its PC port (`src/`, `include/`, `config/` are the
   decompilation's; `port/` the port's);
-- `arielxflores/Tenkaichi3Decomp-Vita`: the Vita port (`port/vita/`), branch `vita`;
-- `manumastro/Tenkaichi3Decomp-Vita`: this fork. Its `main` is the head of **pull request #6** to
-  `arielxflores/Tenkaichi3Decomp-Vita` (base `vita`): pushing to `main` updates that pull request, which other people
-  see. The renderer work in progress is on `claude/fork-review-native-system-h3wioa`, on top of `main`.
+- `arielxflores/Tenkaichi3Decomp-Vita`: the Vita port (`port/vita/`), branch `vita`, which pull requests from
+  forks go to. Pushing to a branch a pull request is open from updates that pull request, which other people see.
 
 How the renderer works, in one line: the game builds the PS2's display list every frame; the list reader
 (`port/src/gs/gs_core.c`) reads it on its own core; the drawing thread (`port/vita/vita_vgl.c`) turns it into vitaGL
@@ -40,8 +37,8 @@ draws, handed to a render thread. Overview: `port/vita/README.md`; the 3D path a
   Default off until it has been compared on a console (section 6); then on, like the other speed-ups.
 - **Before a commit**: `port/vita/tools/check_syntax.sh` clean on the files changed (and `WARN=1` on the lines
   changed); with VitaSDK, the build too. In the commit message: what was checked and how, and what was not.
-- **What goes to `main`** (the pull request): only what has been through the console. Experimental work stays on the
-  work branch. Never rewrite `main`'s history without asking.
+- **What goes to a pull request**: only what has been through the console. Experimental work stays on a branch of
+  its own. Never rewrite the history of a branch a pull request is open from without asking.
 - **The console is the developer's**: never delete or overwrite their saves (`ux0:data/bt3/saves/`), the disc files,
   or the release (title BTTD00010); the development build is BTTD00008. Keep a copy before changing any file there
   (the scripts do). Tell the developer before a reboot or a change of `ur0:tai/config.txt`.
@@ -70,8 +67,8 @@ the host's clang against the SDK's and vitaGL's headers, up to syntax and types 
 
 ## 4. The console, set up over the network (once)
 
-The developer's console: a **PS Vita 1000** (PCH-1000) on HENkaku/Ensō, on which they play the release, so
-`ur0:data/libshacccg.suprx` (the shader compiler), the game files and usually CapUnlocker are there already. **Ask the
+The developer's console: a PS Vita on HENkaku/Ensō, on which the release is usually installed, so
+`ur0:data/libshacccg.suprx` (the shader compiler), the game files and often CapUnlocker are there already. **Ask the
 developer its firmware** (Settings > System > System Information) before choosing a way to drive it. Two ways, which
 cannot be installed together:
 
@@ -178,18 +175,18 @@ wrong draw (`docs/vita/development.md`).
 
 ## 7. Where the work stands
 
-`docs/vita/status.md` (kept up to date: update it with every step) has the commits, their settings and defaults, what
-has been verified (as of writing: the code checked, nothing run yet on a console or in Vita3K), and the Results
-table. In short:
+`docs/vita/status.md` (kept up to date: update it with every step) has the switches and their defaults, what has been
+verified, and the Results table. In short (2026-11-13):
 
-- `fxlow` (on `main`, on by default): the screen-filling additive effects drawn at half resolution and added back
-  (TwinsanityEvolved's idea); turns itself off if its shaders are not built.
-- `native` (work branch, off): the engine seam, the first steps of a native renderer: the game names its static
-  geometry (the stage's meshes and animated objects, the fighters' parts) to the renderer, which keeps it without
-  guessing. Next steps in `docs/vita/native.md`: the sea of Kame House, the calls sent straight to the drawing
-  thread, the textures.
-- **The first thing to do** with a console: section 4, then a two-minute run (`mode=demo`, `report=1`) to see the
-  runners work, then stage 1 and 2 for `fxlow` and `native`, and write the results down.
+- Everything is in one pull request to `arielxflores/Tenkaichi3Decomp-Vita` (base `vita`): the detailed stages'
+  fixes, the fourth core's helper, vitaGL's state calls, `fxlow` (the screen-filling additive effects drawn at half
+  resolution and added back), the first steps of a native renderer (`native`, `nativetex`, `updest`, `dpfast`,
+  `fxrun`, `texbind`, `seavtx`: the game names its static geometry and its textures to the renderer, which keeps
+  them without guessing), and the test tools. All on by default except `esdirect` (no gain measured).
+- Run on a console (PCH-1004, 3.65, CapUnlocker on, the development build): each switch A against B, then everything
+  on by default for 10 minutes (no crash, no hang, 29.3-29.6 fps on every stage).
+- **Not run yet**, the first things to do with a console: a run without the fourth core (CapUnlocker off), the
+  release build, and stage 1 in Vita3K. Then the next steps in `docs/vita/native.md`.
 
 ## 8. Documents
 
