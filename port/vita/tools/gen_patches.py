@@ -269,6 +269,10 @@ if ES:
         art_job(16, sub, 96, G.compose_copy(ajustes + [None, d_, e_, l_, None, c_] + ontrol, gap, 8, tipo[0][0], 32,
                                             rs.shape[1], tab_s))
         art_job(16, sub, 128, G.compose_copy(ajustes + [None, V_, i_, t_, a_], gap, 8, vib[0][0], 32, rs.shape[1], tab_s))
+    if not BT4:  # the top page's third row, Sonido -> Idioma/Sonido (its page opens on Idioma): rendered in the row's
+                 # style, as the sound page's Idioma (the disc has no I)
+        for e in (0, 2):
+            label_job(16, e, [(64, 'Idioma/Sonido', 4, 'left')], 64)
     G.TITLE = True
     import os
     en = open(os.path.join(sys.argv[1], 'opt_s1_en.bin'), 'rb').read()
@@ -313,6 +317,13 @@ if not ES:
         tab_t = G.style_table(rt, range(0, 256, 32), 32, shape=pt)
         tab_s = G.style_table(rs, range(0, 160, 32), 32, shape=ps)
         art_job(16, top, 96, G.compose_copy(ctrl[:7] + [s_], 3, 8, ctrl[0][0], 32, rt.shape[1], tab_t))
+        if not BT4:  # the top page's third row, Sound -> Language/Sound (its page opens on Language): L, a, e and the
+                     # slash of Save/Load, n and u of Sound, g of Change Voice, then Sound as it is
+            save, sound = cg(rt, pt, 0), cg(rt, pt, 64)
+            assert (len(save), len(sound)) == (9, 5)
+            L_, a_, e_, sl_, g_ = save[5], save[1], save[3], save[4], change[4]
+            art_job(16, top, 64, G.compose_copy([L_, a_, sound[3], g_, sound[2], a_, g_, e_, sl_] + sound, 3, 8,
+                                                sound[0][0], 32, rt.shape[1], tab_t))
         art_job(16, sub, 96, G.compose_copy(ctrl + [None, screen[0], screen[3], t_, t_, vib[1], screen[5], change[4], s_],
                                             3, 8, ctrl[0][0], 32, rs.shape[1], tab_s))
     G.TITLE = True

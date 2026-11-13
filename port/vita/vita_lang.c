@@ -134,7 +134,7 @@ static const char *const kEs[][2] = {
     {"ON: saving and loading go without\nthe memory card window, unless\nthere is a question to answer.",
      "Sí: guardar y cargar sin la ventana\nde la tarjeta de memoria, salvo\nsi hay una pregunta."},
     {"OFF: the memory card window and\nits pages, as the game has them.", "No: la ventana de la tarjeta de\nmemoria, como la tiene el juego."},
-    /* BT3's Language row (Sound > Language: the plates are the disc's, Inglés and Japonés in Spanish) */
+    /* BT3's Language row (Language/Sound > Language: the plates are the disc's, Inglés and Japonés in Spanish) */
     {"English: the menus, the text and\nthe voices in English.", "Inglés: los menús, el texto y\nlas voces en inglés."},
     {"Japanese: the voices in Japanese,\nthe menus and subtitles in\nEnglish.", "Japonés: las voces en japonés,\nlos menús y subtítulos en inglés."},
     {"Espanol: the menus, the HUD and\nthe subtitles in Spanish, from\nthe next screen.",

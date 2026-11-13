@@ -12,6 +12,39 @@
    Sound, Controller). The cursor still names the item (OPT_ITEM_*); its row, its plate and its caption follow these. */
 static const s8 kVitaTopRow[6] = {0, 4, 1, 3, 2, 5};  /* item -> row (plate mc_menu_plate_<row>) */
 static const s8 kVitaTopItem[6] = {0, 2, 4, 3, 1, 5}; /* row -> item */
+/* The sound page's rows (the top page's Language/Sound): Language first (the text's language and the voices), then
+   Speaker, Volume, BGM Test (the console's Speaker, Volume, BGM Test, Change Voice); Reset at the bottom as before.
+   The cursor names the item; Up / Down go in this order, and each plate shows its item's caption. */
+static const s8 kVitaSndItem[5] = {OPT_ITEM_VOICE, OPT_ITEM_STEREO, OPT_ITEM_VOLUME, OPT_ITEM_BGM, OPT_ITEM_SND_RESET};
+static s32 Option_VitaSndRow(s32 item) { /* item -> row 1..5 (mc_menu_plate_<row>; 5 the bottom plate's) */
+    s32 i;
+    for (i = 0; i < 5; i++) {
+        if (kVitaSndItem[i] == item) {
+            return i + 1;
+        }
+    }
+    return item - 11;
+}
+static s32 Option_VitaSndStep(s32 item, s32 dir) { /* the item above (-1) or below (1), round */
+    return kVitaSndItem[(Option_VitaSndRow(item) - 1 + dir + 5) % 5];
+}
+/* plate `name` given the caption of sound page item `item`: Speaker the top page's strip (row 7), the others the
+   second strip's (Volume, BGM Test, Language: rows 0, 1, 2) */
+static void Option_VitaSndCaption(MFlash *flash, char *name, s32 item) {
+    MFlashRef ref;
+    MFlashUv uv;
+    s32 tex = item == OPT_ITEM_STEREO ? 0 : 1;
+    memset(&uv, 0, sizeof(uv));
+    uv.x1 = 0x200;
+    uv.y0 = item == OPT_ITEM_STEREO ? 0xE0 : item == OPT_ITEM_VOLUME ? 0 : item == OPT_ITEM_BGM ? 0x20 : 0x40;
+    uv.y1 = uv.y0 + 0x20;
+    Flash_FindLabel(flash, name, "mc_menu_text_off", &ref);
+    Flash_ClipSetUv(flash, &ref, &uv);
+    Flash_ClipSetTex(flash, &ref, tex);
+    Flash_FindLabel(flash, name, "mc_menu_text_on", &ref);
+    Flash_ClipSetUv(flash, &ref, &uv);
+    Flash_ClipSetTex(flash, &ref, tex);
+}
 #endif
 #endif
 
@@ -715,15 +748,21 @@ static void Option_VitaPill(s32 x, s32 y, s32 w, s32 h, s32 rad, u32 rim, u32 to
     Dma_EndDirect(p);
 }
 
+/* (Language, below: its picker's pages, 0 when it is not open or has one) */
+static s32 Option_VitaLangPage(s32 *pages);
+
 static void Option_VitaPageNumber(void) {
     static char text[16];
     FontStyle saved;
-    s32 item;
-    if (sVitaSetLevel <= 0 || gOption->picker != 5) {
+    s32 item, page, pages;
+    if ((page = Option_VitaLangPage(&pages)) > 0) { /* Language: two languages a page (three with the European disc) */
+        sprintf(text, Vita_Tr("Page %d/%d"), page, pages);
+    } else if (sVitaSetLevel <= 0 || gOption->picker != 5) {
         return;
+    } else {
+        item = sVitaSetLevel == 1 ? sVitaItem1 : sVitaSetItem;
+        sprintf(text, Vita_Tr("Page %d/%d"), item / 4 + 1, (VITA_L1_ITEMS + 3) / 4);
     }
-    item = sVitaSetLevel == 1 ? sVitaItem1 : sVitaSetItem;
-    sprintf(text, Vita_Tr("Page %d/%d"), item / 4 + 1, (VITA_L1_ITEMS + 3) / 4);
     /* its own small plate, like the pickers' (a capsule, a light rim, a shaded body), the text in its middle in their
        colours */
     Gfx_AddDefaultEnv();
@@ -973,6 +1012,16 @@ static s32 sVitaLangN;    /* languages offered: 2, or 6 with the European disc's
 static s32 sVitaLangSel;  /* the one under the cursor (step 1) */
 static s32 sVitaLangStep; /* 0 closed, 1 the languages, 2 the voices after a European language */
 static s32 sVitaLangTex;  /* the plates were given the second strip: given back the first once closed */
+
+/* the languages' page under the cursor (1 on), with `pages` of them; 0 when the picker is not on the languages or
+   they fit on one page (English and Japanese alone; the voices after a European language) */
+static s32 Option_VitaLangPage(s32 *pages) {
+    *pages = (sVitaLangN + 1) / 2;
+    if (gOption->picker != 6 || sVitaLangStep != 1 || *pages < 2) {
+        return 0;
+    }
+    return sVitaLangSel / 2 + 1;
+}
 
 static void Option_VitaLangGuide(void) {
     const char *text;
@@ -1256,8 +1305,13 @@ s32 Option_Input(void) {
             } else if (gOption->state == OPT_ITEM_SOUND) {
                 Flash_GotoLabel(&gOption->flash[0], "fl_menu_change", 1);
                 OPT_PLATE(OPT_CLIP_ROW, "fl_off_start");
+#ifdef PORT_VITA
+                gOption->cursor = OPT_ITEM_VOICE; /* (Language, the first row) */
+                gOption->voiceLine = 18;
+#else
                 gOption->cursor = OPT_ITEM_STEREO;
                 gOption->voiceLine = 11;
+#endif
                 OPT_PLATE(OPT_CLIP_ROW_SOUND, "fl_on_start");
                 gOption->fromPage = 0;
                 gOption->page = 2;
@@ -1457,10 +1511,14 @@ s32 Option_Input(void) {
             } else {
                 OPT_PLATE(OPT_CLIP_ROW_SOUND, "fl_off_start");
             }
+#ifdef PORT_VITA
+            gOption->cursor = Option_VitaSndStep(gOption->cursor, -1);
+#else
             gOption->cursor--;
             if (gOption->cursor < OPT_ITEM_STEREO) {
                 gOption->cursor = OPT_ITEM_SND_RESET;
             }
+#endif
             if (gOption->cursor >= OPT_ITEM_SND_RESET) {
                 OPT_PLATE(OPT_CLIP_BOTTOM, "fl_on_start");
             } else {
@@ -1485,10 +1543,14 @@ s32 Option_Input(void) {
             } else {
                 OPT_PLATE(OPT_CLIP_ROW_SOUND, "fl_off_start");
             }
+#ifdef PORT_VITA
+            gOption->cursor = Option_VitaSndStep(gOption->cursor, 1);
+#else
             gOption->cursor++;
             if (gOption->cursor > OPT_ITEM_SND_RESET) {
                 gOption->cursor = OPT_ITEM_STEREO;
             }
+#endif
             if (gOption->cursor >= OPT_ITEM_SND_RESET) {
                 OPT_PLATE(OPT_CLIP_BOTTOM, "fl_on_start");
             } else {
@@ -2560,6 +2622,12 @@ void Option_Draw(void) {
                     Flash_ClipSetUv(flash, &ref, &uv);
                     Flash_ClipSetTex(flash, &ref, 1);
                 }
+#ifdef PORT_VITA
+                for (i = 0; i < 4; i++) { /* (the sound page's rows going out, in the Vita's order) */
+                    sprintf(name, "mc_menu_plate_%d", i + 5);
+                    Option_VitaSndCaption(flash, name, kVitaSndItem[i]);
+                }
+#endif
                 if (gOption->fromPage == 2) {
                     sprintf(name, "mc_menu_plate_%d", 8);
                     Flash_FindLabel(flash, NULL, name, &ref);
@@ -2694,6 +2762,12 @@ void Option_Draw(void) {
                 Flash_ClipSetUv(flash, &ref, &uv);
                 Flash_ClipSetTex(flash, &ref, 1);
             }
+#ifdef PORT_VITA
+            for (i = 0; i < 4; i++) { /* (the Vita's order: Language, Speaker, Volume, BGM Test) */
+                sprintf(name, "mc_menu_plate_%d", i + 1);
+                Option_VitaSndCaption(flash, name, kVitaSndItem[i]);
+            }
+#endif
             for (i = 0; i < 4; i++) {
                 uv.x0 = 0;
                 uv.x1 = 0x200;
@@ -3159,6 +3233,10 @@ void Option_PlateGoto(s32 unused, s32 clip, char *label) {
             sprintf(name, "mc_menu_plate_%d", gOption->cursor - 6);
             break;
         case OPT_CLIP_ROW_SOUND:
+#ifdef PORT_VITA
+            sprintf(name, "mc_menu_plate_%d", Option_VitaSndRow(gOption->cursor));
+            break;
+#endif
             sprintf(name, "mc_menu_plate_%d", gOption->cursor - 11);
             break;
         case OPT_CLIP_BOTTOM:

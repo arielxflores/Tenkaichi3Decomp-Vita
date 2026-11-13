@@ -6,7 +6,8 @@ New
 
 - **The disc image as it is**: copy your `.iso` to `ux0:data/bt3/` and the game reads its files from it; no need to
   unpack it with 7-Zip any more (the unpacked files still work). The same for BT4 and the European disc.
-- **Languages**: Options → Sound → Language (the console's Change Voice row) sets the text and the voices together:
+- **Languages**: Options → Language/Sound → Language (the console's Sound page and its Change Voice row; Language is
+  now the page's first row, and its picker shows its page, Page 1/3, at the top right) sets the text and the voices together:
   English, Japanese (voices), and with your own European disc (SLES-54945: its image or its `DATA/PZS3EU1.AFS` in
   `ux0:data/bt3/eu/`) Spanish, German, French and Italian menus, HUD and battle subtitles, with English or Japanese
   voices. Based on Matteo Santoro's work.

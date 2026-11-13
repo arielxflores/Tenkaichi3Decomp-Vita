@@ -91,7 +91,9 @@ unmodified USA release and tells you if they are not.
 
 ### Languages
 
-**Options → Sound → Language** sets the language of the text and of the voices together:
+**Options → Language/Sound → Language** (the page's first row) sets the language of the text and of the voices
+together; with the European disc its picker shows two languages at a time, Left / Right for the next two, and its page
+(Page 1/3) at the top right:
 
 | Language | Text (menus, HUD, battle subtitles) | Voices |
 |---|---|---|
