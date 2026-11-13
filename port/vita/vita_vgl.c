@@ -5872,6 +5872,12 @@ static void fx_init(void) {
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         }
+    } else { /* its rows as the depth buffer's (made here at 720 x 408 when a test's fights are that size from the start:
+                build 313's fightres=720 read the depth 720 apart, not 736) */
+        SceGxmTexture *gt = vglGetGxmTexture(GL_TEXTURE_2D);
+        if (gt != NULL) {
+            tex_redescribe(sDepthTex, sceGxmTextureGetData(gt), SCE_GXM_TEXTURE_FORMAT_DF32M, SCR_W, SCR_H);
+        }
     }
     glBindTexture(GL_TEXTURE_2D, 0);
     sTblOn = sFxProg[0] && sFxProg[1] && sFxProg[2] && sIdsTex && sIdsFbo && sDepthTex;
