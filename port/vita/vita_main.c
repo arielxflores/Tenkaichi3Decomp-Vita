@@ -1825,6 +1825,16 @@ int __wrap_main(int argc, char **argv) {
     sceIoMkdir("ux0:data", 0777);
     sceIoMkdir(HOME, 0777);
     sceIoMkdir(HOME "/mods", 0777); /* (where mods go: vita_file.c) */
+#ifdef PORT_VITA_RELEASE
+    {   /* the released program's log, appended to at every start, kept under 1 MB: a longer one becomes log-prev.txt
+           (the one before it is let go) and this run starts a new one */
+        SceIoStat st;
+        if (sceIoGetstat(HOME "/log" SFX, &st) >= 0 && st.st_size > 1024 * 1024) {
+            sceIoRemove(HOME "/log-prev" SFX);
+            sceIoRename(HOME "/log" SFX, HOME "/log-prev" SFX);
+        }
+    }
+#endif
     sLog = fopen(HOME "/log" SFX, "a");
     logf_("\n======== new run ========\n");
     {   /* the parts of a log split before (logsplit=): this run's own, if any, are made anew */

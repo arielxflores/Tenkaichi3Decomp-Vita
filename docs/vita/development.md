@@ -24,7 +24,7 @@ all of them. The full list, each with a comment, is `read_settings` in `port/vit
 | `demoduel=1`, `demostage=<n>`, `demochara1=<id>`, `demochara2=<id>` | The test fight: a duel with intros on that stage, with those fighters |
 | `sweep=<s>` | In the demo fight, start again after that many seconds with the next pairing (0: off) |
 | `startmode=<n>` | The menus start on that screen (62: the options) |
-| `report=1` | The figures every two seconds in the log (also in the release) |
+| `report=1` | The figures every two seconds in the log (also in the release), and a sample of the GS primitives by state every 150 pictures of a fight (that picture drawn the slow way, off the fast lane) |
 | `film=<n>` | A small picture of every n-th frame of a fight in the log (`filmstate`, `filmlist`, `filmtrig` choose which) |
 | `logsplit=<KB>` | The log in parts of that size (`log-part2-vgl.txt`, ...) |
 | `wide=0` | The PS2's 4:3 picture (also in the release) |
@@ -61,7 +61,8 @@ so that its effect can be measured or a picture compared with and without it.
 
 ## The log
 
-Each run appends to `log-vgl.txt` (the release: `log.txt`). With `report=1` it has, every two seconds: the frame
+Each run appends to `log-vgl.txt` (the release: `log.txt`, which becomes `log-prev.txt` at a start once it is over
+1 MB). With `report=1` it has, every two seconds: the frame
 rate, where the time of each thread went (the game, the list reader, the drawer, the render thread), the uploads,
 the texture and state caches, and the processor counters per thread when libperf is installed. When no picture has
 been made for three seconds, a watchdog writes where every thread is to `hang-vgl.txt`: each thread's state, the

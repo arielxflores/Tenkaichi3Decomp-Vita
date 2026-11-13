@@ -6798,7 +6798,11 @@ void GsGpu_FrameEnd(void) {
                 heavy = 0;
             }
             extern int Vita_InBattle(void);
-            if ((Vita_InFight() && (++n % 150 == 40 || (fc > 45.0f * 512.0f * 448.0f && heavy < 2 && !sCovSample && ++heavy))) ||
+            extern int gVitaReport;
+            /* (only with the report: the development build's default, the released program's bt3.txt report=1; a
+               sampled picture is drawn the slow way, off the fast lane, and logs some 30 lines) */
+            if (!gVitaReport) {
+            } else if ((Vita_InFight() && (++n % 150 == 40 || (fc > 45.0f * 512.0f * 448.0f && heavy < 2 && !sCovSample && ++heavy))) ||
                 (gVitaFilm > 0 && !Vita_InFight() && Vita_InBattle() && ++n % 45 == 20)) { /* (the intros too, every 45 pictures, in a test run with the film) */
                 sCovSample = 1;
                 sCovN = 0;

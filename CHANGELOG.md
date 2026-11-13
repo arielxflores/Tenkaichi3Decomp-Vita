@@ -34,6 +34,9 @@ Faster
   that has them. Development build: `native=0`, `nativetex=0`, `updest=0`, `dpfast=0`, `fxrun=0`, `texbind=0`,
   `seavtx=0` go back.
 
+- The log no longer gets a sample of the picture's draws every five seconds of a fight (that picture was drawn the
+  slow way), and `log.txt` is kept under 1 MB: a longer one becomes `log-prev.txt` at the next start.
+
 New
 
 - Options → Controller → Vita Settings says whether the game has the fourth CPU core (CapUnlocker on or off).
