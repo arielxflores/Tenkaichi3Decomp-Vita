@@ -1216,6 +1216,7 @@ static int sTblOn;
 static int sTblState;          /* state_of_: the texture left out (a table pass: its own shader reads the source) */
 static GLuint sOlProg;
 static GLuint sOlTex[3];       /* (the display buffers as textures, below) */
+static float sTexUk[2] = {1.0f, 1.0f}; /* the picture's and the depth's textures: the coordinate across times this (tex_strided, below) */
 extern unsigned int gxm_back_buffer_index;
 static int sTexXf;             /* the primitive's texture is a picture drawn here: its coordinates moved into it (put) */
 static float sTexXfV[4];       /* s' = [0] + s * [1], t' = [2] + t * [3] */
@@ -3654,7 +3655,7 @@ static int state_of_(int ctx, int type, State *d) {
             } else if (mainPage && page == 2 && tbw == 8 && sOlTex[gxm_back_buffer_index % 3] != 0) {
                 pageTex = 3; /* (the scene drawing the picture has ended with the switch to the target: it is in memory) */
                 sTexXf = 1;
-                sTexXfV[0] = (float)VIEW_X / (float)SCR_W; sTexXfV[1] = tw / 512.0f * (float)VIEW_W / (float)SCR_W;
+                sTexXfV[0] = (float)VIEW_X / (float)SCR_W * sTexUk[0]; sTexXfV[1] = tw / 512.0f * (float)VIEW_W / (float)SCR_W * sTexUk[0];
                 sTexXfV[2] = 0.0f; sTexXfV[3] = th / 448.0f;
                 gVitaWt[4]++;
             }
@@ -5557,9 +5558,9 @@ static void ol_draw(const uint8_t *p) {
         glUniform1i(sOlU[2], 0);
     }
     {   /* (a pixel's width at 640; whole pixels, the ids are read without filtering: 2 at 960 x 544) */
-        float k = (float)(int)(fx_px() + 0.5f);
+        float k = (float)(int)(fx_px() + 0.5f), uk = fromIds ? 1.0f : sTexUk[0];
         k = k < 1.0f ? 1.0f : k;
-        glUniform4f(sOlU[0], (float)VIEW_X / (float)SCR_W, (float)VIEW_W / (float)SCR_W, k / (float)SCR_W, k / (float)SCR_H);
+        glUniform4f(sOlU[0], (float)VIEW_X / (float)SCR_W * uk, (float)VIEW_W / (float)SCR_W * uk, k / (float)SCR_W * uk, k / (float)SCR_H);
     }
     glUniform4f(sOlU[1], 100.0f / 255.0f, 0.0f, 0.0f, 0.0f);
     glDisable(GL_DEPTH_TEST);
@@ -5884,12 +5885,30 @@ static void fx_init(void) {
    the colour buffers' rows are the width rounded up to 64 pixels apart (vitaGL's DISPLAY_STRIDE), the depth
    buffer's to 32 (SCE_GXM_TILE_SIZEX). At 640 and 960 that is the width itself; at 720 x 408 the rows are 768 and
    736 apart, and a texture of rows 720 apart read every row further off: build 311's fights at 720 x 408 on stage 12,
-   streaks and lines across the picture where the effects read it (the outline, the fog, the sea's reflections). */
-static void tex_strided(SceGxmTexture *gt, void *data, SceGxmTextureFormat fmt, int w, int h, int rowAlign) {
+   streaks and lines across the picture where the effects read it (the outline, the fog, the sea's reflections).
+   Such a texture (SCE_GXM_TEXTURE_LINEAR_STRIDED) keeps its stride in the bits other kinds keep the min and mip
+   filters, the mip count and the LOD bias in: vitaGL's setters of those (glTexParameteri, its draws) leave it alone
+   (vitagl.patch); build 312's wrote over it, and the rows were read 5 to 32 pixels off each all the same. Its mag
+   filter is its min filter too.
+   A strided texture the chip refuses: a plain one as wide as the rows' spacing, the padding at each row's end
+   part of it, read across only the picture's part (sTexUk: the passes that read them scale the coordinate across). */
+static int sStridedSaid[2];
+static int tex_strided(SceGxmTexture *gt, void *data, SceGxmTextureFormat fmt, int w, int h, int rowAlign) {
     unsigned stride = (((unsigned)w + (unsigned)rowAlign - 1u) & ~((unsigned)rowAlign - 1u)) * 4u;
-    if (stride == (unsigned)w * 4u || sceGxmTextureInitLinearStrided(gt, data, fmt, (unsigned)w, (unsigned)h, stride) < 0) {
+    int r = 1, depth = fmt == SCE_GXM_TEXTURE_FORMAT_DF32M;
+    sTexUk[depth] = 1.0f;
+    if (stride == (unsigned)w * 4u) {
         sceGxmTextureInitLinear(gt, data, fmt, (unsigned)w, (unsigned)h, 0);
+    } else if ((r = sceGxmTextureInitLinearStrided(gt, data, fmt, (unsigned)w, (unsigned)h, stride)) < 0) {
+        sceGxmTextureInitLinear(gt, data, fmt, stride / 4u, (unsigned)h, 0);
+        sTexUk[depth] = (float)w / (float)(stride / 4u);
     }
+    if (r != 1 && !sStridedSaid[fmt == SCE_GXM_TEXTURE_FORMAT_DF32M]) { /* (once each: the log) */
+        sStridedSaid[fmt == SCE_GXM_TEXTURE_FORMAT_DF32M] = 1;
+        Vita_Log("vgl: the %s as a texture of %d x %d, rows %u apart: %s (%08x)\n", fmt == SCE_GXM_TEXTURE_FORMAT_DF32M ? "depth" : "picture",
+                 w, h, stride / 4u, r >= 0 ? "strided" : "the chip refused a strided one: as wide as the rows' spacing", (unsigned)r);
+    }
+    return r;
 }
 static void tex_redescribe(GLuint t, void *data, SceGxmTextureFormat fmt, int w, int h) {
     SceGxmTexture *gt, old;
@@ -5900,7 +5919,9 @@ static void tex_redescribe(GLuint t, void *data, SceGxmTextureFormat fmt, int w,
     }
     old = *gt;
     tex_strided(gt, data, fmt, w, h, fmt == SCE_GXM_TEXTURE_FORMAT_DF32M ? 32 : 64);
-    sceGxmTextureSetMinFilter(gt, sceGxmTextureGetMinFilter(&old));
+    if (sceGxmTextureGetType(gt) != SCE_GXM_TEXTURE_LINEAR_STRIDED) { /* (a strided one before: its mag filter was both) */
+        sceGxmTextureSetMinFilter(gt, sceGxmTextureGetType(&old) == SCE_GXM_TEXTURE_LINEAR_STRIDED ? sceGxmTextureGetMagFilter(&old) : sceGxmTextureGetMinFilter(&old));
+    }
     sceGxmTextureSetMagFilter(gt, sceGxmTextureGetMagFilter(&old));
     sceGxmTextureSetUAddrMode(gt, sceGxmTextureGetUAddrMode(&old));
     sceGxmTextureSetVAddrMode(gt, sceGxmTextureGetVAddrMode(&old));
@@ -6004,7 +6025,7 @@ static void ids_exec(void) {
     if (sFxU[0][1] >= 0) {
         glUniform1i(sFxU[0][1], 0);
     }
-    glUniform4f(sFxU[0][0], 0.0f, 1.0f, -1.0f, 0.0f); /* (into a picture of ours: turned over, so its rows are the display's) */
+    glUniform4f(sFxU[0][0], 0.0f, sTexUk[0], -1.0f, 0.0f); /* (into a picture of ours: turned over, so its rows are the display's) */
     glDisable(GL_BLEND);
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_STENCIL_TEST);
@@ -6032,7 +6053,7 @@ static void fog_exec(const uint8_t *p) {
     if (sFxU[3][1] >= 0) {
         glUniform1i(sFxU[3][1], 0);
     }
-    glUniform4f(sFxU[3][0], 0.0f, 1.0f, -1.0f, 0.0f); /* (the whole display, turned over into a picture of ours) */
+    glUniform4f(sFxU[3][0], 0.0f, sTexUk[1], -1.0f, 0.0f); /* (the whole display, turned over into a picture of ours) */
     if (sFxU[3][3] >= 0) {
         glUniform4f(sFxU[3][3], zmax, 0.0f, 0.0f, 0.0f);
     }
@@ -6065,7 +6086,7 @@ static void xf_exec(const uint8_t *p) {
             if (sFxU[0][1] >= 0) {
                 glUniform1i(sFxU[0][1], 0);
             }
-            glUniform4f(sFxU[0][0], 0.0f, 1.0f, -1.0f, 0.0f);
+            glUniform4f(sFxU[0][0], 0.0f, sTexUk[0], -1.0f, 0.0f);
             glDisable(GL_BLEND);
             glDisable(GL_DEPTH_TEST);
             glDisable(GL_STENCIL_TEST);
@@ -6160,7 +6181,10 @@ static void tbl_exec(const uint8_t *p) {
     if (sFxU[k][2] >= 0) {
         glUniform1i(sFxU[k][2], 1);
     }
-    glUniform4f(sFxU[k][0], (float)VIEW_X / (float)SCR_W, (float)VIEW_W / (float)SCR_W, 1.0f, 0.0f);
+    {
+        float uk = k == 2 ? sTexUk[1] : 1.0f; /* (the depth read straight) */
+        glUniform4f(sFxU[k][0], (float)VIEW_X / (float)SCR_W * uk, (float)VIEW_W / (float)SCR_W * uk, 1.0f, 0.0f);
+    }
     if (sFxU[k][3] >= 0) {
         glUniform4f(sFxU[k][3], op->zmax, 0.0f, 0.0f, 0.0f);
     }
@@ -6465,8 +6489,8 @@ static void glow_exec(const uint8_t *p) {
     if (sGlowU[0][1] >= 0) {
         glUniform1i(sGlowU[0][1], 0);
     }
-    glUniform4f(sGlowU[0][0], (float)VIEW_X / (float)SCR_W, (float)VIEW_W / (float)SCR_W, -1.0f, 0.0f);
-    glUniform4f(sGlowU[0][2], fx_px() / (float)SCR_W, fx_px() / (float)SCR_H, 0.0f, 0.0f); /* (its taps as far apart on the screen as at 640) */
+    glUniform4f(sGlowU[0][0], (float)VIEW_X / (float)SCR_W * sTexUk[0], (float)VIEW_W / (float)SCR_W * sTexUk[0], -1.0f, 0.0f);
+    glUniform4f(sGlowU[0][2], fx_px() / (float)SCR_W * sTexUk[0], fx_px() / (float)SCR_H, 0.0f, 0.0f); /* (its taps as far apart on the screen as at 640) */
     glUniform4f(sGlowU[0][3], r, g, b, 1.0f);
     fx_quad();
     /* the blur: across, then down */
