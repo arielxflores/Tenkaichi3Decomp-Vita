@@ -1358,7 +1358,7 @@ static void read_settings(void) {
             gVitaFxHalf = atoi(eq) != 0;
         } else if (strcmp(line, "shbank") == 0) { /* 1: the run's shaders written to ux0:data/bt3/shbank.bin, the bank's making (vita_vgl.c) */
             extern int gVitaShHarvest;
-            gVitaShHarvest = atoi(eq) != 0;
+            gVitaShHarvest = atoi(eq); /* (2: the bank checked, each program not in it said in the log) */
         } else if (strcmp(line, "fightres") == 0) { /* the fights drawn at 720 x 408 or 640 x 368 by the chip's time (auto,
                                                      the default), or always at 640 x 368, 720 x 408 or 960 x 544 (vita_vgl.c) */
             extern int gVitaFightW;

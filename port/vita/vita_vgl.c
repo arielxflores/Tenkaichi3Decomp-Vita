@@ -465,7 +465,7 @@ static GLuint sFragVar[2048]; /* (f + 8: the texture read straight from the coor
 extern int gVglSafe2;
 static uint32_t sShBin[4096];
 unsigned gVitaShCache[5]; /* for the log: read from the card, compiled and written, compiled (not written), from the bank, written to the bank's file */
-int gVitaShHarvest;       /* bt3.txt shbank=1 */
+int gVitaShHarvest;       /* bt3.txt shbank=1 (the bank's making), 2 (its check: each program not in it said in the log) */
 typedef struct ShBankEntry { uint64_t h; uint32_t off, size; } ShBankEntry;
 static uint8_t *sBank;
 static ShBankEntry *sBankIx;
@@ -476,7 +476,7 @@ static void sh_bank_load(void) {
     SceOff size;
     unsigned off, n = 0;
     sBankTried = 1;
-    if (gVitaShHarvest || (gVglSafe2 & 32768) || (fd = sceIoOpen("app0:shbank.bin", SCE_O_RDONLY, 0)) < 0) {
+    if (gVitaShHarvest == 1 || (gVglSafe2 & 32768) || (fd = sceIoOpen("app0:shbank.bin", SCE_O_RDONLY, 0)) < 0) {
         return;
     }
     size = sceIoLseek(fd, 0, SCE_SEEK_END);
@@ -595,9 +595,13 @@ static int sh_cached(GLuint sh, const char *src, GLint len) {
             }
         }
     }
+    if (gVitaShHarvest == 2) { /* (shbank=2: the bank's check: what it does not have, said; compiled, not read from the card) */
+        Vita_Log("vgl: a shader not in the bank: %08x%08x, %d bytes of source: compiled\n", (unsigned)(h >> 32), (unsigned)h, (int)len);
+        gVitaShCache[4]++;
+    }
     sceIoMkdir("ux0:data/bt3/shcache", 0777);
     snprintf(path, sizeof(path), "ux0:data/bt3/shcache/f%08x%08x.gxp", (unsigned)(h >> 32), (unsigned)h);
-    if (!(gVglSafe2 & 32768) && (fd = sceIoOpen(path, SCE_O_RDONLY, 0)) >= 0) {
+    if (!(gVglSafe2 & 32768) && gVitaShHarvest != 2 && (fd = sceIoOpen(path, SCE_O_RDONLY, 0)) >= 0) {
         int n = sceIoRead(fd, sShBin, sizeof(sShBin));
         sceIoClose(fd);
         if (n > 64 && n < (int)sizeof(sShBin)) {
@@ -605,7 +609,7 @@ static int sh_cached(GLuint sh, const char *src, GLint len) {
             glGetShaderiv(sh, GL_COMPILE_STATUS, &ok);
             if (ok) {
                 gVitaShCache[0]++;
-                if (gVitaShHarvest) {
+                if (gVitaShHarvest == 1) {
                     sh_bank_write(h, sShBin, (unsigned)n);
                 }
                 return 1;
@@ -620,7 +624,7 @@ static int sh_cached(GLuint sh, const char *src, GLint len) {
     }
     memset(sShBin, 0, 64);
     vglGetShaderBinary(sh, (GLsizei)sizeof(sShBin), &bl, sShBin);
-    if (gVitaShHarvest && bl > 64 && bl < (GLsizei)sizeof(sShBin)) {
+    if (gVitaShHarvest == 1 && bl > 64 && bl < (GLsizei)sizeof(sShBin)) {
         sh_bank_write(h, sShBin, (unsigned)bl);
     }
     if (bl > 64 && bl < (GLsizei)sizeof(sShBin) && (fd = sceIoOpen(path, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0777)) >= 0) {
@@ -1721,7 +1725,8 @@ int GsGpu_Init(void) {
     }
     rt_start(); /* (last, vitaGL is set up) */
     Vita_Log("vita: vitaGL back end started (shaders: %u from the bank, %u from the card, %u compiled and kept, %u compiled%s)\n",
-             gVitaShCache[3], gVitaShCache[0], gVitaShCache[1], gVitaShCache[2], gVitaShHarvest ? "; shbank=1: written to ux0:data/bt3/shbank.bin" : "");
+             gVitaShCache[3], gVitaShCache[0], gVitaShCache[1], gVitaShCache[2],
+             gVitaShHarvest == 1 ? "; shbank=1: written to ux0:data/bt3/shbank.bin" : gVitaShHarvest == 2 ? "; shbank=2: the bank checked" : "");
     return 1;
 }
 
@@ -10262,22 +10267,26 @@ static void fight_res_feed(unsigned g) {
         if (sScrW != 640) {
             return;
         }
-        if (g / 2u * 3u < budget / 10u * 6u && now >= sFightHold) { /* (what 720 x 408 would take: about 1.45 times) */
+        if (now < sFightHold) {
+            sFightGood = 0;
+        } else if (g / 2u * 3u < budget / 10u * 6u) { /* (what 720 x 408 would take: about 1.45 times) */
             if (++sFightGood >= 90u / (sListBlanks > 0 ? sListBlanks : 1u) * 2u) { /* (three seconds of pictures) */
                 sFightHi = 1;
                 sFightGood = sFightBad = 0;
                 sFightSettle = 4;
                 gVitaFightRes[0]++;
             }
-        } else {
-            sFightGood = 0;
+        } else { /* (a heavier picture: a second's worth taken off, not all: one spike does not undo the rest; build 307's
+                    fights on stage 12 stayed at 640 x 368 after one) */
+            sFightGood = sFightGood > 30u ? sFightGood - 30u : 0u;
         }
     } else {
         if (sScrW != 720) {
             return;
         }
         if (g > budget / 20u * 17u) {
-            if (++sFightBad >= 3) {
+            if (++sFightBad >= 3 || g > budget) { /* (three over 0.85 of the time, or one over all of it: build 307's
+                                                     stage 22, pictures late while three were counted) */
                 unsigned sh = sFightDowns < 5 ? sFightDowns : 5;
                 sFightHi = 0;
                 sFightGood = sFightBad = 0;
