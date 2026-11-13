@@ -46,11 +46,12 @@ What changed in each version: [CHANGELOG.md](CHANGELOG.md).
 Requirements:
 
 - A PS Vita running HENkaku / Ensō
-- `libshacccg.suprx` extracted to `ur0:data/` (see
-  [this guide](https://samilops2.gitbook.io/vita-troubleshooting-guide/shader-compiler/extract-libshacccg.suprx))
 - Recommended: the [CapUnlocker](https://github.com/GrapheneCt/CapUnlocker) kernel plugin, which lets the game use
   the Vita's fourth CPU core. Without it the game runs, but heavy scenes are slower.
 - About 3 GB free on `ux0:` for the game files
+
+The game's shaders come already compiled in the package, so `libshacccg.suprx` is not needed (if it is in
+`ur0:data/`, it is used only for a shader the package lacks).
 
 Steps:
 

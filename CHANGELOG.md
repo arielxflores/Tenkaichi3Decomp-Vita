@@ -17,9 +17,9 @@ New
   `bt3.txt` keeps them at 640 x 368.
 - **Faster effects**: the outline, the glow and the colour-table passes do their arithmetic in half precision, as
   the game's own pixel shaders already did.
-- **Shaders shipped ready-made** (the offline shader bank of Grarak's MH3 port): every shader now goes through the
-  cache, the vertex and effect shaders too (they were compiled at every start), and the VPK can carry them all
-  already compiled.
+- **Shaders shipped ready-made** (the offline shader bank of Grarak's MH3 port): the package carries all of the
+  game's shaders already compiled by the Vita's own compiler, so the game no longer compiles any at start, and
+  `libshacccg.suprx` is no longer needed.
 - **BT4 in Spanish**: with Team BT4's Spanish release in `ux0:data/bt3/bt4/es/` beside the English one, BT4's
   **Options → Vita Settings → Language** switches between them (the game starts again in the one chosen): the
   game's text and voices, and the port's own rows, guide lines and Multiplayer plates, in Spanish.

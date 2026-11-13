@@ -10244,7 +10244,9 @@ static void menu_res_feed(unsigned g) {
 static void fight_res_feed(unsigned g) {
     extern int gPortMenuMode;
     extern int Vita_InBattle(void);
-    unsigned budget = sListBlanks * 16683u;
+    /* (the picture's time: the fights' 30 a second, 2 blanks; sListBlanks, the fewest of the last lists, is 1 at
+       times in them, a list drawn soon after a late one: build 310's stages 12 and 22 stepped down at 17 ms so) */
+    unsigned budget = (sListBlanks > 2 ? sListBlanks : 2u) * 16683u;
     unsigned long long now;
     if (!gVitaFightAuto) {
         return;
@@ -10270,7 +10272,7 @@ static void fight_res_feed(unsigned g) {
         if (now < sFightHold) {
             sFightGood = 0;
         } else if (g / 2u * 3u < budget / 10u * 6u) { /* (what 720 x 408 would take: about 1.45 times) */
-            if (++sFightGood >= 90u / (sListBlanks > 0 ? sListBlanks : 1u) * 2u) { /* (three seconds of pictures) */
+            if (++sFightGood >= 90u) { /* (three seconds of pictures, at 30 a second) */
                 sFightHi = 1;
                 sFightGood = sFightBad = 0;
                 sFightSettle = 4;
