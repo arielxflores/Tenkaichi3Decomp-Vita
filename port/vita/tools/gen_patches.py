@@ -21,12 +21,12 @@ base = sys.argv[1]
 BT4 = len(sys.argv) > 3 and sys.argv[3] == 'bt4'
 ES = len(sys.argv) > 4 and sys.argv[4] == 'es'
 # the new lettering in Spanish (es): the words the Vita adds; the rest as in English
-TR_ES = {'Vita Settings': 'Ajustes Vita', 'Controller Settings': 'Ajustes del Mando', 'Language': 'Idioma',
-         'Rear': 'Trasero', 'Front': 'Frontal', 'Touch': 'T\u00e1ctil', 'Clashes': 'Choques', '2nd Pad': 'Mando 2',
+TR_ES = {'Vita Settings': 'Ajustes Vita', 'Controller Settings': 'Ajustes del control', 'Language': 'Idioma',
+         'Rear': 'Trasero', 'Front': 'Frontal', 'Touch': 'T\u00e1ctil', 'Clashes': 'Choques', '2nd Pad': 'Control 2',
          'Square': 'Cuadrado', 'Stick': 'Palanca', 'Unlock All': 'Desbloquear', 'Quick Start': 'Inicio R\u00e1pido',
          'Quick Save': 'Guardado R\u00e1pido', 'Tech Fixes': 'Arreglos', 'Z Counter': 'Contador Z',
          'Bombardment': 'Bombardeo', 'Game': 'Juego', 'Screen': 'Pantalla', 'Multiplayer': 'Multijugador',
-         'Two Controllers': 'Dos Mandos', 'Ad Hoc: Host': 'Ad Hoc: Crear', 'Ad Hoc: Join': 'Ad Hoc: Unirse'}
+         'Two Controllers': 'Dos Controles', 'Ad Hoc: Host': 'Ad Hoc: Crear', 'Ad Hoc: Join': 'Ad Hoc: Unirse'}
 def T(text):
     return TR_ES.get(text, text) if ES else text
 u = open(base + '/opt_s1.bin', 'rb').read()
@@ -204,11 +204,12 @@ def emit(lines, out, macro, name):
 
 # the options screen. The controller page's second row: Vibration -> Vita Settings; the sound page's third row:
 # Change Voice -> Language (the text's language and the voices: Option_VitaLang) (normal and highlighted strips)
-for e in (1, 3):
-    label_job(16, e, [(128, 'Vita Settings', 4, 'left')] + ([] if BT4 else [(64, 'Language', 4, 'left')]) +
-              ([(96, 'Controller Settings', 4, 'left')] if ES else []), 128)
+for e in (1, 3):  # (BT3's Spanish: Vita Settings made of the disc's own letters, below; Language rendered: no I there.
+                  #  BT4's Spanish has no A or j: its Ajustes rendered, in its rows' capitals)
+    label_job(16, e, ([] if ES and not BT4 else [(128, 'Vita Settings', 4, 'left')]) + ([] if BT4 else [(64, 'Language', 4, 'left')]) +
+              ([(96, 'Ajustes del Control', 4, 'left')] if ES and BT4 else []), 128)
 # the top page's second row: Screen -> Vita Settings (the Screen page is opened from Vita Settings' third page)
-for e in (0, 2):
+for e in (0, 2) if not (ES and not BT4) else ():
     label_job(16, e, [(32, 'Vita Settings', 4, 'left')], 32)
 # the pickers' second caption strip (1P / 2P / Normal / Custom / Simple, three rows free): the captions of "Touch
 # Buttons" in the rows the Vita does not show and the free ones; Normal and Custom stay
@@ -233,7 +234,61 @@ def art_job(section, entry_i, y0, img):
     previews.append(colors[idx])
     patches.append((section, sec, new))
 
-if not ES:  # (Spanish: the top page's Mando and the title stay; Tipo de Control -> Ajustes del Mando, above)
+if ES:
+    # Spanish ("control", "controles" for "mando", "mandos"): the top page's fourth row, Mando -> Control; its second,
+    # Pantalla -> Ajustes Vita; the controller page's first row, Tipo de control -> Ajustes del control, and its second,
+    # Vibraci\u00f3n -> Ajustes Vita: made of the disc's own letters (glyphart.py) from Guardar/Cargar (C), Pantalla, the
+    # screen row's Ajuste (A j u s t), Tipo de control (d e c o n t r o l), Vibraci\u00f3n (V i); BT4's Spanish rows have no
+    # A or j: there only Control so, the two Ajustes rendered (above). The title,
+    # Mando -> Control: the English disc's title Controller to its l (its letters as the Spanish one's), from
+    # opt_s1_en.bin beside the Spanish one.
+    import glyphart as G
+    tex16 = bytes(sec_bytes(16)[1])
+    pt, ps = texture(tex16, 0)['rgba'], texture(tex16, 1)['rgba']
+    for top, sub in ((0, 1), (2, 3)):
+        rt, rs = texture(tex16, top)['rgba'], texture(tex16, sub)['rgba']
+        cg = lambda r, shape, cell: G.pieces(r, cell, cell + 32, shape=shape)
+        save, pant, mando = cg(rt, pt, 0), cg(rt, pt, 32), cg(rt, pt, 96)
+        tipo, vib = cg(rs, ps, 96), cg(rs, ps, 128)
+        assert (len(save), len(pant), len(mando), len(tipo), len(vib)) == (14, 8, 5, 13, 9), \
+            (len(save), len(pant), len(mando), len(tipo), len(vib))
+        C_, ontrol = save[8], tipo[7:13]
+        gap = int(np.median(G.gaps([(x0, x1, mk) for x0, x1, mk, _c, _w in tipo])))
+        tab_t = G.style_table(rt, range(0, 256, 32), 32, shape=pt)
+        tab_s = G.style_table(rs, range(0, 160, 32), 32, shape=ps)
+        art_job(16, top, 96, G.compose_copy([C_] + ontrol, gap, 8, mando[0][0], 32, rt.shape[1], tab_t))
+        if BT4:  # (no A or j in its rows: its Ajustes rendered, above)
+            continue
+        adj = cg(rt, pt, 192)
+        assert len(adj) == 14, len(adj)
+        d_, e_, c_, l_ = tipo[4], tipo[5], tipo[6], tipo[12]
+        A_, j_, u_, s_, t_ = adj[0:5]
+        V_, i_, a_ = vib[0], vib[1], pant[1]
+        ajustes = [A_, j_, u_, s_, t_, e_, s_]
+        art_job(16, top, 32, G.compose_copy(ajustes + [None, V_, i_, t_, a_], gap, 8, pant[0][0], 32, rt.shape[1], tab_t))
+        art_job(16, sub, 96, G.compose_copy(ajustes + [None, d_, e_, l_, None, c_] + ontrol, gap, 8, tipo[0][0], 32,
+                                            rs.shape[1], tab_s))
+        art_job(16, sub, 128, G.compose_copy(ajustes + [None, V_, i_, t_, a_], gap, 8, vib[0][0], 32, rs.shape[1], tab_s))
+    G.TITLE = True
+    import os
+    en = open(os.path.join(sys.argv[1], 'opt_s1_en.bin'), 'rb').read()
+    def en_sec(n):
+        a = u32(en, n * 4) & ~3
+        b = (u32(en, (n + 1) * 4) & ~3) if n < u32(en, 0) else len(en)
+        return en[a:b]
+    tc = texture(en_sec(18), 5)['rgba'].astype(float)  # (the English disc's Controller)
+    gc = G.glyphs(tc, 0, 64)
+    assert len(gc) == 10, len(gc)
+    m = np.zeros(tc.shape[:2], bool)
+    for _, _, mk in gc[:7]:
+        m |= mk
+    title = G.paint(m, G.style_table(tc, [0], 64))
+    cut = (gc[6][0] + gc[6][1]) // 2  # (Control as it is, to the middle of its l; the l's right and its glow drawn again)
+    title[:, :cut] = tc[:, :cut]
+    art_job(18, 5, 0, title)
+    G.TITLE = False
+
+if not ES:
     # Controls: the top page's fourth row, Controller -> Controls; the controller page's first row, Control Type ->
     # Controller Settings; the controller page's title, Controller -> Controls. Made of the disc's own letters
     # (glyphart.py): the rows' from Controller, Screen, BGM Test (BT4: Screen Adjust), Vibration and Change Voice,

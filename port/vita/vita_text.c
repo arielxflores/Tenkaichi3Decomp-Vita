@@ -1,5 +1,6 @@
 /*
- * The game's text on the PS Vita: what the menus and the save dialogs say of the PS2 is said of the Vita.
+ * The game's text on the PS Vita: what the menus and the save dialogs say of the PS2 is said of the Vita; and in
+ * Spanish, "control" / "controles" for "mando" / "mandos" (kWords).
  * "Checking memory card (PS2)... Do not remove memory card (PS2), controller, reset, or switch off the console." and
  * the dialog titles "MEMORY CARD slot 1" are in every screen's dialog table (each screen has its own copy), so they
  * are changed where all text goes: the font's print commands and its measuring (src/battle/col_c.c Font_NewCmd,
@@ -52,6 +53,13 @@ static const Rule kRules[] = {
     {"DUALSHOCK 2", "controller"},
 };
 
+/* Spanish (the European disc's text, BT4's Spanish release): "control" for "mando" and "controles" for "mandos", as
+   whole words only ("comando", "mandó" stay); both masculine, so the words around them stay as they are */
+static const Rule kWords[] = {
+    {"mandos", "controles"}, {"Mandos", "Controles"}, {"MANDOS", "CONTROLES"},
+    {"mando", "control"},    {"Mando", "Control"},    {"MANDO", "CONTROL"},
+};
+
 static uint16_t ch_at(const void *s, int wide, int i) {
     return wide ? ((const uint16_t *)s)[i] : ((const uint8_t *)s)[i];
 }
@@ -74,12 +82,25 @@ static int match_at(const void *s, int wide, int i, int len, const char *pat) {
     return 1;
 }
 
-/* quick test: does the string name anything of the PS2 at all */
+/* a letter (an accented one too): the end of a whole word is not one */
+static int is_letter(uint16_t c) {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= 0xC0 && c != 0xD7 && c != 0xF7 && c < 0x3000);
+}
+
+/* kWords' word at i: a whole word */
+static int word_at(const void *s, int wide, int i, int len, const char *pat) {
+    int n = (int)strlen(pat);
+    return match_at(s, wide, i, len, pat) && (i == 0 || !is_letter(ch_at(s, wide, i - 1))) &&
+           (i + n >= len || !is_letter(ch_at(s, wide, i + n)));
+}
+
+/* quick test: does the string name anything of the PS2 at all (or a Spanish "mando") */
 static int needs_fix(const void *s, int wide, int len) {
     int i;
     for (i = 0; i + 2 < len; i++) {
         uint16_t c = ch_at(s, wide, i);
-        if ((c == 'P' && (match_at(s, wide, i, len, "PS2") || match_at(s, wide, i, len, "PlayStation"))) ||
+        if (((c == 'm' || c == 'M') && (match_at(s, wide, i + 1, len, "ando") || match_at(s, wide, i + 1, len, "ANDO"))) ||
+            (c == 'P' && (match_at(s, wide, i, len, "PS2") || match_at(s, wide, i, len, "PlayStation"))) ||
             (c == 'M' && match_at(s, wide, i, len, "MEMORY CARD")) || (c == 'c' && match_at(s, wide, i, len, "console")) ||
             (c == 'D' && match_at(s, wide, i, len, "DUALSHOCK"))) {
             return 1;
@@ -132,6 +153,16 @@ void *Vita_TextFix(void *str, int kind) {
                 i += (int)strlen(kRules[r].from);
                 done = 1;
                 break;
+            }
+        }
+        for (r = 0; !done && r < (int)(sizeof(kWords) / sizeof(kWords[0])); r++) {
+            if (word_at(str, wide, i, len, kWords[r].from)) {
+                const char *t = kWords[r].to;
+                while (*t != 0 && n < 1000) {
+                    buf[n++] = (uint8_t)*t++;
+                }
+                i += (int)strlen(kWords[r].from);
+                done = 1;
             }
         }
         if (!done) {

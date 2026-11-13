@@ -25,7 +25,8 @@ New
   game's text and voices, and the port's own rows, guide lines and Multiplayer plates, in Spanish.
 - **BT3's Options in Spanish**: with the European disc and Español chosen, the Options screen is the European
   disc's Spanish one, with Vita Settings and the Vita's rows in Spanish; the start menu and the versus menu's
-  Multiplayer too.
+  Multiplayer too. Both games' Spanish says "control" / "controles" for the discs' "mando" / "mandos" (the Options
+  row and title Control, Ajustes del control, Control 2, Dos Controles, and the game's own text).
 - **Vita Settings, a second page** (from the PC version, z3xox's): **Cheats → Unlock All** in the game (every
   character, stage, song and item, and the most Zenni: the game's own debug unlock), **Quick Start** (no logos,
   opening film or copyright page), **Quick Save** (saving and loading without the memory card window, on by

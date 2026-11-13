@@ -108,7 +108,8 @@ ux0:data/bt3/eu/PZS3EU1.AFS
 ```
 
 In Spanish the Options screen is the European disc's too, with the Vita's rows and Vita Settings in Spanish (Ajustes
-Vita, Idioma, Ajustes del Mando, and the guide lines), and so are the start menu and the versus menu's Multiplayer.
+Vita, Idioma, Control, Ajustes del control, and the guide lines), and so are the start menu and the versus menu's
+Multiplayer. The Spanish text says "control" and "controles" where the discs say "mando" and "mandos".
 In German, French and Italian the Options screen stays in English.
 
 With it, the game asks for the language at its next start; the [start menu](#start-menu) has the list too. A new
