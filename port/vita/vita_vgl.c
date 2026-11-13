@@ -816,6 +816,7 @@ static const Variant *variant(int kind, int f) {
 static void dp_init(void);
 static void ol_init(void); /* the fighters' outline */
 static void fx_init(void); /* the effects' passes */
+static void tex_redescribe(GLuint t, void *data, SceGxmTextureFormat fmt, int w, int h); /* (below: the buffers' rows) */
 /* the variants drawn with: with a texture, those of the reads straight from the coordinates or those divided by Q */
 static int var_used(int ff) {
     return (ff & 16) == 0 && ((ff & 3) == 0 ? (ff & 8) == 0 : ((ff & 8) != 0) == (sNoProj != 0));
@@ -5526,6 +5527,7 @@ static GLuint ol_view(void) {
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
         vglSetupTexture(GL_TEXTURE_2D, gxm_color_surfaces_addr[i], SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR, SCE_GXM_TEXTURE_LINEAR, SCR_W, SCR_H, 1);
+        tex_redescribe(sOlTex[i], gxm_color_surfaces_addr[i], SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR, SCR_W, SCR_H);
         Vita_Log("vgl: outline: display buffer %u as a texture (%u)\n", i, (unsigned)sOlTex[i]);
     }
     return sOlTex[i];
@@ -5828,6 +5830,7 @@ static void fx_init(void) {
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
             vglSetupTexture(GL_TEXTURE_2D, gxm_color_surfaces_addr[i], SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR, SCE_GXM_TEXTURE_LINEAR, SCR_W, SCR_H, 1);
+            tex_redescribe(sOlTex[i], gxm_color_surfaces_addr[i], SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR, SCR_W, SCR_H);
         }
     }
     glBindTexture(GL_TEXTURE_2D, 0);
@@ -5877,6 +5880,17 @@ static void fx_init(void) {
 }
 /* A linear texture over memory that is not its own (the display's buffers) described again for a new
    size; its filters and edge modes kept. (vglSetupTexture would hand the memory it had to the allocator.) */
+/* A display buffer (or the depth buffer) as a texture of the picture's size, its rows as far apart as the buffer's:
+   the colour buffers' rows are the width rounded up to 64 pixels apart (vitaGL's DISPLAY_STRIDE), the depth
+   buffer's to 32 (SCE_GXM_TILE_SIZEX). At 640 and 960 that is the width itself; at 720 x 408 the rows are 768 and
+   736 apart, and a texture of rows 720 apart read every row further off: build 311's fights at 720 x 408 on stage 12,
+   streaks and lines across the picture where the effects read it (the outline, the fog, the sea's reflections). */
+static void tex_strided(SceGxmTexture *gt, void *data, SceGxmTextureFormat fmt, int w, int h, int rowAlign) {
+    unsigned stride = (((unsigned)w + (unsigned)rowAlign - 1u) & ~((unsigned)rowAlign - 1u)) * 4u;
+    if (stride == (unsigned)w * 4u || sceGxmTextureInitLinearStrided(gt, data, fmt, (unsigned)w, (unsigned)h, stride) < 0) {
+        sceGxmTextureInitLinear(gt, data, fmt, (unsigned)w, (unsigned)h, 0);
+    }
+}
 static void tex_redescribe(GLuint t, void *data, SceGxmTextureFormat fmt, int w, int h) {
     SceGxmTexture *gt, old;
     glBindTexture(GL_TEXTURE_2D, t);
@@ -5885,7 +5899,7 @@ static void tex_redescribe(GLuint t, void *data, SceGxmTextureFormat fmt, int w,
         return;
     }
     old = *gt;
-    sceGxmTextureInitLinear(gt, data, fmt, (unsigned)w, (unsigned)h, 0);
+    tex_strided(gt, data, fmt, w, h, fmt == SCE_GXM_TEXTURE_FORMAT_DF32M ? 32 : 64);
     sceGxmTextureSetMinFilter(gt, sceGxmTextureGetMinFilter(&old));
     sceGxmTextureSetMagFilter(gt, sceGxmTextureGetMagFilter(&old));
     sceGxmTextureSetUAddrMode(gt, sceGxmTextureGetUAddrMode(&old));
@@ -5906,10 +5920,17 @@ static void scr_resized(int w, int h) {
     }
     if (sDepthTex != 0) {
         extern void vglTexImageDepthBuffer(GLenum target);
+        SceGxmTexture *gt;
         glBindTexture(GL_TEXTURE_2D, sDepthTex);
         vglTexImageDepthBuffer(GL_TEXTURE_2D);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        if ((gt = vglGetGxmTexture(GL_TEXTURE_2D)) != NULL) { /* (its rows as the depth buffer's: tex_strided) */
+            tex_redescribe(sDepthTex, sceGxmTextureGetData(gt), SCE_GXM_TEXTURE_FORMAT_DF32M, w, h);
+            glBindTexture(GL_TEXTURE_2D, sDepthTex);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        }
     }
     if (sIdsTex != 0) {
         fx_targets();
