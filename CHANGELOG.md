@@ -38,7 +38,7 @@ New
 - **Start menu**: hold SELECT while the game starts for the game (BT3 or BT4), the language and an **Unlock
   everything** cheat (the game's own unlock: all characters, stages, music and items, and 4,850,000 Zenni, given to
   the save it loads).
-- **Multiplayer between two Vitas**: the versus mode against another Vita, ad hoc (no router) or over the same
+- **Multiplayer between two Vitas** (experimental: not yet tested on two real Vitas): the versus mode against another Vita, ad hoc (no router) or over the same
   Wi-Fi network: Versus → Multiplayer → Ad Hoc: Host / Ad Hoc: Join (the host's Battle Settings go with it), or the
   start menu (ad hoc and Wi-Fi). One hosts, the other joins. Both games are kept in step by the buttons
   pressed, as in the PC version's online play; each Vita shows its own player's view of the fight. A match has its

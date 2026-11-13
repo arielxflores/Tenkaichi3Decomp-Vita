@@ -36,8 +36,8 @@ so they are as sharp as the moment allows without losing pictures.
 
 Two players: on a PS TV (or a Vita with a second controller paired), the second DualShock is player 2: the Versus
 Menu's Multiplayer → Two Controllers is the PS2's two-controller mode. Two Vitas can also play the versus mode against
-each other, ad hoc (Multiplayer → Ad Hoc: Host / Join) or over the same Wi-Fi network: see
-[Multiplayer](#multiplayer-two-vitas).
+each other, ad hoc (Multiplayer → Ad Hoc: Host / Join) or over the same Wi-Fi network (experimental): see
+[Multiplayer](#multiplayer-two-vitas-experimental).
 
 What changed in each version: [CHANGELOG.md](CHANGELOG.md).
 
@@ -196,7 +196,7 @@ Hold SELECT while the game starts (from the LiveArea until the text screen shows
   item, and 4,850,000 Zenni, given to the save the game loads, once (its records list is emptied). It stays once
   the game saves, and cannot be taken back: copy `ux0:data/bt3/saves/` first if you want to keep the save as it is.
   The game's own switch, which can be taken back, is Vita Settings → Unlock All.
-- **Multiplayer**: a match against another Vita, see [Multiplayer](#multiplayer-two-vitas).
+- **Multiplayer**: a match against another Vita (experimental), see [Multiplayer](#multiplayer-two-vitas-experimental).
 
 ## Budokai Tenkaichi 4 (experimental)
 
@@ -286,7 +286,11 @@ songs folder, a line `file|Name In The Menu` each; the files they do not name fo
 - Nothing about them goes into the save, so a save stays good without them; the folders are read when the game
   starts.
 
-## Multiplayer (two Vitas)
+## Multiplayer (two Vitas, experimental)
+
+**Experimental**: matches between two Vitas have not been tested on two real Vitas yet. They may stop with a
+desync or a lost connection; please report what happens, with `ux0:data/bt3/log.txt` from both Vitas. Online play
+over the internet (as the PC version's lobbies) is not there yet.
 
 Two Vitas can play the versus mode against each other: **ad hoc** (the two Vitas near each other, no router needed)
 or over the **Wi-Fi** network both are connected to. Both need this same version of the game and the files of the
