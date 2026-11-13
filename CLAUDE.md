@@ -198,6 +198,7 @@ verified, and the Results table. In short (2026-11-13):
 | `docs/vita/development.md` | The development build, every `bt3.txt` setting, the log, a map of the files |
 | `docs/vita/status.md` | The work in progress, its state, the Results table, the rules |
 | `docs/vita/native.md` | The native renderer: the engine seam, what is named, the next steps |
+| `docs/vita/online.md` | Online play: what the PC port has, what porting it to the Vita would take |
 | `docs/vita/testing.md` | The levels of testing, Vita3K and the console set up and run, profiling |
 | `docs/vita/compare.md` | The old way against the new: the three stages, what to expect |
 | `docs/port/README.md` | The PC port's notes (rules for `src/`) |
