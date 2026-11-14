@@ -1317,13 +1317,16 @@ int Vita_Bt4LangThere(int lang) {
     return sBt4There[lang != 0];
 }
 
+extern int Vita_IsoFindBelow(const char *dir, const char *file, int keep, char *out, int size, int *seen);
+
 static int bt4_es_find(char *out, size_t size, int keep) {
     extern int Vita_IsoFind(const char *dir, const char *file, int keep, char *out, int size, int *seen);
     if (has_slus(BT4_ES_DIR)) {
         snprintf(out, size, "%s", BT4_ES_DIR);
         return 1;
     }
-    return Vita_IsoFind(BT4_ES_DIR, VITA_PROGRAM, keep, out, (int)size, NULL);
+    return Vita_IsoFind(BT4_ES_DIR, VITA_PROGRAM, keep, out, (int)size, NULL) ||
+           Vita_IsoFindBelow(BT4_ES_DIR, VITA_PROGRAM, keep, out, (int)size, NULL); /* (a folder down: vita_iso.c) */
 }
 
 static const char *const kBt4Also[] = VITA_BT4_ALSO;
@@ -1352,7 +1355,7 @@ static int bt4_en_there(void) {
     char found[256];
     return has_slus(HOME) || find_below(HOME "/disc", 1, found, sizeof(found)) || find_below(HOME "/disk", 1, found, sizeof(found)) ||
            find_below(HOME, 2, found, sizeof(found)) || Vita_IsoFind(HOME, VITA_PROGRAM, 0, found, sizeof(found), NULL) ||
-           bt4_also_find(found, sizeof(found), 0);
+           Vita_IsoFindBelow(HOME, VITA_PROGRAM, 0, found, sizeof(found), NULL) || bt4_also_find(found, sizeof(found), 0);
 }
 #endif
 
@@ -1397,6 +1400,16 @@ static void find_disc(void) {
         for (k = 0; k < (own ? 1 : 3); k++) {
             int looked = 0;
             if (Vita_IsoFind(own ? gVitaDisc : kWhere[k], VITA_PROGRAM, 1, found, sizeof(found), &looked)) {
+                logf_("vita: the disc's files are read from its image %s\n", found);
+                snprintf(gVitaDisc, sizeof(gVitaDisc), "%s", found);
+                return;
+            }
+            wrong += looked;
+        }
+        if (!own) { /* an image a folder down in HOME, as an archive unpacks it (Team BT4's: PS2_NTSC/; vita_iso.c) */
+            extern int Vita_IsoFindBelow(const char *dir, const char *file, int keep, char *out, int size, int *seen);
+            int looked = 0;
+            if (Vita_IsoFindBelow(HOME, VITA_PROGRAM, 1, found, sizeof(found), &looked)) {
                 logf_("vita: the disc's files are read from its image %s\n", found);
                 snprintf(gVitaDisc, sizeof(gVitaDisc), "%s", found);
                 return;

@@ -337,7 +337,7 @@ Multiplayer is new: when something goes wrong, `ux0:data/bt3/log.txt` from both 
 ## Troubleshooting
 
 - **"The game's files were not found"**: the disc image (`.iso`) must be in `ux0:data/bt3/` or
-  `ux0:data/bt3/disc/`, or `SLUS_216.78` and the `BIN` and `DATA` folders in `ux0:data/bt3/disc/` (a folder named
+  `ux0:data/bt3/disc/` (or one folder below `ux0:data/bt3/`, as an archive unpacks it), or `SLUS_216.78` and the `BIN` and `DATA` folders in `ux0:data/bt3/disc/` (a folder named
   `disk`, or one more folder level in between, is found too). The message lists what it found instead. An image
   of another release (PAL, Japanese) or of a modded disc is not used.
 - **"The disc image ... can only be read up to ... MB"** (or, in the start menu, "your BT4 .iso can only be read up

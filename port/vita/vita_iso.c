@@ -702,3 +702,37 @@ int Vita_IsoFind(const char *dir, const char *file, int keep, char *out, int siz
     __real_sceIoDclose(d);
     return found;
 }
+
+/* Vita_IsoFind in each folder of `dir`, one level down: an archive unpacked there puts the image in a folder of its
+   own (Team BT4's release: PS2_NTSC/<image>.iso; manumastro's fork found it so first). The port's own folders are
+   not looked into. */
+int Vita_IsoFindBelow(const char *dir, const char *file, int keep, char *out, int size, int *seen) {
+    static const char *const kSkip[] = {"saves", "net_saves", "mods", "shcache", "disc", "disk", "dump", "pgo", "eu", "es", "bt4"};
+    SceUID d = __real_sceIoDopen(dir);
+    SceIoDirent e;
+    int found = 0, k;
+
+    if (seen != NULL) {
+        *seen = 0;
+    }
+    if (d < 0) {
+        return 0;
+    }
+    memset(&e, 0, sizeof(e));
+    while (!found && __real_sceIoDread(d, &e) > 0) {
+        char sub[300];
+        int looked = 0, skip = e.d_name[0] == '.' || !SCE_S_ISDIR(e.d_stat.st_mode);
+        for (k = 0; !skip && k < (int)(sizeof(kSkip) / sizeof(kSkip[0])); k++) {
+            skip = strcasecmp(e.d_name, kSkip[k]) == 0;
+        }
+        if (skip || snprintf(sub, sizeof(sub), "%s/%s", dir, e.d_name) >= (int)sizeof(sub)) {
+            continue;
+        }
+        found = Vita_IsoFind(sub, file, keep, out, size, &looked);
+        if (seen != NULL) {
+            *seen += looked;
+        }
+    }
+    __real_sceIoDclose(d);
+    return found;
+}

@@ -30,6 +30,9 @@ Fixed
   the sounds from its missing part were silent, and a fight that needed a fighter from it closed the game (BT4, as a
   player reported). The game now checks that an image can be read to its end and says at the start how far it can
   be read, and what to do.
+- **A disc image one folder down is found.** An archive unpacked into `ux0:data/bt3/` or `ux0:data/bt3/bt4/` puts
+  the image in a folder of its own (Team BT4's release: `PS2_NTSC/`); the game, BT4 and the start menu now look one
+  folder down too (as manumastro's fork does).
 
 ## 1.2.2
 

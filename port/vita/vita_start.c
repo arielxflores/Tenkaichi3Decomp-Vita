@@ -140,8 +140,11 @@ static int bt4_ready(const char **why) {
         char iso[300];
         static const char *const kAlso[] = VITA_BT4_ALSO; /* (where players put them besides: the BT4 program looks there too) */
         unsigned k;
+        extern int Vita_IsoFindBelow(const char *dir, const char *file, int keep, char *out, int size, int *seen);
         int found = Vita_IsoFind("ux0:data/bt3/bt4", "BIN/DBZ4.BIN", 0, iso, sizeof(iso), NULL) ||
-                    Vita_IsoFind("ux0:data/bt3/bt4/es", "BIN/DBZ4.BIN", 0, iso, sizeof(iso), NULL); /* (or its .iso: vita_iso.c) */
+                    Vita_IsoFind("ux0:data/bt3/bt4/es", "BIN/DBZ4.BIN", 0, iso, sizeof(iso), NULL) || /* (or its .iso: vita_iso.c) */
+                    Vita_IsoFindBelow("ux0:data/bt3/bt4", "BIN/DBZ4.BIN", 0, iso, sizeof(iso), NULL) || /* (a folder down: PS2_NTSC/) */
+                    Vita_IsoFindBelow("ux0:data/bt3/bt4/es", "BIN/DBZ4.BIN", 0, iso, sizeof(iso), NULL);
         for (k = 0; !found && k < sizeof(kAlso) / sizeof(kAlso[0]); k++) {
             char slus[64], bin[64];
             snprintf(slus, sizeof(slus), "%s/SLUS_219.78", kAlso[k]);
