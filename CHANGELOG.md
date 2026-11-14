@@ -1,33 +1,9 @@
 # Changes (PS Vita port)
 
-## v1.6-optimized (2026-11-14)
-
-New
-
-- **The disc image as it is** (arielxflores's reader, from his v1.2): copy your `.iso` to `ux0:data/bt3/`, under
-  any name, and the game reads its files from it; no need to unpack it with 7-Zip any more (the unpacked files still
-  work, and are used first when both are there).
-
-## v1.5-optimized (2026-11-14)
+## Unreleased
 
 Faster
 
-- **arielxflores's 1.2 speed-ups**, taken into this fork (his own code, its commits cherry-picked with `-x`), all
-  but the dynamic fight resolution:
-  - shaders shipped ready-made (the offline shader bank of Grarak's MH3 port): every shader, the vertex and effect
-    ones too, goes through the cache, and the VPK carries them already compiled (`port/vita/shbank.bin`, 87
-    programs, the same for BT3 and BT4, made on a Vita with `shbank=1` and checked with `shbank=2`: none missing
-    in the menus or the fights), so `libshacccg.suprx` is no longer needed;
-  - the outline, the glow and the colour-table passes in half precision (`fxhalf=0` goes back);
-  - songs read while they play (no stop when the music changes), and the game's no-wait reads on a reading thread;
-  - the game's file unpacker 2 to 5 times faster, byte for byte the same output;
-  - new textures read from GS memory while the render thread draws (`texearly=0` goes back); the drawing thread's
-    texture keys and state comparisons in line; the C library's thread lookups the short way and a faster memcmp;
-  - the opening film no longer reads 2 MB it does not use, and no freeze when it ends or is skipped;
-  - palette textures' indices no longer leak in graphics memory (slowdowns after many fights); a line a minute in
-    the log with the picture rate, the memory and the texture tables;
-  - profile-guided builds (`BT3_PGO=gen` / `use`, [docs/vita/building.md](docs/vita/building.md));
-  - `fightres=720` / `960` in `bt3.txt` draws the fights at that size always (640 x 368 by default).
 - **Detailed stages stay fast**: in a survey of 25 stages (a duel on each, stages 0 to 24), the slowest went from
   16.7-18.7 pictures a second to 26-29, the average from 25.2 to 28.8, and stages at 28 or more from 7 to 21 of 25.
   Three causes, all in the copies of the game's model calls the port keeps: their cache filled up over a session and
@@ -64,6 +40,152 @@ Faster
 New
 
 - Options → Controller → Vita Settings says whether the game has the fourth CPU core (CapUnlocker on or off).
+
+## 1.2.1
+
+Fixed
+
+- Songs from music mods (the anime songs images, among others) played once and stopped instead of looping: their
+  loop point is kept in an older version of the ADX header, which the port did not read. They loop through the
+  fight now, as the disc's own songs do.
+- BT4's disc image (or its unpacked files) was not found unless it was in `ux0:data/bt3/bt4/`. `ux0:bt3/bt4/`,
+  `ux0:data/bt4/`, `ux0:bt4/` and BT3's own folder `ux0:data/bt3/` are looked in too now. The README notes that
+  BT4's image, about 6 GB, does not fit on a FAT32 card as one file: copy the unpacked files there instead.
+- BT4: the Outfit Select window was empty (the costume's name was drawn by the PC version's text overlay, which the
+  Vita does not have). It shows the costume's number between the arrows (1/4) and its name under them, in the
+  game's own lettering, centred in the window and narrowed to fit it.
+
+For crash reports
+
+- The log (`ux0:data/bt3/log.txt`) now names each step of the start and lists the plugins in taiHEN's `config.txt`,
+  and until the game starts it is written line by line, so a start that crashes leaves a log that ends at the step
+  it crashed in (some players' Vitas close 1.2 right at the start, with nothing in the log to say why).
+
+## 1.2
+
+New
+
+- **The disc image as it is**: copy your `.iso` to `ux0:data/bt3/` and the game reads its files from it; no need to
+  unpack it with 7-Zip any more (the unpacked files still work). The same for BT4 and the European disc.
+- **Languages**: Options → Language/Sound → Language (the console's Sound page and its Change Voice row; Language is
+  now the page's first row, and its picker shows its page, Page 1/3, at the top right) sets the text and the voices together:
+  English, Japanese (voices), and with your own European disc (SLES-54945: its image or its `DATA/PZS3EU1.AFS` in
+  `ux0:data/bt3/eu/`) Spanish, German, French and Italian menus, HUD and battle subtitles, with English or Japanese
+  voices. Based on Matteo Santoro's work.
+- **Budokai Tenkaichi 4** (experimental): Team BT4's B14 Rev2 through NauTaro's BT4decomp, from your own BT4 disc's
+  image or files in `ux0:data/bt3/bt4/`; chosen in the start menu. See the README.
+- **Sharper fights**: fights are drawn at 720 x 408 whenever the graphics chip has the time for it and drop to
+  640 x 368 the moment a heavy scene needs it (Killzone: Mercenary's dynamic resolution); `fightres=640` in
+  `bt3.txt` keeps them at 640 x 368.
+- **Faster effects**: the outline, the glow and the colour-table passes do their arithmetic in half precision, as
+  the game's own pixel shaders already did.
+- **Shaders shipped ready-made** (the offline shader bank of Grarak's MH3 port): the package carries all of the
+  game's shaders already compiled by the Vita's own compiler, so the game no longer compiles any at start, and
+  `libshacccg.suprx` is no longer needed.
+- **BT4 in Spanish**: with Team BT4's Spanish release in `ux0:data/bt3/bt4/es/` beside the English one, BT4's
+  **Options → Vita Settings → Language** switches between them (the game starts again in the one chosen): the
+  game's text and voices, and the port's own rows, guide lines and Multiplayer plates, in Spanish.
+- **BT3's Options in Spanish**: with the European disc and Español chosen, the Options screen is the European
+  disc's Spanish one, with Vita Settings and the Vita's rows in Spanish; the start menu and the versus menu's
+  Multiplayer too. Both games' Spanish says "control" / "controles" for the discs' "mando" / "mandos" (the Options
+  row and title Control, Ajustes del control, Control 2, Dos Controles, and the game's own text).
+- **Vita Settings, a second page** (from the PC version, z3xox's): **Cheats → Unlock All** in the game (every
+  character, stage, song and item, and the most Zenni: the game's own debug unlock), **Quick Start** (no logos,
+  opening film or copyright page), **Quick Save** (saving and loading without the memory card window, on by
+  default) and **Tech Fixes** (the community's Z Counter and Bombardment fixes, off by default).
+- **Dragon History: Fight Again** in the pause menu, to start a story fight over (from the PC version).
+- **Stages and songs from outside the disc** (from the PC version): `.unk` stage models in `ux0:data/bt3/stages/`
+  and MP3 or ADX songs in `ux0:data/bt3/songs/` join the versus menus' stage grid and music list, their names in
+  the game's own lettering. See the README.
+- **Start menu**: hold SELECT while the game starts for the game (BT3 or BT4), the language and an **Unlock
+  everything** cheat (the game's own unlock: all characters, stages, music and items, and 4,850,000 Zenni, given to
+  the save it loads).
+- **Multiplayer between two Vitas** (experimental: not yet tested on two real Vitas): the versus mode against another Vita, ad hoc (no router) or over the same
+  Wi-Fi network: Versus → Multiplayer → Ad Hoc: Host / Ad Hoc: Join (the host's Battle Settings go with it), or the
+  start menu (ad hoc and Wi-Fi). One hosts, the other joins. Both games are kept in step by the buttons
+  pressed, as in the PC version's online play; each Vita shows its own player's view of the fight. A match has its
+  own save with everything unlocked (yours is not touched). From the versus menu it all happens in the running
+  game: the system's ad hoc dialog over the menu, the wait for the other Vita in the menu's message window, and
+  after the match the versus menu again, without the program starting anew. See the README.
+- **The other game from the options**: Options → Vita Settings → **Game** (the third page) switches
+  between Budokai Tenkaichi 3 and Team BT4's Budokai Tenkaichi 4, as the start menu's Game does; BT4's own
+  Vita Settings have the way back.
+- **Vita Settings on the Options screen**: its second row (where Screen was) opens Vita Settings at once, in BT3
+  and in BT4; the PS2's Screen page is inside it (third page in BT3, second in BT4). The controller page no longer
+  has the row. Captions longer than the plates (Quick Start, Quick Save, Tech Fixes, Unlock All, Bombardment) are
+  narrowed to fit inside them. BT4's options now show these labels too (Vita Settings, Game, Unlock All, Screen and
+  the rest): its disc's lettering is the mod's own, so it has its own set, made from that disc
+  (`port/vita/vita_optart_bt4.h`); before, BT4's Vita Settings plates showed the PS2's captions.
+- **Vita Settings' page number** ("Page 1/3") at the top right while it is open, on a plate of its own like the
+  pickers', in BT3 and BT4.
+- **The Options screen's rows** are Vita Settings, Controls, Sound, Save/Load (BT3 and BT4); in BT3 the Sound row
+  reads Language/Sound (Idioma/Sonido) and its page opens on Language.
+- **Controls**: the Options screen's Controller row and its page's title read Controls, the page's Control Type row
+  reads Controller Settings, in the disc's own lettering (BT3 and BT4), and Dende's lines for the two trade
+  places to match.
+- **Controller Settings → Custom reaches L1, L2, R1 and R2**: the PS2's page let only the four face buttons be chosen to
+  change; now Up / Down go round each column, so every button can take any of the eight actions (the shoulder
+  buttons' actions on the face buttons and the other way round), in BT3 and BT4. The default layout stays until
+  changed.
+- **The dragon's screen (Shenron) keeps its pace**: a menu screen that the graphics chip cannot draw at 960 x 544
+  in the time the game gives each picture is drawn at the fights' size until it gets light again (`menuauto=0`
+  in bt3.txt keeps the menus' size whatever it costs).
+- **Unlock All, a switch**: Vita Settings → Unlock All (second page; in BT4's options next to Game) turns on every
+  character and transformation, stage, song and item (Evolution Z items, Potaras) and 9,999,999 Zenni, for the save
+  in play and each one loaded while it is on. Your save is copied aside first, and turning it off gives the save
+  its own unlocks and Zenni back. It replaces the one-way Cheats plate, and keeps the records list.
+- **Disc Fusion**: the modes of the two earlier games' discs are open (the Vita has no disc to swap).
+- A crash writes `ux0:data/bt3/crash.txt` and closes the game, instead of leaving it frozen (with the kubridge
+  plugin, which most setups have).
+- The log has a line a minute with the picture rate and the memory in use, for bug reports.
+- `bt3.txt` `fightres=720` keeps the fights at 720 x 408 whatever the scene (`fightres=640` at 640 x 368; by
+  default the size follows the graphics chip's time, see Sharper fights).
+- `bt3.txt` `weather=light` / `weather=off` and `moveblur=0` (from the PC version): the haze of big see-through
+  sprites some stages have, and the scenery's blur while the view turns fast, thinned out or left out (lighter work
+  for the graphics chip on those stages).
+
+Sound
+
+- Clearer music and voices: the game's 24 kHz streams are brought to the Vita's 48 kHz through a proper filter
+  (32 samples around each output sample) instead of straight lines between samples. The treble is no longer dulled
+  (it was 1.4 dB down at 6 kHz and 4 dB at 10 kHz) and the rough edge above 12 kHz is gone (70 dB down, from 9 to
+  17 dB).
+- Sound effects played at a changed pitch are drawn through four samples instead of two (less dull, less rough).
+- Sound follows the picture more closely: it goes out in blocks of about a hundredth of a second, half as long as
+  before. If that ever leaves the output empty, the game goes back to the longer blocks by itself.
+
+Fixed
+
+- BT4: crashes in fights. The game's code counts on a call's arguments being worked out right to left, as the PS2's
+  compiler did; BT3's build rewrites its calls so (port/tools/ptr32.py r2l), BT4's build did not (its sources lie in
+  their own tree), so a ki blast's hit read its fighter before it was known, among others. BT4's sources now get the
+  same rewrite, and its shifts and divisions the PS2's rules (port/vita/srcfix.py). The ki blast's record is also
+  fetched in its own statement now (BT3 and BT4).
+- BT4: the fight camera stood still (it kept the fight's first picture's pose, so it did not follow the fighters and
+  the right stick could not move it).
+- The dragon's screen (Shenron): the dragon balls' white outlines no longer lag behind or sit apart from the balls.
+
+- A second controller paired with the VitaControl plugin moved player 1 as well as player 2.
+- Budokai Tenkaichi 4: in a split-screen fight (two controllers), a moment the game shows as one full-screen view
+  without a camera of its own could leave player 2's fighter (and their blinding effect) out.
+- L3 / R3 on the touch panels (a corner of the screen, or the rear pad): a touch is a quick press, so
+  transformations happen (the game ignores an R3 held longer than about a fifth of a second).
+- The large lettering (the title screen's, the menus' headings) no longer looks cut through.
+- No freeze of about a second when the opening film ends or is skipped.
+- Graphics memory no longer leaks when it runs short (a part of a texture with a palette was left behind): a likely
+  cause of the slowdown and the missing effects after many fights in one session. The log's line a minute shows
+  the texture tables and the free memory, for reports of long sessions.
+- A two-player battle without a second controller says so in the Vita's words, not the PS2's ("No DUALSHOCK 2
+  analog controller ... controller port 2").
+
+Faster
+
+- Music changes no longer stop the game for a moment: songs are read while they play. The screens that load as
+  they draw (the menus' portraits, the loading screens) keep drawing while their files are read.
+- The game's file unpacker (menus, loading screens, fighters' motions) is 2 to 5 times faster.
+- The drawing thread (the limit in a fight) does less: texture lookups, draw state comparisons, the C library's
+  thread lookups and memory comparisons.
+- New textures are read while the drawing thread draws, and the opening film no longer reads 2 MB it does not use.
 
 ## 1.1
 

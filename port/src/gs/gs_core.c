@@ -5515,6 +5515,8 @@ static void run_chain(uint32_t tadr, int tte) {
         if (id == 5 && ccOn && gGsSplit && !gVitaGsSkipF && sp > 0 && sCcCap < 0) {
             extern int Vita_InBattle(void), Vita_ChipResetDue(void);
             extern int gT116Fe;
+            /* (fights only: a kept call is read the long way again only every 64th time, and the dragon's screen has
+               parts the game moves itself, the dragon balls' white outlines among them, which then lagged behind) */
             int inb = Vita_InBattle() && !(gT116Fe & 2);
             CallCache *e = inb && (sEsMark & 0x18000u) == 0x18000u ? es_find(addr, sEsMark & 0x7FFFu) : NULL; /* (the engine seam's) */
             if (e == NULL) {

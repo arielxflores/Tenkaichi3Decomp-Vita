@@ -65,11 +65,11 @@ typedef struct Voice {
     int on, bank, id, handle;
     uint32_t pos, loopPos;     /* next block / loop start, addresses in sSpu */
     int h1, h2;                /* decoder history */
-    int16_t buf[28];
-    int have;                  /* samples of buf decoded; 0 = decode the next block first */
+    int16_t smp[3 + 28];       /* the block's 28 samples, behind the last three of the block before (the curve
+                                  through four samples: voice_sample) */
+    int have;                  /* samples of the block decoded; 0 = decode the next block first */
     double frac, step;         /* position in buf, input samples per output sample */
     int last, ended;           /* this block is the last one; nothing more to decode */
-    int16_t prev;              /* the sample before buf[0], for interpolation */
     float gl, gr;
     float fade;                /* 1 = playing; goes down to 0 after a stop */
     int stopping;
@@ -126,7 +126,7 @@ static int lookup(const Bank *b, int id, uint32_t *start, uint32_t *rate) {
     return *start + 16 <= SPU_SIZE && *rate != 0;
 }
 
-/* Decodes the voice's next 16-byte block into v->buf. */
+/* Decodes the voice's next 16-byte block into v->smp (behind the three samples kept from the block before). */
 static void decode_block(Voice *v) {
     static const int f0[5] = {0, 60, 115, 98, 122}, f1[5] = {0, 0, -52, -55, -60};
     const uint8_t *p;
@@ -146,14 +146,20 @@ static void decode_block(Voice *v) {
     if (flags & 4) {
         v->loopPos = v->pos;
     }
-    v->prev = v->have ? v->buf[27] : 0;
+    if (v->have) { /* (the block before's last three samples stay in front) */
+        v->smp[0] = v->smp[28];
+        v->smp[1] = v->smp[29];
+        v->smp[2] = v->smp[30];
+    } else {
+        v->smp[0] = v->smp[1] = v->smp[2] = 0;
+    }
     for (i = 0; i < 28; i++) {
         int nib = (p[2 + i / 2] >> ((i & 1) * 4)) & 15, s;
         if (nib & 8) { nib -= 16; }
         s = ((nib << 12) >> shift) + ((v->h1 * f0[filter] + v->h2 * f1[filter] + 32) >> 6);
         if (s > 32767) { s = 32767; }
         if (s < -32768) { s = -32768; }
-        v->buf[i] = (int16_t)s;
+        v->smp[3 + i] = (int16_t)s;
         v->h2 = v->h1;
         v->h1 = s;
     }
@@ -166,6 +172,23 @@ static void decode_block(Voice *v) {
             v->last = 1;
         }
     }
+}
+
+/* The voice's sound at a place between two of its samples: on the curve through four samples (Catmull-Rom), not on
+   the straight line between two as before. An effect is a recording at 11 to 24 kHz played at any pitch into
+   48 kHz, so most of what is heard lies between samples: the straight line dulled the treble and left the
+   recording's mirror images in (a grainy edge on the low-rate effects); the curve keeps more of the first and less
+   of the second. (The PS2's sound chip used a four-sample curve of its own, a softer one.) For the three samples
+   before it the place is one sample behind where the line was: the voice sounds 1 / rate later, which nothing hears.
+   ip: the newest of the four samples in the block, 0..27; t: how far from the second to the third, 0..32767. */
+static inline int32_t voice_sample(const Voice *v, uint32_t ip, int32_t t) {
+    const int16_t *q = &v->smp[ip];
+    int32_t p0 = q[0], p1 = q[1], p2 = q[2], p3 = q[3];
+    int32_t a1 = p2 - p0, a2 = 2 * p0 - 5 * p1 + 4 * p2 - p3, a3 = 3 * (p1 - p2) + p3 - p0;
+    int32_t y = (int32_t)(((int64_t)a3 * t) >> 15) + a2;
+    y = (int32_t)(((int64_t)y * t) >> 15) + a1;
+    y = p1 + (int32_t)(((int64_t)y * t) >> 16);
+    return y > 32767 ? 32767 : y < -32768 ? -32768 : y; /* (the curve can swing past its samples) */
 }
 
 /* One voice's samples added into acc, in whole numbers: the position as 16.16 within the block, the
@@ -182,8 +205,7 @@ static void mix_voice_int(Voice *v, int32_t *acc, int n) {
     int32_t gl = gain_q14(v->gl * v->fade), gr = gain_q14(v->gr * v->fade);
     int i;
     for (i = 0; i < n; i++) {
-        int32_t a, b, smp;
-        uint32_t ip;
+        int32_t smp;
         while (fp >= ((uint32_t)v->have << 16)) {
             fp -= (uint32_t)v->have << 16;
             decode_block(v);
@@ -195,10 +217,7 @@ static void mix_voice_int(Voice *v, int32_t *acc, int n) {
             v->on = 0;
             break;
         }
-        ip = fp >> 16;
-        a = ip == 0 ? v->prev : v->buf[ip - 1];
-        b = v->buf[ip];
-        smp = a + (((b - a) * (int32_t)((fp & 0xFFFF) >> 1)) >> 15);
+        smp = voice_sample(v, fp >> 16, (int32_t)((fp & 0xFFFF) >> 1));
         acc[i * 2] += (smp * gl) >> 14;
         acc[i * 2 + 1] += (smp * gr) >> 14;
         fp += st;
@@ -208,7 +227,7 @@ static void mix_voice_int(Voice *v, int32_t *acc, int n) {
 static void mix_voice_float(Voice *v, int32_t *acc, int n) { /* (a voice fading out after a stop) */
     int i;
     for (i = 0; i < n; i++) {
-        float s, a, b;
+        float s;
         int ip;
         while (v->frac >= (double)v->have) {
             v->frac -= (double)v->have;
@@ -222,9 +241,7 @@ static void mix_voice_float(Voice *v, int32_t *acc, int n) { /* (a voice fading 
             break;
         }
         ip = (int)v->frac;
-        a = (float)(ip == 0 ? v->prev : v->buf[ip - 1]);
-        b = (float)v->buf[ip];
-        s = (a + (b - a) * (float)(v->frac - (double)ip)) * v->fade;
+        s = (float)voice_sample(v, (uint32_t)ip, (int32_t)((v->frac - (double)ip) * 32767.0)) * v->fade;
         acc[i * 2] += (int32_t)(s * v->gl);
         acc[i * 2 + 1] += (int32_t)(s * v->gr);
         v->frac += v->step;
@@ -357,6 +374,18 @@ static void stop(int mask, int id, int handle) {
 typedef struct SifDmaData { uint32_t data, addr; int32_t size, mode; } SifDmaData;
 
 /* sceSifSetDma: main memory -> the second processor's memory. Here both are ordinary memory. */
+#ifdef PORT_VITA
+/* (port/vita/vita_warm.c) the game starts again inside the running program: no voice sounding, no bank loaded, the
+   sound memory empty, as at the program's start (the game loads its banks again) */
+void Port_SeWarm(void) {
+    if (sStream != NULL) { SDL_LockAudioStream(sStream); }
+    memset(sVoices, 0, sizeof(sVoices));
+    memset(sBanks, 0, sizeof(sBanks));
+    memset(sSpu, 0, sizeof(sSpu));
+    if (sStream != NULL) { SDL_UnlockAudioStream(sStream); }
+}
+#endif
+
 uint32_t sceSifSetDma(SifDmaData *d, int count) {
     int i;
 

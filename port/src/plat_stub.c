@@ -71,12 +71,34 @@ void Port_VBlank(void) {
         vblank_wait();
     }
 #endif
+#if defined(PORT_VITA)
+    {   /* (port/vita/vita_warm.c) asked to start again inside the running program: from here, between two frames */
+        extern void Vita_WarmPoll(void);
+        Vita_WarmPoll();
+    }
+#endif
     gPortVBlanks++;
+#if defined(PORT_VITA) && defined(BT3_BT4)
+    {   /* (BT4: its fight camera keeps one pose per blank of this count, src/battle/btl_cam.c BtlCam_PortMods; never
+           counted, the camera kept the fight's first pose: it stood still) */
+        extern unsigned gPortLiveBlanks;
+        gPortLiveBlanks++;
+    }
+#endif
 #ifdef PORT_VITA
     {
         extern void Vita_VBlank(unsigned vblanks); /* port/vita/vita_main.c: status screen, timing */
         Vita_VBlank(gPortVBlanks);
     }
+#ifdef PORT_VITA /* (BT3 and BT4) */
+    {   /* multiplayer (port/vita/vita_net.c): this player's buttons out, the other's for this blank in; the sound
+           streams' lengths counted in blanks (snd_adx.c), the same on both Vitas */
+        extern void Port_NetBeginTick(unsigned tick);
+        extern void Port_AdxTick(void);
+        Port_NetBeginTick(gPortVBlanks);
+        Port_AdxTick();
+    }
+#endif
 #endif
     Port_Trace(gPortVBlanks);
     if (sVsyncHandler != NULL) {
@@ -84,15 +106,28 @@ void Port_VBlank(void) {
     }
 }
 int sceGsSyncV() { Port_VBlank(); return 0; }
+#ifdef PORT_VITA
+static int sPadSockets;
+/* (port/vita/vita_warm.c) the game starts again inside the running program: its blank handler and its pads' sockets
+   are of the game that ended */
+void Port_StubWarm(void) {
+    sVsyncHandler = NULL;
+    sPadSockets = 0;
+}
+#endif
 
 /* ---- pads ---- */
 int sceDbcInit() { return 1; }
 int scePad2Init() { return 1; }
+#ifndef PORT_VITA
 static int sPadSockets;
+#endif
 int scePad2CreateSocket() { return sPadSockets++; }
-#ifdef PORT_VITA /* the second controller is there while a pad is paired for player 2 (PS TV; limeking614-dev's fork) */
+#ifdef PORT_VITA /* the second controller is there while a pad is paired for player 2 (PS TV; limeking614-dev's fork), and
+                    in a multiplayer match (the other Vita's player) */
 extern int Vita_Pad2Present(void);
-int scePad2GetState(int socket) { return socket == 1 && !Vita_Pad2Present() ? 0 : 1; }
+extern int Port_NetActive(void);
+int scePad2GetState(int socket) { return socket == 1 && !Vita_Pad2Present() && !Port_NetActive() ? 0 : 1; }
 #else
 int scePad2GetState() { return 1; }            /* connected and ready */
 #endif
@@ -118,6 +153,16 @@ static int sPadFilesTried;
 int scePad2Read(int socket, unsigned char *data) {
     int i;
 
+#if defined(PORT_VITA)
+    {   /* a multiplayer match (port/vita/vita_net.c): both pads come from the exchange with the other Vita */
+        extern int Port_NetActive(void);
+        extern void Port_NetInput(int player, unsigned char *data);
+        if (Port_NetActive()) {
+            Port_NetInput(socket, data);
+            return 18;
+        }
+    }
+#endif
     if (!sPadFilesTried) {
         sPadFilesTried = 1;
         if (getenv("BT3_PAD_PLAY") != NULL) {

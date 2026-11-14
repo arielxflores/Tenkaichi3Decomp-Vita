@@ -1,10 +1,7 @@
 /*
  * The game's files straight from the player's disc image: an .iso (a 1:1 copy of the PS2 DVD, as PCSX2 plays it) in
- * the data folder, ux0:data/bt3/ (or its disc/ or disk/; the BT4 port's ux0:data/bt4/), under any name, instead of
- * the program, BIN and DATA unpacked from it. vita_main.c's find_disc mounts it when no unpacked files are found.
- *
- * arielxflores's reader, from his Vita port's v1.2 (arielxflores/Tenkaichi3Decomp-Vita, 8484872), taken as it is;
- * only its comments on where the image goes are this fork's.
+ * ux0:data/bt3/ (or ux0:data/bt3/disc/), instead of SLUS_216.78, BIN and DATA unpacked from it. BT4's the same way in
+ * ux0:data/bt3/bt4/, the European disc's (its languages, vita_eu.c) in ux0:data/bt3/eu/.
  *
  * Every file call of the program comes through here (build.py links sceIoOpen, sceIoPread, sceIoRead, sceIoLseek,
  * sceIoGetstat, sceIoDopen and their companions with --wrap, the C library's own included): a path inside a
@@ -29,7 +26,7 @@
 extern void Vita_Log(const char *fmt, ...);
 
 #define ISO_SECTOR 2048
-#define ISO_MOUNTS 3     /* the game's disc (his port also mounts the European one) */
+#define ISO_MOUNTS 3     /* the USA (or BT4) disc, the European disc */
 #define ISO_OPEN 64      /* handles of an image's files open at once */
 #define ISO_DIRS 8       /* folders of an image being listed at once */
 #define ISO_ENTRIES 4096 /* files and folders of one image, at most */

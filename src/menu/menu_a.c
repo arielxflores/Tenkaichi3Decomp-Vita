@@ -485,6 +485,16 @@ void MainMenu_Input(s32 *result) {
 s32 MainMenu_Run(s32 section) {
     s32 result = 1;
 
+#ifdef PORT_VITA
+    { /* a multiplayer match lives in the versus mode: back at the main menu it is over (port/vita/vita_net.c: the
+         other Vita is told, and the game starts again as it normally is) */
+        extern int Port_NetSession(void);
+        extern void Port_NetLeave(void);
+        if (Port_NetSession()) {
+            Port_NetLeave();
+        }
+    }
+#endif
     MainMenu_Init(section);
     ColorFade_StartIn(0, 0, 0, 0x14);
     while (1) {

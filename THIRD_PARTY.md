@@ -12,6 +12,7 @@
 | `debugScreen.c` from [vitasdk/samples](https://github.com/vitasdk/samples) | The text screen for start-up messages and errors | CC0 1.0 |
 | newlib (C library) and the [VitaSDK](https://vitasdk.org/) system stubs | C library, system calls | BSD-style / MIT |
 | `port/third_party/newlib_libm` | The PS2's single-precision maths routines (from newlib), as in the PC port | newlib's BSD-style terms, `port/third_party/newlib_libm/COPYING.NEWLIB` |
+| [dr_mp3](https://github.com/mackron/dr_libs) by David Reid, based on [minimp3](https://github.com/lieff/minimp3) by lieff (`port/third_party/dr_libs`, see its README.txt) | MP3 files in the songs folder made into the game's ADX (`port/vita/vita_mp3.c`) | public domain (Unlicense) or MIT No Attribution |
 
 `libshacccg.suprx`, the system's shader compiler, is not included: each user extracts it from their own Vita.
 

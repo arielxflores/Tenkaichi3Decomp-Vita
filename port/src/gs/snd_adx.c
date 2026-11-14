@@ -54,6 +54,10 @@ typedef struct Player {
     VitaReadJob job;
     volatile uint32_t loaded;
     int own, waiting;
+    /* (a multiplayer match, port/vita/vita_net.c) what the game is told of the stream: playing for as many blanks as
+       its file says, counted at every blank (Port_AdxTick), the same on both Vitas whenever each one hears it */
+    int vstat, vleft, vpaused;
+    int loops; /* (for the log: times played back to its loop's start) */
 #endif
 } Player;
 
@@ -111,6 +115,30 @@ static void adx_coefs(uint32_t highpass, uint32_t rate, int *c1, int *c2) {
     *c2 = (int)(c * c * -4096.0);
 }
 
+/* The file's loop in samples, where CRI's library reads it: version 4 headers (the disc's) keep it at 0x24 (on/off),
+   0x28 (start) and 0x30 (end); version 3 ones, an older encoder's (music mods' songs), at 0x18, 0x1C and 0x24 (without
+   them a modded song played once and the fight went on silent). An end past the last sample is taken as the last
+   one. 0: no loop. */
+static int adx_loop(const uint8_t *h, uint32_t header, uint32_t total, uint32_t *start, uint32_t *end) {
+    uint32_t at;
+    if (h[0x12] == 4 && header >= 0x38) {
+        at = 0x24;
+    } else if (h[0x12] == 3 && header >= 0x2C) {
+        at = 0x18;
+    } else {
+        return 0;
+    }
+    if (be32(h + at) == 0) {
+        return 0;
+    }
+    *start = be32(h + at + 4);
+    *end = be32(h + at + 12);
+    if (*end > total) {
+        *end = total;
+    }
+    return *end > *start;
+}
+
 /* Decodes up to `frames` 32-sample frames at p->pos (a multiple of 32) into interleaved stereo; returns samples. */
 static int decode(Player *p, int16_t *out, int frames) {
     int n = 0, f, ch, i;
@@ -133,6 +161,11 @@ static int decode(Player *p, int16_t *out, int frames) {
                 break;
             }
             p->pos = p->loopStart & ~31u; /* loop starts are frame-aligned by the encoder */
+#ifdef PORT_VITA
+            if (++p->loops == 1) { /* (the first time a song comes round: a short ambient loop does every few seconds) */
+                ADX_LOG("adx: player %d back to its loop's start (%.1f s) (frame %u)\n", (int)(p - sPlayers), (double)p->loopStart / (double)p->rate, gGsFrame);
+            }
+#endif
             continue;
         }
 #ifdef PORT_VITA
@@ -275,7 +308,7 @@ static void start(Player *p, const char *path) {
 #ifdef PORT_VITA /* the archives are read as they are on the disc: no file of its own to open (vita_file.c) */
     {   /* the first piece now (the header and about a second of sound), the rest on the reading thread */
         SceUID fd;
-        uint32_t base, first;
+        uint32_t base, first = 0;
         int own;
         (void)fp; (void)size;
         p->size = 0;
@@ -350,14 +383,26 @@ static void start(Player *p, const char *path) {
     p->total = be32(p->file + 12);
     highpass = be16(p->file + 16);
     p->loop = 0;
-    if (p->file[0x12] == 4 && header >= 0x38 && be32(p->file + 0x24) != 0) {
-        p->loopStart = be32(p->file + 0x28);
-        p->loopEnd = be32(p->file + 0x30);
-        p->loop = p->loopEnd > p->loopStart && p->loopEnd <= p->total;
+    p->loop = adx_loop(p->file, header, p->total, &p->loopStart, &p->loopEnd);
+#if defined(PORT_VITA) && !defined(BT3_BT4)
+    if (!p->loop && p->total >= 64) {
+        /* A song added from outside the disc (port/vita/vita_extras.c; z3xox's PC version does the same): the disc's
+           music has its loop in the file and goes on for as long as the fight does; a file made from an MP3 has none
+           and would stop after one play, leaving the rest of the fight silent. It is played again from its start. */
+        extern int PortSongs_IsFile(const char *path);
+        if (PortSongs_IsFile(path)) {
+            p->loopStart = 0;
+            p->loopEnd = p->total & ~31u; /* (whole frames) */
+            p->loop = 1;
+        }
     }
+#endif
     adx_coefs(highpass, p->rate, &p->c1, &p->c2);
     memset(p->hist, 0, sizeof(p->hist));
     p->pos = 0;
+#ifdef PORT_VITA
+    p->loops = 0;
+#endif
     spec.format = SDL_AUDIO_S16;
     spec.channels = 2;
     spec.freq = (int)p->rate;
@@ -381,6 +426,70 @@ static void start(Player *p, const char *path) {
     }
 }
 
+#if defined(PORT_VITA)
+/* A multiplayer match (port/vita/vita_net.c): the game waits for voice lines and music to end (the fighters' intros
+   and win lines, the menus' guides), and the moment a stream ends must be the same blank on both Vitas, not the moment
+   each one's sound has played it (its reading and its sound thread's pace are its own). As the PC version does in its
+   online matches: the length in blanks from the file's header, counted down at every blank. */
+extern int Port_NetActive(void);
+
+static void view_start(Player *p, const char *path, int found) {
+    uint8_t h[0x40];
+    SceUID fd;
+    uint32_t base = 0, size = 0, header, rate, total, ls, le;
+    int own = 0, got = 0;
+
+    p->vstat = ADXT_STAT_STOP;
+    p->vleft = 0;
+    if (!found || !Vita_FileSpan(path, &fd, &base, &size, &own)) {
+        return;
+    }
+    if (size >= sizeof(h)) {
+        got = sceIoPread(fd, h, sizeof(h), base) == (int)sizeof(h);
+    }
+    if (own) {
+        sceIoClose(fd);
+    }
+    if (!got || be16(h) != 0x8000) {
+        return;
+    }
+    header = be16(h + 2) + 4;
+    rate = be32(h + 8);
+    total = be32(h + 12);
+    if (adx_loop(h, header, total, &ls, &le)) {
+        p->vleft = -1; /* (it loops: never ends) */
+    } else if (rate != 0) {
+        p->vleft = (int)(((uint64_t)total * 60000u + (uint64_t)rate * 1001u - 1u) / ((uint64_t)rate * 1001u)) + 1;
+    }
+    p->vstat = p->vleft != 0 ? ADXT_STAT_PLAYING : ADXT_STAT_STOP;
+}
+
+/* (plat_stub.c Port_VBlank) a blank of the streams that play */
+void Port_AdxTick(void) {
+    int i;
+    for (i = 0; i < sCount; i++) {
+        Player *p = &sPlayers[i];
+        if (p->vstat == ADXT_STAT_PLAYING && !p->vpaused && p->vleft > 0 && --p->vleft == 0) {
+            p->vstat = ADXT_STAT_PLAYEND;
+        }
+    }
+}
+#define VIEW_START(p, path, found) do { if (Port_NetActive()) { view_start((p), (path), (found)); } } while (0)
+
+/* (port/vita/vita_warm.c) the game starts again inside the running program: every stream stopped and given back, the
+   players' list empty as at the program's start (the game makes its players again) */
+void Port_AdxWarm(void) {
+    int i;
+    for (i = 0; i < sCount; i++) {
+        stop(&sPlayers[i]);
+    }
+    memset(sPlayers, 0, sizeof(sPlayers));
+    sCount = 0;
+}
+#else
+#define VIEW_START(p, path, found) ((void)0)
+#endif
+
 /* ------------------------------------------------------------------------------- the library's functions */
 
 void ADXT_Init(void) {}
@@ -402,8 +511,12 @@ void ADXT_StartAfs(void *adxt, int patid, int fid) {
 
     if (adxt != NULL && Port_FilePath(patid, fid, NULL, path, sizeof(path))) {
         start(adxt, path);
+        VIEW_START((Player *)adxt, path, 1);
     } else {
         ADX_LOG("adx: player %d: archive %d file %d not found\n", adxt != NULL ? (int)((Player *)adxt - sPlayers) : -1, patid, fid);
+        if (adxt != NULL) {
+            VIEW_START((Player *)adxt, path, 0);
+        }
     }
 }
 
@@ -412,12 +525,18 @@ void ADXT_StartFname(void *adxt, char *fname) {
 
     if (adxt != NULL && Port_FilePath(0, 0, fname, path, sizeof(path))) {
         start(adxt, path);
+        VIEW_START((Player *)adxt, path, 1);
+    } else if (adxt != NULL) {
+        VIEW_START((Player *)adxt, path, 0);
     }
 }
 
 void ADXT_Stop(void *adxt) {
     if (adxt != NULL) {
         stop(adxt);
+#if defined(PORT_VITA)
+        ((Player *)adxt)->vstat = ADXT_STAT_STOP;
+#endif
     }
 }
 
@@ -427,6 +546,9 @@ void ADXT_Pause(void *adxt, int sw) {
     if (p == NULL) {
         return;
     }
+#if defined(PORT_VITA)
+    p->vpaused = sw != 0;
+#endif
     if (getenv("BT3_SND_VERBOSE") != NULL && p->paused != (sw != 0)) {
         fprintf(stderr, "adx: player %d pause %d\n", (int)(p - sPlayers), sw);
     }
@@ -479,6 +601,11 @@ void ADXT_SetOutputMono(int flag) {
 }
 
 int ADXT_GetStat(void *adxt) {
+#if defined(PORT_VITA)
+    if (adxt != NULL && Port_NetActive()) {
+        return ((Player *)adxt)->vstat; /* (counted in blanks: the same on both Vitas) */
+    }
+#endif
     return adxt != NULL ? ((Player *)adxt)->stat : ADXT_STAT_STOP;
 }
 

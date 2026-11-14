@@ -33,6 +33,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "vita_eu.h"
 #include "vita_read.h"
 #include <psp2/kernel/threadmgr.h>
 #include <strings.h>
@@ -50,7 +51,7 @@ typedef struct Partition {
 
 typedef struct PortFile {
     SceUID fd;
-    int owned; /* a loose file: closed with the handle */
+    int owned; /* 1: a loose file, closed with the handle; 2: a member of the European archive (vita_eu.c) */
     int pt;    /* else the archive it is in (its descriptor is the partition's, opened again if it goes bad) */
     uint32_t base, size;
     int32_t sizeSct, posSct, stat;
@@ -63,9 +64,14 @@ typedef struct PortFile {
 } PortFile;
 
 static Partition sPart[8];
+static uint8_t sPartScanned[8]; /* (its folder of mods was looked through: once) */
+/* the handles the game holds (to close them should it start again inside the running program: Vita_FileWarm) */
+#define PF_OPEN 96
+static PortFile *sOpenF[PF_OPEN];
 
 /* ---- mods ---- */
-#define MODS_DIR "ux0:data/bt3/mods"
+#include "vita_home.h"
+#define MODS_DIR VITA_HOME "/mods"
 #define MOD_DIRS 96
 #define MOD_PACKS 24
 typedef struct ModFile { uint16_t ptid, dir; uint32_t flid; char name[48]; } ModFile; /* a member (ptid < 8) or a DATA file (ptid 8), in folder `dir` */
@@ -329,6 +335,14 @@ static int mod_path(int ptid, uint32_t flid, const char *name, char *out, size_t
     if (!mods_on() || sModN == 0) {
         return 0;
     }
+#ifdef PORT_VITA /* (BT3 and BT4) */
+    {   /* (a multiplayer match, begun at the start or from the versus menu: the disc's own files on both Vitas) */
+        extern int Port_NetActive(void);
+        if (Port_NetActive()) {
+            return 0;
+        }
+    }
+#endif
     for (i = 0; i < sModN; i++) {
         if ((ptid < 8 && sMods[i].ptid == ptid && sMods[i].flid == flid) ||
             (ptid == 8 && sMods[i].ptid == 8 && strcasecmp(sMods[i].name, name) == 0)) {
@@ -369,9 +383,15 @@ static void data_path(const char *fname, char *out, size_t size) {
         Vita_Log("mods: %s instead of the disc's\n", out);
         return;
     }
+    if (strcmp(name, "ZS3USOP.ADX") == 0 && VitaEu_OpeningSong(out, (int)size)) { /* (the European opening's song) */
+        return;
+    }
     snprintf(out, size, "%s/DATA/%s", gVitaDisc, name);
 }
 
+#ifndef BT3_BT4
+extern int Vita_ExtraPath(int ptid, int flid, char *out, int size); /* vita_extras.c */
+#endif
 int Port_FilePath(int ptid, int flid, const char *fname, char *out, int size) {
     SceUID fd;
 
@@ -379,6 +399,11 @@ int Port_FilePath(int ptid, int flid, const char *fname, char *out, int size) {
     (void)flid;
     if (fname == NULL) { /* a member of an archive: a name for Vita_LoadWhole below, not a path */
         Partition *pt = &sPart[ptid & 7];
+#ifndef BT3_BT4
+        if (Vita_ExtraPath(ptid, flid, out, size)) { /* an added song (vita_extras.c): its own file */
+            return 1;
+        }
+#endif
         if (pt->fd <= 0 || flid < 0 || (uint32_t)flid >= pt->count) {
             return 0;
         }
@@ -406,6 +431,9 @@ int Vita_FileSpan(const char *path, SceUID *fd, uint32_t *base, uint32_t *size, 
         if (mod_path(ptid & 7, (uint32_t)flid, NULL, mod, sizeof(mod))) {
             return Vita_FileSpan(mod, fd, base, size, own); /* (its own file) */
         }
+        if (VitaEu_Member(ptid, flid, fd, base, size, own)) {
+            return 1;
+        }
         *fd = pt->fd;
         *base = pt->table[flid * 2];
         *size = pt->table[flid * 2 + 1];
@@ -427,6 +455,28 @@ int Vita_FileSpan(const char *path, SceUID *fd, uint32_t *base, uint32_t *size, 
         *size = (uint32_t)n;
         *own = 1;
         return 1;
+    }
+}
+
+static PortFile *pf_new(void) {
+    PortFile *f = Port_LowAlloc(sizeof(PortFile));
+    int k;
+    for (k = 0; k < PF_OPEN; k++) {
+        if (sOpenF[k] == NULL) {
+            sOpenF[k] = f;
+            break;
+        }
+    }
+    return f;
+}
+
+static void pf_gone(PortFile *f) {
+    int k;
+    for (k = 0; k < PF_OPEN; k++) {
+        if (sOpenF[k] == f) {
+            sOpenF[k] = NULL;
+            break;
+        }
     }
 }
 
@@ -453,10 +503,23 @@ int ADXF_LoadPartitionNw(int ptid, char *fname, void *dir, void *ptinfo) {
             pt->name[i] = (char)tolower((unsigned char)b[i]);
         }
         pt->name[i] = '\0';
-        if (mods_on()) {
+        if (mods_on() && !sPartScanned[ptid & 7]) {
+            sPartScanned[ptid & 7] = 1;
             mods_scan_archive(pt->name, ptid & 7);
         }
+        VitaEu_NotePartition(ptid & 7, pt->name);
     }
+#ifdef BT3_BT4
+    {   /* BT4's archives: their tables are in BIN/DBZ4.BIN (port/vita/bt4/vita_bt4.c) */
+        extern uint32_t *Vita_Bt4Table(const char *name, uint32_t *count, uint32_t fileSize);
+        uint32_t n = 0, *t = Vita_Bt4Table(pt->name, &n, (uint32_t)sceIoLseek(pt->fd, 0, SCE_SEEK_END));
+        if (t != NULL) {
+            pt->count = n;
+            pt->table = t;
+            return 0;
+        }
+    }
+#endif
     if (sceIoPread(pt->fd, head, 8, 0) != 8 || memcmp(head, "AFS\0", 4) != 0 || head[1] == 0 || head[1] > 0x100000) {
         Vita_Fatal("not an AFS archive:\n  %s", path);
     }
@@ -465,6 +528,7 @@ int ADXF_LoadPartitionNw(int ptid, char *fname, void *dir, void *ptinfo) {
     if (pt->table == NULL || sceIoPread(pt->fd, pt->table, pt->count * 8, 8) != (int)(pt->count * 8)) {
         Vita_Fatal("cannot read the file table of\n  %s", path);
     }
+    VitaEu_PatchToc(ptid & 7, pt->table, pt->count);
     return 0;
 }
 
@@ -476,6 +540,37 @@ void *ADXF_OpenAfs(int ptid, int flid) {
     Partition *pt = &sPart[ptid & 7];
     PortFile *f;
 
+#ifndef BT3_BT4
+    {   /* an added stage or song (vita_extras.c): its own file, past the archive's end */
+        char path[300];
+        int extra = Vita_ExtraPath(ptid, flid, path, sizeof(path));
+        if (!extra && (ptid & 7) == 2 && flid >= 70000 && flid < 70000 + 26 && sPart[1].fd > 0 && sPart[1].count > 0x170) {
+            /* an added stage that is not there (a replay saved with one, its file taken away since): the game asks
+               again and again until a file opens, so the disc's first stage is given in its place */
+            extern void Vita_Log(const char *fmt, ...);
+            Vita_Log("stages: added stage %d is not in the folder: the first stage of the disc instead\n", flid - 70000);
+            return ADXF_OpenAfs(1, 0x170);
+        }
+        if (extra) {
+            SceUID fd = sceIoOpen(path, SCE_O_RDONLY, 0);
+            SceOff size;
+            if (fd < 0) {
+                fprintf(stderr, "bt3: file not found: %s\n", path);
+                return NULL;
+            }
+            size = sceIoLseek(fd, 0, SCE_SEEK_END);
+            f = pf_new();
+            memset(f, 0, sizeof(*f));
+            f->fd = fd;
+            f->owned = 1;
+            f->size = (uint32_t)size;
+            f->sizeSct = (int32_t)((size + SECTOR - 1) / SECTOR);
+            f->stat = STAT_STOP;
+            gVitaFileOpens++;
+            return f;
+        }
+    }
+#endif
     if (pt->fd <= 0 || flid < 0 || (uint32_t)flid >= pt->count) {
         fprintf(stderr, "bt3: file not found: partition %d, index %d\n", ptid, flid);
         return NULL;
@@ -486,7 +581,7 @@ void *ADXF_OpenAfs(int ptid, int flid) {
             SceUID fd = sceIoOpen(path, SCE_O_RDONLY, 0);
             if (fd >= 0) {
                 SceOff size = sceIoLseek(fd, 0, SCE_SEEK_END);
-                f = Port_LowAlloc(sizeof(PortFile));
+                f = pf_new();
                 memset(f, 0, sizeof(*f));
                 f->fd = fd;
                 f->owned = 1;
@@ -500,7 +595,26 @@ void *ADXF_OpenAfs(int ptid, int flid) {
             }
         }
     }
-    f = Port_LowAlloc(sizeof(PortFile));
+    {   /* a European language's member (vita_eu.c) */
+        SceUID fd;
+        uint32_t base, size;
+        int own;
+        if (VitaEu_Member(ptid, flid, &fd, &base, &size, &own)) {
+            f = pf_new();
+            memset(f, 0, sizeof(*f));
+            f->fd = fd;
+            f->owned = own ? 1 : 2;
+            f->pt = ptid & 7;
+            f->base = base;
+            f->size = size;
+            f->sizeSct = (int32_t)((size + SECTOR - 1) / SECTOR);
+            f->posSct = 0;
+            f->stat = STAT_STOP;
+            gVitaFileOpens++;
+            return f;
+        }
+    }
+    f = pf_new();
     memset(f, 0, sizeof(*f));
     f->fd = pt->fd;
     f->owned = 0;
@@ -535,7 +649,7 @@ void *ADXF_Open(char *fname, void *atr) {
         n = 0; /* (below: the handle is a film's) */
     }
     size = sceIoLseek(fd, 0, SCE_SEEK_END);
-    f = Port_LowAlloc(sizeof(PortFile));
+    f = pf_new();
     memset(f, 0, sizeof(*f));
     f->film = n == 0; /* (the game feeds what it reads of a film to sceMpegDemuxPss, which takes none of it: the
                          opening read its first 2 MB for nothing) */
@@ -558,9 +672,40 @@ void ADXF_Close(void *h) {
         if (f->owned == 1) {
             sceIoClose(f->fd);
         }
+        pf_gone(f);
         Port_LowFree(f);
     }
 }
+
+#ifdef PORT_VITA /* (BT3 and BT4) */
+/* (vita_warm.c) the game starts again inside the running program: the handles it held closed (its memory of them is
+   gone), no archive loaded, as the program's start finds it (the game opens its archives again). */
+void Vita_FileWarm(void) {
+    int k, n = 0;
+    for (k = 0; k < PF_OPEN; k++) {
+        if (sOpenF[k] != NULL) {
+            ADXF_Close(sOpenF[k]);
+            n++;
+        }
+    }
+    {
+        extern void VitaEu_TablesGone(void);
+        VitaEu_TablesGone(); /* (vita_eu.c keeps a pointer into PZS3US1's table) */
+    }
+    for (k = 0; k < 8; k++) {
+        Partition *pt = &sPart[k];
+        if (pt->fd > 0) {
+            sceIoClose(pt->fd);
+            free(pt->table);
+        }
+        memset(pt, 0, sizeof(*pt));
+    }
+    if (n != 0) {
+        extern void Vita_Log(const char *fmt, ...);
+        Vita_Log("files: %d handles of the game that ended closed\n", n);
+    }
+}
+#endif
 
 int ADXF_GetFsizeSct(void *h) {
     return ((PortFile *)h)->sizeSct;
@@ -653,7 +798,14 @@ int ADXF_ReadNw(void *h, int nsct, void *buf) {
     f->rdSct = nsct;
     f->rdHave = have;
     f->rdWant = want;
+#ifdef PORT_VITA /* (BT3 and BT4) */
+    /* (a multiplayer match: the read is made now, so that the game finds it done at the same blank on both Vitas,
+       however fast each one's memory card is: vita_net.c) */
+    extern int Port_NetActive(void);
+    if (have != 0 && Vita_ReadOn() && !Port_NetActive()) {
+#else
     if (have != 0 && Vita_ReadOn()) {
+#endif
         f->job.fd = f->fd;
         f->job.off = (SceOff)f->base + pos;
         f->job.buf = buf;
@@ -732,6 +884,24 @@ void *Vita_LoadWhole(const char *path, uint32_t *size) {
         }
         if (mod_path(ptid & 7, (uint32_t)flid, NULL, mod, sizeof(mod))) {
             return Vita_LoadWhole(mod, size); /* (its own file) */
+        }
+        {   /* a European language's member */
+            SceUID fd;
+            uint32_t base;
+            int own, ok;
+            if (VitaEu_Member(ptid, flid, &fd, &base, &n, &own)) {
+                p = malloc(n ? n : 1);
+                ok = p != NULL && (n == 0 || sceIoPread(fd, p, n, base) == (int)n);
+                if (own) {
+                    sceIoClose(fd);
+                }
+                if (!ok) {
+                    free(p);
+                    return NULL;
+                }
+                *size = n;
+                return p;
+            }
         }
         n = pt->table[flid * 2 + 1];
         p = malloc(n ? n : 1);

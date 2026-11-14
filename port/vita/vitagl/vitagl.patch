@@ -771,6 +771,54 @@ index 07d8f47..6cb347d 100644
  // Fixed-function pipeline shader cache settings
  #define FFP_SHADER_CACHE_MAGIC 31 // This must be increased whenever ffp shader sources or shader mask/combiner mask changes
  
+diff --git a/source/utils/gxm_utils.h b/source/utils/gxm_utils.h
+index e297278..4edef8c 100644
+--- a/source/utils/gxm_utils.h
++++ b/source/utils/gxm_utils.h
+@@ -100,6 +100,13 @@ static inline __attribute__((always_inline)) void vglGetTexSizes(SceGxmTexture *
+ 		*h = 1 << (word1 & 0xF);
+ 	}
+ }
++// bt3 port: a LINEAR_STRIDED texture (sceGxmTextureInitLinearStrided: a display buffer read with its own row spacing)
++// keeps its stride in the bits the other kinds keep their min and mip filters, mip count and LOD bias in. The setters
++// of those leave it alone (its mag filter serves as its min filter too); written over, the rows were read 5 to 32
++// pixels off each (the fights at 720 x 408: lines and streaks across the picture).
++static inline __attribute__((always_inline)) int vglTexIsStrided(SceGxmTexture *texture) {
++	return (((SceGxmTextureInternal *)texture)->control_words[1] & 0xE0000000) == 0xC0000000;
++}
+ static inline __attribute__((always_inline)) void vglSetTexUMode(SceGxmTexture *texture, SceGxmTextureAddrMode addrMode) {
+ 	SceGxmTextureInternal *tex = (SceGxmTextureInternal *)texture;
+ 	tex->control_words[0] = ((addrMode << 6) & 0x1C0) | tex->control_words[0] & 0xFFFFFE3F;
+@@ -109,6 +116,8 @@ static inline __attribute__((always_inline)) void vglSetTexVMode(SceGxmTexture *
+ 	tex->control_words[0] = ((addrMode << 3) & 0x38) | tex->control_words[0] & 0xFFFFFFC7;
+ }
+ static inline __attribute__((always_inline)) void vglSetTexMinFilter(SceGxmTexture *texture, SceGxmTextureFilter minFilter) {
++	if (vglTexIsStrided(texture))
++		return;
+ 	SceGxmTextureInternal *tex = (SceGxmTextureInternal *)texture;
+ 	tex->control_words[0] = ((minFilter << 10) & 0xC00) | tex->control_words[0] & 0xFFFFF3FF;
+ }
+@@ -117,14 +126,20 @@ static inline __attribute__((always_inline)) void vglSetTexMagFilter(SceGxmTextu
+ 	tex->control_words[0] = ((magFilter << 12) & 0x3000) | tex->control_words[0] & 0xFFFFCFFF;
+ }
+ static inline __attribute__((always_inline)) void vglSetTexMipFilter(SceGxmTexture *texture, SceGxmTextureMipFilter mipFilter) {
++	if (vglTexIsStrided(texture))
++		return;
+ 	SceGxmTextureInternal *tex = (SceGxmTextureInternal *)texture;
+ 	tex->control_words[0] = mipFilter & 0x200 | tex->control_words[0] & 0xFFFFFDFF;
+ }
+ static inline __attribute__((always_inline)) void vglSetTexLodBias(SceGxmTexture *texture, uint32_t bias) {
++	if (vglTexIsStrided(texture))
++		return;
+ 	SceGxmTextureInternal *tex = (SceGxmTextureInternal *)texture;
+ 	tex->control_words[0] = tex->control_words[0] & 0xF81FFFFF | (bias << 21);
+ }
+ static inline __attribute__((always_inline)) void vglSetTexMipmapCount(SceGxmTexture *texture, uint32_t count) {
++	if (vglTexIsStrided(texture))
++		return;
+ 	SceGxmTextureInternal *tex = (SceGxmTextureInternal *)texture;
+ 	tex->control_words[0] = tex->control_words[0] & 0xFFE1FFFF | (((count - 1) & 0xF) << 17);
+ }
 diff --git a/source/vgl.c b/source/vgl.c
 index bf5e4d4..a09b42f 100644
 --- a/source/vgl.c

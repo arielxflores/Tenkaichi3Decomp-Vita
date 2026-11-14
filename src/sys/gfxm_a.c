@@ -119,6 +119,10 @@ void StgPanBlur_Init(s32 cbp) {
     }
 }
 
+#ifdef PORT
+extern int Port_FxOff(int bit); /* an effect switched off (z3xox's PC version; the Vita's bt3.txt: moveblur=0) */
+#endif
+
 /* Updates the views (unless the battle is paused) and draws those with a strength. */
 void StgPanBlur_Draw(void) {
     s32 on0 = 1;
@@ -131,6 +135,11 @@ void StgPanBlur_Draw(void) {
             on0 = StgPanBlur_UpdateView(&gStgPanBlur->view[0]);
             on1 = StgPanBlur_UpdateView(&gStgPanBlur->view[1]);
         }
+#ifdef PORT /* (the setting "Movement blur": the views are kept up to date, nothing is drawn) */
+        if (Port_FxOff(32)) {
+            on0 = on1 = 0;
+        }
+#endif
         if (on0 != 0 || on1 != 0) {
             Dma_AddData(gStgPanBlur->tex.upload, 0x10);
             Dma_AddTexFlush();
@@ -149,6 +158,11 @@ void StgPanBlur_Draw(void) {
         if (!(Battle_GetWork()->flags & BATTLE_FLAG_PAUSE)) {
             on0 = StgPanBlur_UpdateView(&gStgPanBlur->view[0]);
         }
+#ifdef PORT
+        if (Port_FxOff(32)) {
+            on0 = 0;
+        }
+#endif
         if (on0 != 0) {
             Dma_AddData(gStgPanBlur->tex.upload, 0x10);
             Dma_AddTexFlush();

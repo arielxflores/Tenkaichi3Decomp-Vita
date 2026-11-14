@@ -46,7 +46,8 @@ int gVitaInMovie;      /* src/sys/movie.c: a film is playing (a tap skips it: ST
        L3=off
    A button not in the file is on the rear pad. (The first versions wrote one word, "rear" or "front", for L2 and R2:
    read as that place for all four.) */
-#define TOUCH_FILE "ux0:data/bt3/touch.txt"
+#include "vita_home.h"
+#define TOUCH_FILE VITA_HOME "/touch.txt"
 static const char *const kSpotName[3] = {"rear", "front", "off"};
 static const char *const kBtnName[4] = {"L2", "R2", "L3", "R3"};
 static const unsigned kBtnBit[4] = {B_L2, B_R2, B_L3, B_R3};
@@ -712,6 +713,8 @@ static struct {
     unsigned frames;
 } sG;
 static int sCornerId[8], sCornerN; /* the contacts that began on a corner (front L2 / R2 / L3 / R3) */
+static unsigned long long sCornerT[8]; /* (when each began: L3 / R3 a quick press, as on the rear pad) */
+#define L3R3_PRESS_US 150000ull /* a touch of L3 / R3 is the button pressed this long, then let go */
 static unsigned sCornerBtn[8];
 
 static void tap(float sx, float sy) {
@@ -774,11 +777,11 @@ unsigned Vita_TouchPad(void) {
         }
     }
     if (rear_btns != 0) { /* (each quarter its button, or nothing: the others do not grow into it) */
-        /* A finger resting on the lower half (L3 / R3) is let go after a second: the hands holding the Vita touch
-           the rear pad there, and R3 held stops the fighter from moving and dashing (BtlInput_TestAction 1 and 3),
-           which players took for a dead stick. The game wants L3 / R3 pressed and released (a transformation: R3
-           let go within 13 of its frames) or held with a direction for 12 frames, never held for a second. L2 / R2
-           (charging, dashing) are held as long as the finger is there. A touch counts again once it is lifted. */
+        /* A touch of the lower half (L3 / R3) is a quick press (L3R3_PRESS_US), however long the finger stays: the
+           game takes R3 for a transformation only when it is let go within about a fifth of a second (13 of its
+           frames), and R3 held stops the fighter from moving and dashing (BtlInput_TestAction 1 and 3), which players
+           took for a dead stick; the hands holding the Vita rest there too. L2 / R2 (charging, dashing) are held as
+           long as the finger is there. A touch counts again once it is lifted. */
         static struct { uint8_t id, used; unsigned long long t; } held[SCE_TOUCH_MAX_REPORT];
         unsigned long long now = sceKernelGetProcessTimeWide();
         int k;
@@ -810,8 +813,8 @@ unsigned Vita_TouchPad(void) {
                     held[k].t = now;
                 }
             }
-            if (!upper && now - since > 1000000ull) {
-                continue; /* resting there */
+            if (!upper && now - since > L3R3_PRESS_US) {
+                continue; /* (pressed and let go) */
             }
             btn |= (upper ? (left ? B_L2 : B_R2) : (left ? B_L3 : B_R3)) & rear_btns;
         }
@@ -835,12 +838,13 @@ unsigned Vita_TouchPad(void) {
             to_screen(t, &sx, &sy);
             if (known >= 0) {
                 still[known] = 1;
-                btn |= sCornerBtn[known];
+                btn |= sCornerBtn[known] & (sceKernelGetProcessTimeWide() - sCornerT[known] > L3R3_PRESS_US ? ~(unsigned)(B_L3 | B_R3) : ~0u);
                 continue;
             }
             if (front_btns != 0 && !(sG.active && sG.id == t->id) && sCornerN < 8 && ((cb = corner_btn(sx, sy)) & front_btns) != 0) {
                 sCornerId[sCornerN] = t->id;
                 sCornerBtn[sCornerN] = cb;
+                sCornerT[sCornerN] = sceKernelGetProcessTimeWide();
                 still[sCornerN++] = 1;
                 btn |= cb;
                 continue;
@@ -856,6 +860,7 @@ unsigned Vita_TouchPad(void) {
             if (!still[k]) {
                 sCornerId[k] = sCornerId[sCornerN - 1];
                 sCornerBtn[k] = sCornerBtn[sCornerN - 1];
+                sCornerT[k] = sCornerT[sCornerN - 1];
                 still[k] = still[sCornerN - 1];
                 sCornerN--;
                 k--;
@@ -974,8 +979,8 @@ int gVitaStartMode; /* bt3.txt startmode=<n>: the menus begin on screen n (src/m
 void Vita_DumpFile(int id, void *data, int size) {
     char path[96];
     FILE *fp;
-    sceIoMkdir("ux0:data/bt3/dump", 0777);
-    snprintf(path, sizeof(path), "ux0:data/bt3/dump/%d.bin", id);
+    sceIoMkdir(VITA_HOME "/dump", 0777);
+    snprintf(path, sizeof(path), VITA_HOME "/dump/%d.bin", id);
     fp = fopen(path, "rb");
     if (fp != NULL) { /* (once) */
         fclose(fp);

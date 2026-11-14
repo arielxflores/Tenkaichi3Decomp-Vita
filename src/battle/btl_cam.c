@@ -484,6 +484,9 @@ void BtlCam_ApplyView(s32 scissor) {
 }
 
 /* Decides whether one full-screen view replaces the per-player views this frame; returns 1 if so. */
+#ifdef PORT_VITA
+extern int Port_NetView(void); /* port/vita/vita_net.c: in a multiplayer match the local player's view (0 or 1), else -1 */
+#endif
 s32 BtlCam_UpdateOverride(void) {
     s32 ret = 0;
     s32 idx;
@@ -499,6 +502,14 @@ s32 BtlCam_UpdateOverride(void) {
         BtlCam_SetLayout(0, 1);
     } else {
         idx = BtlCam_GetPriorityView();
+#ifdef PORT_VITA
+        /* A multiplayer match (z3xox's PC version does the same online): both Vitas run the two-player fight with its
+           two cameras, and each shows only its own player's view, full screen: this function's own case of "one
+           view has priority", the local player's taking the place when the game itself gives none priority. */
+        if (idx < 0) {
+            idx = Port_NetView();
+        }
+#endif
         if (idx >= 0) {
             BtlCam_SelectView(idx);
             ret = 1;

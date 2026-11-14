@@ -569,7 +569,17 @@ s32 BtlKiBlast_GetGuardDamageOf(BtlTechBChr *chr, u32 kind) {
 s32 BtlKiBlast_GetKiCost(BtlTechBChr *chr) {
     s32 kind;
 
+#ifdef PORT
+    /* (PORT: the record fetched first, in its own statement: as an argument beside `chr` / `kind`, which it sets, the
+       order is the compiler's; the Vita's read them first, unset, and a ki blast's hit read a null fighter) */
+    {
+        BtlKiBlastData *rec = BtlKiBlast_GetCurrent(chr, &kind);
+
+        return BtlKiBlast_ScaleKiByAbility(chr, rec->ki, kind);
+    }
+#else
     return BtlKiBlast_ScaleKiByAbility(chr, BtlKiBlast_GetCurrent(chr, &kind)->ki, kind);
+#endif
 }
 
 /* The same for a hit record (an absorber gains three times this). */
@@ -577,7 +587,17 @@ s32 BtlKiBlast_GetKiCostOfHit(BtlTechBHit *hit) {
     BtlTechBChr *chr;
     s32 kind;
 
+#ifdef PORT
+    /* (PORT: the record fetched first, in its own statement: as an argument beside `chr` / `kind`, which it sets, the
+       order is the compiler's; the Vita's read them first, unset, and a ki blast's hit read a null fighter) */
+    {
+        BtlKiBlastData *rec = BtlKiBlast_GetOfHit(hit, &chr, &kind);
+
+        return BtlKiBlast_ScaleKiByAbility(chr, rec->ki, kind);
+    }
+#else
     return BtlKiBlast_ScaleKiByAbility(chr, BtlKiBlast_GetOfHit(hit, &chr, &kind)->ki, kind);
+#endif
 }
 
 /* The same for a kind. */
@@ -589,7 +609,17 @@ s32 BtlKiBlast_GetKiCostOf(BtlTechBChr *chr, u32 kind) {
 f32 BtlKiBlast_GetSpeed(BtlTechBChr *chr) {
     s32 kind;
 
+#ifdef PORT
+    /* (PORT: the record fetched first, in its own statement: as an argument beside `chr` / `kind`, which it sets, the
+       order is the compiler's; the Vita's read them first, unset, and a ki blast's hit read a null fighter) */
+    {
+        BtlKiBlastData *rec = BtlKiBlast_GetCurrent(chr, &kind);
+
+        return BtlKiBlast_ScaleSpeedByAbility(chr, kind, rec->speed * 10.0f * BTL_KMH_PER_FRAME);
+    }
+#else
     return BtlKiBlast_ScaleSpeedByAbility(chr, kind, BtlKiBlast_GetCurrent(chr, &kind)->speed * 10.0f * BTL_KMH_PER_FRAME);
+#endif
 }
 
 /* The same for a hit record. */
@@ -597,7 +627,17 @@ f32 BtlKiBlast_GetSpeedOfHit(BtlTechBHit *hit) {
     BtlTechBChr *chr;
     s32 kind;
 
+#ifdef PORT
+    /* (PORT: the record fetched first, in its own statement: as an argument beside `chr` / `kind`, which it sets, the
+       order is the compiler's; the Vita's read them first, unset, and a ki blast's hit read a null fighter) */
+    {
+        BtlKiBlastData *rec = BtlKiBlast_GetOfHit(hit, &chr, &kind);
+
+        return BtlKiBlast_ScaleSpeedByAbility(chr, kind, rec->speed * 10.0f * BTL_KMH_PER_FRAME);
+    }
+#else
     return BtlKiBlast_ScaleSpeedByAbility(chr, kind, BtlKiBlast_GetOfHit(hit, &chr, &kind)->speed * 10.0f * BTL_KMH_PER_FRAME);
+#endif
 }
 
 /* The same for a kind. */
@@ -654,7 +694,17 @@ s32 BtlKiBlast_GetUnk31Of(BtlTechBChr *chr, u32 kind) {
 s32 BtlKiBlast_GetReact(BtlTechBChr *chr) {
     s32 kind;
 
+#ifdef PORT
+    /* (PORT: the record fetched first, in its own statement: as an argument beside `chr` / `kind`, which it sets, the
+       order is the compiler's; the Vita's read them first, unset, and a ki blast's hit read a null fighter) */
+    {
+        BtlKiBlastData *rec = BtlKiBlast_GetCurrent(chr, &kind);
+
+        return BtlKiBlast_MapReact(chr, rec->react, kind);
+    }
+#else
     return BtlKiBlast_MapReact(chr, BtlKiBlast_GetCurrent(chr, &kind)->react, kind);
+#endif
 }
 
 /* The same for a hit record. */
@@ -662,7 +712,17 @@ s32 BtlKiBlast_GetReactOfHit(BtlTechBHit *hit) {
     BtlTechBChr *chr;
     s32 kind;
 
+#ifdef PORT
+    /* (PORT: the record fetched first, in its own statement: as an argument beside `chr` / `kind`, which it sets, the
+       order is the compiler's; the Vita's read them first, unset, and a ki blast's hit read a null fighter) */
+    {
+        BtlKiBlastData *rec = BtlKiBlast_GetOfHit(hit, &chr, &kind);
+
+        return BtlKiBlast_MapReact(chr, rec->react, kind);
+    }
+#else
     return BtlKiBlast_MapReact(chr, BtlKiBlast_GetOfHit(hit, &chr, &kind)->react, kind);
+#endif
 }
 
 /* The same for a kind. */
@@ -1402,6 +1462,15 @@ s32 BtlSuper_GetDamage(BtlTechBChr *chr, s32 slot, s32 guard, s32 total) {
 void BtlSuper_GetStagePlacement(BtlTechBChr *chr, s32 slot, s32 n, Vec4 *pos, Vec4 *rot) {
     s32 stage = Battle_GetStage();
     BtlTechPlaceTbl *tbl;
+#ifdef PORT
+    if (stage >= 0x24) {
+        /* A stage added from outside the disc (port/include/plat_stages.h): the fighter's table has the disc's 36
+           stages only. The places of the stage the added one was made from (its model says which), else the first's. */
+        extern s32 BtlStage_GetId(void);
+        s32 id = BtlStage_GetId();
+        stage = id >= 0 && id < 0x24 ? id : 0;
+    }
+#endif
 
     if ((u32)(slot - 2) < 3 && (tbl = chr->place[slot - 2]) != NULL) {
         pos->x = tbl->rec[stage * 5 + n].x;

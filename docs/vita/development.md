@@ -22,6 +22,7 @@ all of them. The full list, each with a comment, is `read_settings` in `port/vit
 |---|---|
 | `mode=play` / `mode=demo` | The game from its start, or the demo fight, without the start screen |
 | `demoduel=1`, `demostage=<n>`, `demochara1=<id>`, `demochara2=<id>` | The test fight: a duel with intros on that stage, with those fighters |
+| `demobgm=<n>` | The test fight's music: that music-list value (26 on: the songs added from outside the disc; `demostage=36` on: the stages) |
 | `sweep=<s>` | In the demo fight, start again after that many seconds with the next pairing (0: off) |
 | `startmode=<n>` | The menus start on that screen (62: the options) |
 | `report=1` | The figures every two seconds in the log (also in the release), and a sample of the GS primitives by state every 150 pictures of a fight (that picture drawn the slow way, off the fast lane) |
@@ -29,12 +30,12 @@ all of them. The full list, each with a comment, is `read_settings` in `port/vit
 | `logsplit=<KB>` | The log in parts of that size (`log-part2-vgl.txt`, ...) |
 | `wide=0` | The PS2's 4:3 picture (also in the release) |
 | `msaa=0/2/4` | The GPU's multisampling |
-| `fightres=640/720/960` | The fights always at that size (default 640 x 368; also in the release). Taken from arielxflores's 1.2 without its dynamic choice of size |
-| `fxhalf=0` | The full-screen passes (the outline, the table passes, the glow) in full precision, not half (from arielxflores's 1.2) |
-| `shbank=1` | Every shader the run compiles or reads from the card added to `ux0:data/bt3/shbank.bin`; `port/vita/tools/shbank.py` makes them into `port/vita/shbank.bin`, the bank the VPK carries (`app0:shbank.bin`: the shaders read from it, not compiled; from arielxflores's 1.2) |
+| `fightres=auto/640/720/960` | The fights' size: by the chip's time, 720 x 408 or 640 x 368 (`auto`, the default; `vgl: the fight at ...` in the log), or always that size |
+| `fxhalf=0` | The full-screen passes (the outline, the table passes, the glow) in full precision, not half |
 | `shbank=2` | The bank checked: each shader it does not have named in the log (`vgl: a shader not in the bank`) and compiled |
-| `texearly=0` | A new texture waits for the render thread before its pixels are read from GS memory, as before (from arielxflores's 1.2) |
-| `asyncread=0`, `vufquick=0` | The game's no-wait reads on the caller's thread, not the reading thread; the vector stand-ins' full check (from arielxflores's 1.2) |
+| `shbank=1` | Every shader the run compiles or reads from the card added to `ux0:data/bt3/shbank.bin` (BT4's program: `shbank-bt4.bin`); `port/vita/tools/shbank.py` makes them into `port/vita/shbank.bin`, the bank the VPK carries (`app0:shbank.bin`: the shaders read from it, not compiled) |
+| `texearly=0` | A new texture waits for the render thread before its pixels are read from GS memory, as before |
+| `asyncread=0`, `vufquick=0` | The game's no-wait reads on the caller's thread, not the reading thread; the vector stand-ins' full check |
 | `pgoname=<name>`, `pgodump=<s>` | A `BT3_PGO=gen` build: its counts' file name and how often they are written ([building.md](building.md)) |
 | `touchlr=rear/front/off`, `touchlog=1` | Where L2, R2, L3 and R3 are touched, all four (over the player's Vita Settings → Touch); the touches in the log |
 | `soak=1` | With `mode=demo`: duels and three-against-three team battles one after another without end (`port/src/headless.c`), to find what goes wrong after a long time. The sweep is off in a soak unless `sweep=` is given |
@@ -62,6 +63,12 @@ all of them. The full list, each with a comment, is `read_settings` in `port/vit
 | `drawlog=<a>-<b>`, `drawlogverts=<n>` | Each draw of frames (lists) a..b in the log: its path, state and size; with `drawlogverts`, the vertices of its GS draws of n vertices or more |
 | `bislist=<n>`, `bisfrom=<i>`, `bisto=<j>`, `biskind=<mask>`, `bisinv=1` | In frame n, the draws i..j-1 of the kinds in mask (1 GS primitives, 2 the stage's batches, 4 the fighters' batches, 8 / 16 the stage's / fighters' kept parts) left out, or (`bisinv`) only those drawn: with `film`, which draw makes a wrong picture |
 | `zlayer=<n>` | Depth steps a stage layer laid on the stage leads by (default 2; 0: none) |
+| `nettest=<s>` | The one-Vita test of a multiplayer match (`port/vita/vita_net.c`): a match with no line, both players' buttons from a fixed script, the game's thread held up at random moments; every second the game's state into `ux0:data/bt3/net_test.txt`, for s seconds of blanks. Two runs must write the same file |
+| `netdelay=<n>` | (the host) a multiplayer match's input delay, 1..8 blanks (default 2 ad hoc, 3 Wi-Fi) |
+| `warmtest=<s>` | The same test begun from the running game, fifteen seconds in: the game is started again inside the program as the versus menu's Multiplayer does it (`port/vita/vita_warm.c`), then runs the match's test for s seconds and writes `net_test.txt`. The file must be the same as a `nettest=<s>` run's: the game begun again inside the program is then the game a new program runs |
+| `menuauto=0` | (the released program too) a menu screen too slow for the chip at 960 x 544 (Shenron's) stays at that size instead of the fights' |
+| `shenfast=0` | (the released program too) the dragon's screen (Shenron) drawn as the menus are, not the fights' way (its dragon and balls as fighters: about 30 pictures a second instead of 13) |
+| `netwarm=0` | (the released program too) the versus menu's Multiplayer starts the program again for a match instead |
 
 Most of the remaining settings switch one optimisation of the renderer off (`fastlane=0`, `stx=0`, `wtc=0`, ...)
 so that its effect can be measured or a picture compared with and without it.
@@ -91,6 +98,9 @@ the texture count.
 | `port/vita/vita_float.c`, `vita_vu0_inline.h` | The PS2 vector unit's arithmetic |
 | `port/vita/srcfix.py` | Rewrites of the game's text at build time: the PS2's rule for shift counts, and its float division by zero (`__port_fdiv` in `port/include/port_compat.h`: no infinity or NaN where the PS2 gives its largest number) |
 | `port/vita/vita_text.c`, `vita_optart.c` | What the game's text and the menus' art say of the PS2, said of the Vita (the options' controller page and its Vita Settings, the Versus Menu's "Multiplayer", the L3 / R3 icons) |
+| `port/vita/vita_net.c` | Multiplayer between two Vitas: the line (ad hoc, Wi-Fi), finding the other Vita (the start menu's way and the versus menu's), the exchange of buttons blank by blank |
+| `port/vita/vita_warm.c` | The game started again inside the running program (a match begun from the versus menu, and its end): the game's variables copied back, its heap and stack cleared, `main` called again |
+| `port/vita/tests/net/` | `run.sh`: the multiplayer code on a PC, two copies as two Vitas over UDP, with packets lost on purpose; their games' records must be the same |
 | `port/vita/vitagl/` | The vitaGL patch and its build script |
 | `port/vita/tools/` | The scripts that made the new art of the menus and the button icons (`vita_optart.h`); `perfsum.py` (the soak's figures by stage); `check_syntax.sh` (the Vita's C checked without VitaSDK); `vita3k_run.sh`, `vita_console_run.sh` (a test run in Vita3K, or on a console over the network: [testing.md](testing.md)); `vita_setup.sh` (the console set up over the network); `ab_run.sh`, `runcmp.py`, `filmpics.py`, `settings/` (a setting's old and new way side by side: [compare.md](compare.md)) |
 | `port/vita/sce_sys/` | The LiveArea |

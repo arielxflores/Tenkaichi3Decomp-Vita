@@ -59,18 +59,53 @@ void *Port_Malloc(uint32_t size) {
     return (void *)(uintptr_t)p;
 }
 
-/* Memory the port hands to the game by address (file handles, the "second processor's" memory): zeroed. */
-void *Port_LowAlloc(size_t size) {
-    void *p = calloc(1, size);
+/* Memory the port hands to the game by address (file handles, the "second processor's" memory): zeroed. The blocks
+   are on a list, so that those the game still held can be let go when it starts again inside the running program
+   (Vita_MemWarm). The game's thread only. */
+typedef struct Low {
+    struct Low *prev, *next;
+    uint32_t size, pad; /* (16 bytes: the block keeps malloc's alignment) */
+} Low;
+static Low sLow = {&sLow, &sLow, 0, 0};
 
-    if (p == NULL) {
+void *Port_LowAlloc(size_t size) {
+    Low *l = calloc(1, sizeof(Low) + size);
+
+    if (l == NULL) {
         Vita_Fatal("out of memory (%u bytes)", (unsigned)size);
     }
-    return p;
+    l->size = (uint32_t)size;
+    l->next = &sLow;
+    l->prev = sLow.prev;
+    sLow.prev->next = l;
+    sLow.prev = l;
+    return l + 1;
 }
 
 void Port_LowFree(void *addr) {
-    free(addr);
+    if (addr != NULL) {
+        Low *l = (Low *)addr - 1;
+        l->prev->next = l->next;
+        l->next->prev = l->prev;
+        free(l);
+    }
+}
+
+/* (vita_warm.c) the game starts again inside the running program: its memory as a start of the program finds it.
+   The heap block empty and all zero, the hardware registers' arrays zero, the blocks handed out by address let go.
+   Returns how many of those there were. */
+int Vita_MemWarm(void) {
+    int n = 0;
+    while (sLow.next != &sLow) {
+        Port_LowFree(sLow.next + 1);
+        n++;
+    }
+    memset((void *)(uintptr_t)gVitaHeapBase, 0, HEAP_SIZE);
+    sHeapNext = gVitaHeapBase + HEAP_SKIP;
+    gVitaHeapUsed = 0;
+    memset(gPortHw, 0, sizeof(gPortHw));
+    memset(gPortGsReg, 0, sizeof(gPortGsReg));
+    return n;
 }
 
 static uint8_t *read_file(const char *path, size_t *size) {
@@ -97,6 +132,10 @@ static uint8_t *read_file(const char *path, size_t *size) {
 /* Copies the values of the game's data tables in from <disc>/SLUS_216.78 (its loaded sections as one image from
    0x100000) and <disc>/BIN/DBZP.BIN, and checks them against the checksum of port/data: the same step as
    Port_LoadGameData of the PC build, with the destinations as addresses the Vita's loader has already placed. */
+#include "vita_home.h"
+#ifdef BT3_BT4
+extern void Vita_Bt4CheckProgram(const char *disc, const uint8_t *elf, size_t size);
+#endif
 #define ROM_BASE 0x100000u
 #define ROM_END 0x2FF180u
 
@@ -107,7 +146,7 @@ void Vita_LoadGameData(const char *disc) {
     uint64_t hash = 0xCBF29CE484222325ull;
     uint32_t i, k;
 
-    snprintf(path, sizeof(path), "%s/SLUS_216.78", disc);
+    snprintf(path, sizeof(path), "%s/" VITA_PROGRAM, disc);
     elf = read_file(path, &elfSize);
     if (elf == NULL || elfSize < 0x34 || memcmp(elf, "\177ELF", 4) != 0) {
         Vita_Fatal("the game's program was not found:\n  %s\nCopy the files of your own disc there (see the README).", path);
@@ -131,6 +170,9 @@ void Vita_LoadGameData(const char *disc) {
             }
         }
         free(elf);
+#ifdef BT3_BT4
+        Vita_Bt4CheckProgram(disc, src[0], srcSize[0]); /* (which of the two releases of BT4 B14 Rev2: vita_bt4.c) */
+#endif
     }
     snprintf(path, sizeof(path), "%s/BIN/DBZP.BIN", disc);
     src[1] = read_file(path, &srcSize[1]);
@@ -152,9 +194,11 @@ void Vita_LoadGameData(const char *disc) {
     }
     free(src[0]);
     free(src[1]);
+#ifndef BT3_BT4 /* (BT4: its programs were checked whole above) */
     if (hash != gPortDatChecksum) {
         Vita_Fatal("SLUS_216.78 / BIN/DBZP.BIN in\n  %s\nare not the unmodified USA release (SLUS-21678).", disc);
     }
+#endif
 }
 
 /* The program's end address on the PS2: a table of the PS2's C library points at it; nothing reads it here

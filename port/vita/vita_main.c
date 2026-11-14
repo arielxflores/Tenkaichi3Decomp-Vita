@@ -35,7 +35,8 @@
 #include <malloc.h>
 #include "debugScreen.h"
 
-#define HOME "ux0:data/bt3"
+#include "vita_home.h"
+#define HOME VITA_HOME
 #ifdef PORT_VITA_SFX /* the development build has its own log, so that its runs and the release's can be kept side by side */
 #define SFX PORT_VITA_SFX
 #else
@@ -44,9 +45,15 @@
 #define GAME_STACK 0x00800000
 
 unsigned int _newlib_heap_size_user = 80 * 1024 * 1024;
+volatile int gVitaNetWaiting; /* (vita_net.c) a multiplayer match waits for the other Vita: no picture, and no hang either */
+int gVitaGameFxOff; /* the effects switched off (bt3.txt weather=, moveblur=): Port_FxOff's bits, as the PC version's fx_off */
+/* (the game's code asks: src/battle/eft_c.c, src/sys/gfxm_a.c; BT4's the same) */
+int Port_FxOff(int bit) {
+    return (gVitaGameFxOff & bit) != 0;
+}
 unsigned int sceUserMainThreadStackSize = 0x00100000;
 
-char gVitaDisc[256] = HOME "/disc";
+char gVitaDisc[256] = VITA_DISC_DEFAULT;
 static FILE *sLog;
 static int sHeapCdram, sFloatChoice = -1; /* -1: ask */
 static unsigned long long sStart, sBattleStart, sLastDraw;
@@ -99,6 +106,18 @@ int Vita_InFight(void) { return gBtlSeq != NULL && gBtlSeq->state == 3; }
 /* the battle from its stage intro to its end (states 0..6): the same stage and fighters the whole time, drawn the fast
    way (kept parts, fighters on the chip) and shown every two blanks */
 int Vita_InBattle(void) { return gBtlSeq != NULL && gBtlSeq->state >= 0 && gBtlSeq->state <= 6; }
+/* The renderer's ways of a fight (the fighters' and the stage's models kept on the graphics chip, the picture begun
+   on the chip in parts; not the VU1 calls' results replayed) also for the dragon's screen (Shenron, gProgress->mode
+   70): its sky and its dragon are a fight's kind of 3D, about a thousand draws a picture the other way (13 pictures a
+   second where the game gives 30). bt3.txt shenfast=0: the dragon's screen drawn as the other menus. */
+int gVitaShenFast = 1;
+int Vita_RenderAsFight(void) {
+    extern void *gProgress;
+    if (Vita_InBattle()) {
+        return 1;
+    }
+    return gVitaShenFast && gProgress != NULL && *(const int *)((const char *)gProgress + 0x18) == 70;
+}
 /* bt3.txt filmstate=<n>: the film's pictures in that state of the fight (3, the fight, unless told: 0 the
    fighters' intros) */
 int gVitaFilmState = 3;
@@ -616,7 +635,11 @@ void Vita_VBlank(unsigned vblanks) {
                     extern void Vita_PgoDump(const char *why);
                     Vita_PgoDump("the sweep starts the program again");
                 }
+#ifdef BT3_BT4
+                r = sceAppMgrLoadExec("app0:bt4.bin", NULL, NULL); /* (this program again: BT4's) */
+#else
                 r = sceAppMgrLoadExec("app0:eboot.bin", NULL, NULL);
+#endif
                 logf_("vita: sweep: starting again failed (%08x); this pairing goes on\n", (unsigned)r);
             }
         }
@@ -672,12 +695,14 @@ void Vita_VBlank(unsigned vblanks) {
                     logf_("vita:   list now %u\n", gGsFrame);
                 }
                 {
-                    extern unsigned gVitaAudioBlocks, gVitaAudioStarved;
+                    extern unsigned gVitaAudioBlocks, gVitaAudioStarved, gVitaAudioLate;
                     static unsigned ab;
                     if (gVitaAudioBlocks != ab) {
-                        logf_("vita:   sound: %u blocks played in this time, %u times a stream ran dry\n", gVitaAudioBlocks - ab, gVitaAudioStarved);
+                        logf_("vita:   sound: %u blocks played in this time, %u times a stream ran dry, %u times the port ran empty (short blocks)\n",
+                              gVitaAudioBlocks - ab, gVitaAudioStarved, gVitaAudioLate);
                         ab = gVitaAudioBlocks;
                         gVitaAudioStarved = 0;
+                        gVitaAudioLate = 0;
                     }
                 }
                 {
@@ -1184,6 +1209,12 @@ void Vita_VBlank(unsigned vblanks) {
 
 /* exit(), from anywhere in the port or the game: keep the screen until it has been read. */
 void __wrap_exit(int code) {
+#ifdef PORT_VITA /* (BT3 and BT4) */
+    {   /* (a multiplayer match: the other Vita is told at once, vita_net.c) */
+        extern void Vita_NetExit(void);
+        Vita_NetExit();
+    }
+#endif
     if (!sEnded) {
         extern void Vita_PgoDump(const char *why);
         Vita_PgoDump("exit");
@@ -1225,12 +1256,12 @@ void __wrap_exit(int code) {
 /* Where the disc's files are. gVitaDisc (ux0:data/bt3/disc, or disc= of bt3.txt, which may name an .iso) when
    SLUS_216.78 is there; else the places players put them by mistake: ux0:data/bt3/disk, ux0:data/bt3 itself, or a
    folder inside either (an image unpacked into a folder of its own name), two levels down at most; else the disc's
-   image as it is, an .iso of any name in ux0:data/bt3/disc, /disk or ux0:data/bt3 (vita_iso.c, arielxflores's, reads
-   the files from it). When none has the files, a message says where they go and what was found instead. */
+   image as it is, an .iso in ux0:data/bt3/disc, /disk or ux0:data/bt3 (vita_iso.c reads the files from it). When none
+   has the files, a message says where they go and what was found instead. */
 static int has_slus(const char *dir) {
     char path[300];
     SceIoStat st;
-    snprintf(path, sizeof(path), "%s/SLUS_216.78", dir);
+    snprintf(path, sizeof(path), "%s/" VITA_PROGRAM, dir);
     return sceIoGetstat(path, &st) >= 0 && !SCE_S_ISDIR(st.st_mode);
 }
 
@@ -1249,7 +1280,11 @@ static int find_below(const char *dir, int depth, char *out, size_t size) {
     while (!found && sceIoDread(d, &e) > 0) {
         char sub[300];
         if (!SCE_S_ISDIR(e.d_stat.st_mode) || e.d_name[0] == '.' || strcasecmp(e.d_name, "saves") == 0 ||
-            strcasecmp(e.d_name, "shcache") == 0 || strcasecmp(e.d_name, "mods") == 0 || strcasecmp(e.d_name, "dump") == 0) {
+            strcasecmp(e.d_name, "shcache") == 0 || strcasecmp(e.d_name, "mods") == 0 || strcasecmp(e.d_name, "dump") == 0
+#ifdef BT3_BT4
+            || strcasecmp(e.d_name, "es") == 0 /* (BT4's Spanish release: find_disc) */
+#endif
+            ) {
             continue;
         }
         snprintf(sub, sizeof(sub), "%s/%s", dir, e.d_name);
@@ -1258,6 +1293,57 @@ static int find_below(const char *dir, int depth, char *out, size_t size) {
     sceIoDclose(d);
     return found;
 }
+
+#ifdef BT3_BT4
+/* BT4's two releases: the English one in ux0:data/bt3/bt4 (its files or its .iso, as BT3's disc is found), the Spanish
+   one in ux0:data/bt3/bt4/es (the same way); the language chosen (Vita Settings > Language: vita_start.c
+   Vita_Bt4LangStart) picks which, the other when that one is not there. vita_bt4.c tells from the programs which
+   release it is (and so the language of the port's own text, vita_lang.c). */
+#define BT4_ES_DIR HOME "/es"
+static int sBt4There[2]; /* the English release is there, the Spanish one */
+
+int Vita_Bt4LangThere(int lang) {
+    return sBt4There[lang != 0];
+}
+
+static int bt4_es_find(char *out, size_t size, int keep) {
+    extern int Vita_IsoFind(const char *dir, const char *file, int keep, char *out, int size, int *seen);
+    if (has_slus(BT4_ES_DIR)) {
+        snprintf(out, size, "%s", BT4_ES_DIR);
+        return 1;
+    }
+    return Vita_IsoFind(BT4_ES_DIR, VITA_PROGRAM, keep, out, (int)size, NULL);
+}
+
+static const char *const kBt4Also[] = VITA_BT4_ALSO;
+
+/* BT4's files in one of the other places players put them (vita_home.h VITA_BT4_ALSO): unpacked or as the .iso;
+   `keep`: the image stays mounted. 1: found, `out` where. */
+static int bt4_also_find(char *out, size_t size, int keep) {
+    extern int Vita_IsoFind(const char *dir, const char *file, int keep, char *out, int size, int *seen);
+    unsigned k;
+    for (k = 0; k < sizeof(kBt4Also) / sizeof(kBt4Also[0]); k++) {
+        if (has_slus(kBt4Also[k])) {
+            snprintf(out, size, "%s", kBt4Also[k]);
+            return 1;
+        }
+    }
+    for (k = 0; k < sizeof(kBt4Also) / sizeof(kBt4Also[0]); k++) {
+        if (Vita_IsoFind(kBt4Also[k], VITA_PROGRAM, keep, out, (int)size, NULL)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int bt4_en_there(void) {
+    extern int Vita_IsoFind(const char *dir, const char *file, int keep, char *out, int size, int *seen);
+    char found[256];
+    return has_slus(HOME) || find_below(HOME "/disc", 1, found, sizeof(found)) || find_below(HOME "/disk", 1, found, sizeof(found)) ||
+           find_below(HOME, 2, found, sizeof(found)) || Vita_IsoFind(HOME, VITA_PROGRAM, 0, found, sizeof(found), NULL) ||
+           bt4_also_find(found, sizeof(found), 0);
+}
+#endif
 
 static void find_disc(void) {
     extern int Vita_IsoMount(const char *path);
@@ -1270,19 +1356,36 @@ static void find_disc(void) {
     if (len > 4 && strcasecmp(gVitaDisc + len - 4, ".iso") == 0 && !Vita_IsoMount(gVitaDisc)) { /* (disc= naming the image) */
         logf_("vita: %s is not a disc image that can be read\n", gVitaDisc);
     }
+#ifdef BT3_BT4
+    if (strcmp(gVitaDisc, VITA_DISC_DEFAULT) == 0) {
+        extern int Vita_Bt4LangStart(void);
+        int lang = Vita_Bt4LangStart();
+        sBt4There[0] = bt4_en_there();
+        sBt4There[1] = bt4_es_find(found, sizeof(found), 0);
+        logf_("vita: BT4's English release %s, its Spanish release %s; the language chosen: %s\n", sBt4There[0] ? "there" : "not there",
+              sBt4There[1] ? "there (" BT4_ES_DIR ")" : "not there", lang == 1 ? "Spanish" : lang == 0 ? "English" : "none yet");
+        if (sBt4There[1] && (lang == 1 || !sBt4There[0]) && bt4_es_find(found, sizeof(found), 1)) {
+            logf_("vita: the disc's files are those of BT4's Spanish release: %s\n", found);
+            snprintf(gVitaDisc, sizeof(gVitaDisc), "%s", found);
+            return;
+        }
+    }
+#endif
     if (has_slus(gVitaDisc)) {
         return;
     }
-    if (strcmp(gVitaDisc, HOME "/disc") == 0 && (find_below(HOME "/disk", 1, found, sizeof(found)) || find_below(HOME, 2, found, sizeof(found)))) {
+    if (strcmp(gVitaDisc, VITA_DISC_DEFAULT) == 0 && (find_below(HOME "/disc", 1, found, sizeof(found)) || find_below(HOME "/disk", 1, found, sizeof(found)) ||
+                                                     find_below(HOME, 2, found, sizeof(found)))) {
         logf_("vita: the disc's files are in %s (not %s)\n", found, gVitaDisc);
         snprintf(gVitaDisc, sizeof(gVitaDisc), "%s", found);
         return;
     }
-    if (strcmp(gVitaDisc, HOME "/disc") == 0) { /* the disc's image as it is */
+    {   /* the disc's image as it is: in those places, or in the folder disc= names */
         static const char *const kWhere[] = {HOME "/disc", HOME "/disk", HOME};
-        for (k = 0; k < 3; k++) {
+        int own = strcmp(gVitaDisc, VITA_DISC_DEFAULT) != 0;
+        for (k = 0; k < (own ? 1 : 3); k++) {
             int looked = 0;
-            if (Vita_IsoFind(kWhere[k], "SLUS_216.78", 1, found, sizeof(found), &looked)) {
+            if (Vita_IsoFind(own ? gVitaDisc : kWhere[k], VITA_PROGRAM, 1, found, sizeof(found), &looked)) {
                 logf_("vita: the disc's files are read from its image %s\n", found);
                 snprintf(gVitaDisc, sizeof(gVitaDisc), "%s", found);
                 return;
@@ -1290,6 +1393,13 @@ static void find_disc(void) {
             wrong += looked;
         }
     }
+#ifdef BT3_BT4
+    if (strcmp(gVitaDisc, VITA_DISC_DEFAULT) == 0 && bt4_also_find(found, sizeof(found), 1)) { /* (not where it goes, but there) */
+        logf_("vita: the disc's files are in %s (not %s)\n", found, gVitaDisc);
+        snprintf(gVitaDisc, sizeof(gVitaDisc), "%s", found);
+        return;
+    }
+#endif
     seen[0] = '\0';
     if ((d = sceIoDopen(HOME)) >= 0) {
         memset(&e, 0, sizeof(e));
@@ -1307,11 +1417,17 @@ static void find_disc(void) {
         sceIoDclose(d);
     }
     Vita_Fatal("The game's files were not found. Copy your own disc of the\n"
-               "USA release (SLUS-21678) into\n  %s/\n"
-               "as its .iso (a 1:1 image of the disc), or SLUS_216.78\n"
-               "and the folders BIN and DATA from it.\n\n%s%s%s",
+               VITA_RELEASE_NAME " into\n  %s/\n"
+               "as its .iso (a 1:1 image of the disc), or " VITA_PROGRAM "\n"
+               "and the folders BIN and DATA from it.\n\n%s%s%s%s",
                gVitaDisc, n ? "In " HOME " there is:\n" : "", seen,
-               wrong ? "\nThe .iso found is not of the USA release (SLUS-21678)\n(it has no SLUS_216.78), or it could not be read." : "");
+               wrong ? "\nThe .iso found is not of " VITA_RELEASE_NAME "\n(it has no " VITA_PROGRAM "), or it could not be read." : "",
+#ifndef BT3_BT4
+               sceIoGetstat("app0:bt4.bin", &e.d_stat) >= 0 ? "\n\nFor Budokai Tenkaichi 4: hold SELECT while the game starts." : ""
+#else
+               ""
+#endif
+               );
 }
 
 static void read_settings(void) {
@@ -1337,7 +1453,7 @@ static void read_settings(void) {
         /* the released program: only the player's settings. The test runs leave theirs in the same file
            (mode=demo, film=...): a game started from its bubble goes to its title screen, not into a test fight */
         if (strcmp(line, "disc") != 0 && strcmp(line, "heap") != 0 && strcmp(line, "wide") != 0 && strcmp(line, "report") != 0 &&
-            strcmp(line, "fightres") != 0) {
+            strcmp(line, "fightres") != 0 && strcmp(line, "weather") != 0 && strcmp(line, "moveblur") != 0 && strcmp(line, "netwarm") != 0 && strcmp(line, "menuauto") != 0 && strcmp(line, "shenfast") != 0) {
             continue;
         }
 #endif
@@ -1359,15 +1475,23 @@ static void read_settings(void) {
         } else if (strcmp(line, "texearly") == 0) { /* 0: a new texture waits for the render thread before its pixels are read (vita_vgl.c) */
             extern int gVitaTexEarly;
             gVitaTexEarly = atoi(eq);
+        } else if (strcmp(line, "weather") == 0) {
+            /* z3xox's PC version's effect switches, game-side (src/battle/eft_c.c, src/sys/gfxm_a.c: Port_FxOff): the
+               haze of big soft sprites some stages have (Desert and Rocky Area at noon, Rocky Area in the evening,
+               Kami's Lookout; a little on Glacier, Muscle Tower, the Time Chamber), full, light (half of them) or off */
+            gVitaGameFxOff = (gVitaGameFxOff & ~(64 | 128)) | (strcmp(eq, "off") == 0 ? 64 : strcmp(eq, "light") == 0 ? 128 : 0);
+        } else if (strcmp(line, "moveblur") == 0) { /* the scenery's blur while the view turns or moves fast: 0 off */
+            gVitaGameFxOff = (gVitaGameFxOff & ~32) | (atoi(eq) == 0 ? 32 : 0);
         } else if (strcmp(line, "fxhalf") == 0) { /* 0: the full-screen passes in full precision (vita_vgl.c) */
             extern int gVitaFxHalf;
             gVitaFxHalf = atoi(eq) != 0;
         } else if (strcmp(line, "shbank") == 0) { /* 1: the run's shaders written to ux0:data/bt3/shbank.bin, the bank's making (vita_vgl.c) */
             extern int gVitaShHarvest;
             gVitaShHarvest = atoi(eq); /* (2: the bank checked, each program not in it said in the log) */
-        } else if (strcmp(line, "fightres") == 0) { /* the fights drawn at 640 x 368 (default), 720 x 408 or 960 x 544 (vita_vgl.c) */
+        } else if (strcmp(line, "fightres") == 0) { /* the fights drawn at 720 x 408 or 640 x 368 by the chip's time (auto,
+                                                     the default), or always at 640 x 368, 720 x 408 or 960 x 544 (vita_vgl.c) */
             extern int gVitaFightW;
-            gVitaFightW = atoi(eq);
+            gVitaFightW = strcmp(eq, "auto") == 0 ? 0 : atoi(eq);
         } else if (strcmp(line, "wide") == 0) {
             extern int gVitaWide;
             gVitaWide = atoi(eq) != 0; /* wide=0: the console's 4:3 picture with bars at the sides */
@@ -1377,6 +1501,11 @@ static void read_settings(void) {
         } else if (strcmp(line, "menuhi") == 0) { /* 0: the menus at 640 x 368 as the fights, as before */
             extern int gVitaMenuHi;
             gVitaMenuHi = atoi(eq) != 0;
+        } else if (strcmp(line, "shenfast") == 0) { /* 0: the dragon's screen drawn as the other menus (Vita_RenderAsFight) */
+            gVitaShenFast = atoi(eq); /* (1..3: the dragon's models' layers 0 .. n - 1 from the chip; vita_vgl.c Vita_ChipPlan) */
+        } else if (strcmp(line, "menuauto") == 0) { /* 0: a menu screen too slow at 960 x 544 is still drawn so (vita_vgl.c) */
+            extern int gVitaMenuAuto;
+            gVitaMenuAuto = atoi(eq) != 0;
         } else if (strcmp(line, "fadepass") == 0) { /* VU1 program 1, the close-up shine: 0 not drawn, 2 its shine layer twice */
             extern int gPortFadePass;
             gPortFadePass = atoi(eq);
@@ -1528,7 +1657,7 @@ static void read_settings(void) {
             extern int gVitaDump;
             gVitaDump = atoi(eq);
         } else if (strcmp(line, "demostage") == 0 || strcmp(line, "demochara1") == 0 || strcmp(line, "demochara2") == 0 ||
-                   strcmp(line, "demoduel") == 0 || strcmp(line, "demoxform") == 0 || strcmp(line, "demosplit") == 0) {
+                   strcmp(line, "demoduel") == 0 || strcmp(line, "demoxform") == 0 || strcmp(line, "demosplit") == 0 || strcmp(line, "demobgm") == 0) {
             /* the test fight: stage, fighters, a duel with intros, the screen split for two players (a second
                controller that nobody holds: the game wants one there) */
             char env[32];
@@ -1650,13 +1779,32 @@ static void read_settings(void) {
         } else if (strcmp(line, "vufquick") == 0) { /* the vector stand-ins' check: 1 short, 0 full (port_vufast.c) */
             extern int gVitaVufQuick;
             gVitaVufQuick = atoi(eq) != 0;
+        } else if (strcmp(line, "startmenu") == 0) { /* the start menu (vita_start.c) without SELECT held */
+            extern int gVitaStartMenuForce;
+            gVitaStartMenuForce = atoi(eq) != 0;
         } else if (strcmp(line, "startmode") == 0) { /* the menus start on this screen (62 the options) */
             extern int gVitaStartMode;
             gVitaStartMode = atoi(eq);
         } else if (strcmp(line, "replay") == 0) {
             setenv("BT3_REPLAY", eq, 1);
+#ifdef PORT_VITA /* (BT3 and BT4) */
+        } else if (strcmp(line, "nettest") == 0) { /* the one-Vita test of a multiplayer match, n seconds (vita_net.c) */
+            extern int gVitaNetTest;
+            gVitaNetTest = atoi(eq);
+        } else if (strcmp(line, "netdelay") == 0) { /* (the host) the match's input delay in blanks, 1..8 (vita_net.c) */
+            extern int gVitaNetDelay;
+            gVitaNetDelay = atoi(eq);
+        } else if (strcmp(line, "netwarm") == 0) { /* 0: the versus menu's Multiplayer starts the program again for a match (vita_warm.c) */
+            extern int gVitaWarmOff;
+            gVitaWarmOff = atoi(eq) == 0;
+        } else if (strcmp(line, "warmtest") == 0) { /* the one-Vita test of a match begun from the running game, n seconds (vita_warm.c) */
+            extern int gVitaWarmTest;
+            gVitaWarmTest = atoi(eq);
+#endif
         } else if (strncmp(line, "BT3_", 4) == 0) {
             setenv(line, eq, 1);
+        } else if (strcmp(line, "lang") == 0) { /* the language for this run, not kept (vita_eu.c: 0..4 English .. Italian) */
+            setenv("BT3_LANG", eq, 1);
         }
         logf_("vita: setting %s=%s\n", line, eq);
     }
@@ -1698,6 +1846,12 @@ static void start_screen(void) {
     if (sMode < 0) {
         psvDebugScreenPrintf("\nCROSS: the game from its start\nCIRCLE: the demo fight (computer against computer)\nSTART: quit\n\n"
                              "Hold START + SELECT for two seconds to stop. The log is " HOME "/log" SFX ".\n");
+#ifdef BT3_BT4
+        {   /* (BT4 got going: its development screen is up. Left here by a test, it is not a start that failed) */
+            extern void Vita_Bt4Started(void);
+            Vita_Bt4Started();
+        }
+#endif
         switch (wait_buttons(SCE_CTRL_CROSS | SCE_CTRL_CIRCLE | SCE_CTRL_START)) {
             case SCE_CTRL_CROSS: sMode = 0; break;
             case SCE_CTRL_CIRCLE: sMode = 1; break;
@@ -1832,7 +1986,17 @@ static int watchdog_thread(SceSize args, void *argp) {
             extern void Vita_PgoTick(void);
             Vita_PgoTick();
         }
-        if (gGsFrame != last) {
+#ifdef BT3_BT4
+        {   /* BT4's first pictures are up: it got going (vita_start.c, the BT3 program's guard) */
+            static int started;
+            if (!started && gGsFrame > 30) {
+                extern void Vita_Bt4Started(void);
+                started = 1;
+                Vita_Bt4Started();
+            }
+        }
+#endif
+        if (gGsFrame != last || gVitaNetWaiting) { /* (a multiplayer match waiting for the other Vita draws nothing: not a hang) */
             last = gGsFrame;
             still = 0;
             continue;
@@ -1875,9 +2039,13 @@ static int watchdog_thread(SceSize args, void *argp) {
     return 0;
 }
 
-static int game_thread(SceSize args, void *argp) {
+/* the game, which does not return (Game_Main never ends; exit ends the program) */
+static void game_run(void) {
     static char *argv[] = {"bt3", NULL};
+    exit(__real_main(1, argv));
+}
 
+static int game_thread(SceSize args, void *argp) {
     (void)args;
     (void)argp;
     Vita_FloatMode(gPortFastFloat); /* the float unit's mode belongs to the thread */
@@ -1889,12 +2057,67 @@ static int game_thread(SceSize args, void *argp) {
         extern void Vita_PerfThreadStart(void);
         Vita_PerfThreadStart();
     }
-    exit(__real_main(1, argv));
+#ifdef PORT_VITA /* (BT3 and BT4) */
+    {   /* (vita_warm.c: the game can be started again without the program ending, for a multiplayer match) */
+        extern void Vita_WarmGame(void (*game)(void));
+        Vita_WarmGame(game_run);
+    }
+#endif
+    game_run();
     return 0;
+}
+
+/* The start's steps, in the log (the released program's too): a start that ends early ends the log at the step
+   it was in. Until the game's thread starts the log is written line by line (the log thread's tenth of a second could
+   lose the last lines before a crash). */
+static void start_step(const char *what) {
+    logf_("vita: start: %s\n", what);
+}
+
+/* The plugins taiHEN loads (their file names, from ur0:tai and ux0:tai config.txt), in the log: a start that fails
+   on some Vitas only is often a plugin's doing. */
+static void log_plugins(void) {
+    static const char *const kConfig[2] = {"ur0:tai/config.txt", "ux0:tai/config.txt"};
+    char line[256], out[700];
+    size_t n = 0;
+    int k;
+    out[0] = '\0';
+#define PLUG_PUT(...) do { if (n < sizeof(out) - 1) { int w = snprintf(out + n, sizeof(out) - n, __VA_ARGS__); \
+                              n = w < 0 ? n : (n + (size_t)w < sizeof(out) - 1 ? n + (size_t)w : sizeof(out) - 1); } } while (0)
+    for (k = 0; k < 2; k++) {
+        FILE *f = fopen(kConfig[k], "r");
+        if (f == NULL) {
+            continue;
+        }
+        PLUG_PUT("%s%s:", n ? "; " : "", kConfig[k]);
+        while (fgets(line, sizeof(line), f) != NULL) {
+            char *p = line, *e, *name;
+            while (*p == ' ' || *p == '\t') {
+                p++;
+            }
+            if (*p == '#' || (*p != '*' && strstr(p, ".skprx") == NULL && strstr(p, ".suprx") == NULL)) {
+                continue;
+            }
+            for (e = p; *e != '\0' && *e != '\r' && *e != '\n' && *e != ' '; e++) {
+            }
+            *e = '\0';
+            if (*p == '*') { /* (the section: *KERNEL, *main, *ALL, a title's id) */
+                PLUG_PUT(" [%s]", p);
+                continue;
+            }
+            name = strrchr(p, '/');
+            name = name != NULL ? name + 1 : p;
+            PLUG_PUT(" %s", name);
+        }
+        fclose(f);
+    }
+#undef PLUG_PUT
+    logf_("vita: plugins: %s\n", out[0] ? out : "(no taiHEN config.txt readable)");
 }
 
 int __wrap_main(int argc, char **argv) {
     SceUID th;
+    int logThread = 0;
 
     (void)argc;
     (void)argv;
@@ -1939,7 +2162,7 @@ int __wrap_main(int argc, char **argv) {
     {
         SceUID lt = Vita_ThreadOnCore3("bt3_log", log_thread, 180, 0x4000, 0x00020000 /* else the second core */);
         if (lt >= 0 && sceKernelStartThread(lt, 0, NULL) >= 0) {
-            sLogThreaded = 1;
+            logThread = 1; /* (the log goes through it from the game's start on) */
             Vita_WatchThread(6, lt, "log");
         }
     }
@@ -1962,20 +2185,49 @@ int __wrap_main(int argc, char **argv) {
 #ifndef PORT_VITA_RELEASE
     setenv("BT3_TRACE", "600", 1); /* the fight's state every 600 blanks into out.txt: comparable with a PC run */
 #endif
+    log_plugins();
+    start_step("settings");
     read_settings();
     {   /* (a BT3_PGO=gen build: where its counts go, vita_pgo.c) */
         extern void Vita_PgoInit(void);
         Vita_PgoInit();
     }
+    {   /* a crash's report in ux0:data/bt3/crash.txt (vita_crash.c, with kubridge) */
+        extern void Vita_CrashInit(const char *home);
+        start_step("crash report (kubridge)");
+        Vita_CrashInit(HOME);
+    }
     start_screen();
+    {   /* the start menu with SELECT held (vita_start.c: the game, BT3 or BT4, the language, the unlock cheat), before
+           the disc's files are looked for (BT4 may be all there is); the European languages (vita_eu.c), whose list
+           shows by itself at the first start that finds their archive */
+        extern void VitaEu_Init(const char *home);
+        extern void Vita_StartMenu(void);
+        start_step("the European disc's languages");
+        VitaEu_Init(HOME);
+        start_step("start menu (BT4, SELECT)");
+        Vita_StartMenu();
+    }
 #ifndef PORT_VITA_RELEASE /* (the released program shows nothing until the game's first picture; an error still shows) */
     psvDebugScreenPrintf("Reading the game's data tables from %s ...\n", gVitaDisc);
 #endif
+    start_step("the disc's files");
     find_disc();
+    start_step("the game's data tables");
     Vita_LoadGameData(gVitaDisc);
+#ifdef PORT_VITA /* (BT3 and BT4) */
+    {   /* multiplayer (the start menu's choice, vita_net.c): the other Vita found and the match set up, before anything
+           of the game is read that the match has as the game's own (no mods, the USA disc's text) */
+        extern void Vita_NetConnect(void);
+        start_step("multiplayer");
+        Vita_NetConnect();
+    }
+#endif
     {   /* mods (vita_file.c): the packs left out are told of before the game starts */
         extern const char *Vita_ModsStart(void);
-        const char *note = Vita_ModsStart();
+        const char *note;
+        start_step("mods");
+        note = Vita_ModsStart();
         if (note != NULL) {
             logf_("vita: mods notice shown\n");
             psvDebugScreenPrintf("\n\e[33m%s\e[39m\n\nPress CROSS to go on.\n", note);
@@ -1983,6 +2235,14 @@ int __wrap_main(int argc, char **argv) {
             psvDebugScreenPrintf("\e[H\e[2J");
         }
     }
+#ifndef BT3_BT4
+    {   /* stages and songs added from outside the disc (vita_extras.c: ux0:data/bt3/stages, ux0:data/bt3/songs) */
+        extern void Vita_ExtrasInit(void);
+        start_step("stages and songs from outside the disc");
+        Vita_ExtrasInit();
+    }
+#endif
+    start_step("memory");
     Vita_MapMemory(sHeapCdram);
     logf_("vita: %s floats, game heap at 0x%08X, disc folder %s, %s\n", gPortFastFloat ? "hardware" : "exact", (unsigned)gVitaHeapBase, gVitaDisc,
           getenv("BT3_REPLAY") != NULL ? getenv("BT3_REPLAY") : "attract-demo fight");
@@ -1996,6 +2256,7 @@ int __wrap_main(int argc, char **argv) {
 #endif
         logf_(r == 1 ? "vita: processor counters on (libperf)\n" : "vita: processor counters off (libperf kernel plugin not loaded: %08x)\n", r);
     }
+    sLogThreaded = logThread;
     th = sceKernelCreateThread("bt3_game", game_thread, 0x10000100, GAME_STACK, 0, 0x00010000 /* the first core, to itself */, NULL);
     Vita_WatchThread(0, th, "game");
     if (th < 0 || sceKernelStartThread(th, 0, NULL) < 0) {

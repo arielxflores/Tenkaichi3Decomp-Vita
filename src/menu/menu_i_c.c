@@ -172,9 +172,11 @@ s32 FirstRun_Main(void) {
     BootCard_Run(2);
     res = Sprite_Unpack(MPACK_AT(gMenuArc0, 3), NULL, NULL);
 #ifdef PORT_VITA
-    { /* (a test run that starts on a given screen skips the logos too) */
+    { /* (a test run that starts on a given screen skips the logos too; and Quick Start, Options > Controller > Vita
+         Settings, the PC version's "Skip logos": the loading runs beside the logos and is waited for after them) */
         extern int gVitaStartMode;
-        if (gVitaStartMode <= 0) {
+        extern int Port_Setting(const char *name, int def);
+        if (gVitaStartMode <= 0 && !Port_Setting("quick_start", 0)) {
             Logo_ShowAll(res);
         }
     }
@@ -190,9 +192,10 @@ s32 FirstRun_Main(void) {
     }
     FirstRun_WaitPartition(2);
 #ifdef PORT_VITA
-    { /* a test run that starts on a given screen (bt3.txt startmode=) skips the opening movie */
+    { /* a test run that starts on a given screen (bt3.txt startmode=) skips the opening movie; Quick Start too */
         extern int gVitaStartMode;
-        if (gVitaStartMode <= 0) {
+        extern int Port_Setting(const char *name, int def);
+        if (gVitaStartMode <= 0 && !Port_Setting("quick_start", 0)) {
             Movie_PlayOpening();
         }
     }

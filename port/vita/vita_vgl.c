@@ -74,15 +74,49 @@ int gVitaPbufMb;  /* bt3.txt pbuf=<MB>: the parameter buffer, 0 vitaGL's default
    sizes): the same picture, its edges and textures sharper, for the graphics chip's time (the pixels: 1.25 and 2.2
    times as many). The effects that sample neighbouring pixels (the outline, the glow's first pass) keep their width
    on the screen. */
-int gVitaFightW = 640;
+int gVitaFightW; /* (bt3.txt fightres=<size>; 0: auto) */
 static int sFightH = 368;
-#define SCR_W_FIGHT gVitaFightW
-#define SCR_H_FIGHT sFightH
+/* The fights' size chosen as they go (bt3.txt fightres=auto, the default; Killzone: Mercenary's dynamic resolution,
+   Digital Foundry's "Inside Killzone: Mercenary"): 720 x 408 while the chip has the time for it, 640 x 368 while it
+   has not. At 640 x 368 the chip spends 7 to 16 ms on most stages' pictures of the 33 ms the game gives each (the
+   log's chip time per picture, build 280), and at 720 x 408 about 1.45 times that (stage 12: 11.0 against 15.9 ms):
+   the fights sharper with no picture lost. The chip's time of each picture (pace_cb) decides, the change made at a
+   picture's end as the menus' (swap_sized): up when what 720 x 408 would take stays under six tenths of the
+   picture's time for three seconds, down at once when a picture at 720 x 408 takes over eight and a half tenths of
+   it three times; after a step down the next step up waits longer each time in that fight (5 s, 10 s, 20 s ...).
+   Each fight begins at 640 x 368 (the start's new textures). Only with the display memory made at 960 x 544 (the
+   menus at their size, no multisampling). 960 x 544 is not chosen so: its chip time is out of proportion (stage 3:
+   8 ms at 640 x 368, 56 at 960 x 544). bt3.txt fightres=640, 720 or 960: that size always. */
+int gVitaFightAuto = 1;
+static volatile int sFightHi;   /* (auto) the fights at 720 x 408 now */
+static int sFightHiSaid;        /* (for the log, from the drawing thread) */
+static unsigned sFightGood, sFightBad, sFightSettle, sFightDowns, sFightGpuLast;
+static unsigned long long sFightHold; /* (process time) no step up before */
+unsigned gVitaFightRes[3];      /* for the log: steps up, steps down, pictures drawn at 720 x 408 */
+#define SCR_W_FIGHT (gVitaFightAuto && sFightHi ? 720 : gVitaFightW)
+#define SCR_H_FIGHT (gVitaFightAuto && sFightHi ? 408 : sFightH)
 #define SCR_W_BASE 640 /* (the width the effects' pixel distances were made for) */
 #define SCR_W_MENU 960
 #define SCR_H_MENU 544
 static int sScrW = 640, sScrH = 368; /* (set at the start: GsGpu_Init) */
+/* A dialog of the system's is open (vita_net.c: the ad hoc connection, from the versus menu): each picture is handed
+   to it before it is shown, and it draws itself over it. Only on the display's full size (the menus', by default). */
+volatile int gVitaDialogOn;
+int Vita_DialogCan(void) {
+    return sScrW == 960 && sScrH == 544;
+}
 int gVitaMenuHi = 1;
+/* A menu screen the chip cannot draw at 960 x 544 in the time the game gives each of its pictures (the dragon's
+   screen, Shenron: its 3D sky and the dragon behind blended layers, at 30 pictures a second): drawn at the fights'
+   size while it is so. The chip's time per picture (pace_cb) against the blanks the game waits per picture (its
+   lists, GsGpu_FrameEnd): over nine tenths of them twelve times running at the menus' size, the fights' size; at the
+   fights' size, what the menus' size would take (the pixels' ratio) under six tenths of them for three seconds, the
+   menus' size again. Back to it as the menus end. bt3.txt menuauto=0: the menus at their size whatever they cost. */
+int gVitaMenuAuto = 1;
+static volatile int sMenuLow;       /* the menus drawn at the fights' size for now */
+static volatile int sMenuLowSaid;   /* (for the log, from the drawing thread) */
+static volatile unsigned sListBlanks = 1; /* blanks the game waits per picture (the least of the last sixteen) */
+static unsigned sMenuBad, sMenuGood, sMenuGpuLast;
 int gVitaSprInset = 1; /* bt3.txt sprinset=0: sprites' coordinates as given (see GsGpu_Draw_impl) */
 #define SCR_W sScrW
 #define SCR_H sScrH
@@ -222,7 +256,7 @@ static const struct StageBin *sStageDraw; /* the batch being drawn is one of the
 static GLuint sFtProg, sFtVbo;
 static GLint sFtU[5]; /* uF, uMode, uTest, uTex, uS */
 static const float *sFtDraw; /* the batch being drawn is the fighters' (its 20 uniforms; else NULL) */
-static struct { const float *src; uint32_t count, sig, at, seen, slot, ioff; } sFtCache[8192];
+static struct { const float *src; uint32_t count, sig, at, seen, slot, ioff, moving; } sFtCache[8192];
 #define FT_IDX (3 * FT_VERTS)   /* the fighters' strips as triangles, indices kept on the chip beside their vertices */
 static GLuint sFtIbo;
 static uint8_t *sStageVboPtr, *sFtVboPtr, *sDpIboPtr; /* the chip's buffers, written straight (no vitaGL call: the render thread may be in it) */
@@ -445,15 +479,12 @@ static const char kFragZTest[] =
    start, and the compiler, libshacccg.suprx, not needed for those), then from the memory card (ux0:data/bt3/shcache,
    by a hash of their source), else compiled and kept there. The pixel shaders' variants and, since build 307, the
    vertex shaders and the effects' too. bt3.txt shbank=1 (the bank's making): every program of the run compiled or
-   read from the card, not the bank, and written to ux0:data/bt3/shbank.bin (the BT4 port's: ux0:data/bt4/), which
+   read from the card, not the bank, and written to ux0:data/bt3/shbank.bin (BT4's program: shbank-bt4.bin), which
    tools/shbank.py makes into port/vita/shbank.bin. */
 extern int gVglSafe2;
 static uint32_t sShBin[4096];
 unsigned gVitaShCache[5]; /* for the log: read from the card, compiled and written, compiled (not written), from the bank, written to the bank's file */
 int gVitaShHarvest;       /* bt3.txt shbank=1 (the bank's making), 2 (its check: each program not in it said in the log) */
-#ifndef PORT_VITA_HOME
-#define PORT_VITA_HOME "ux0:data/bt3" /* (the BT4 port: ux0:data/bt4) */
-#endif
 typedef struct ShBankEntry { uint64_t h; uint32_t off, size; } ShBankEntry;
 static uint8_t *sBank;
 static ShBankEntry *sBankIx;
@@ -520,7 +551,11 @@ static void sh_bank_write(uint64_t h, const void *bin, unsigned n) {
             return;
         }
     }
-    fd = sceIoOpen(PORT_VITA_HOME "/shbank.bin", SCE_O_WRONLY | SCE_O_CREAT | SCE_O_APPEND, 0777);
+#ifdef BT3_BT4
+    fd = sceIoOpen("ux0:data/bt3/shbank-bt4.bin", SCE_O_WRONLY | SCE_O_CREAT | SCE_O_APPEND, 0777);
+#else
+    fd = sceIoOpen("ux0:data/bt3/shbank.bin", SCE_O_WRONLY | SCE_O_CREAT | SCE_O_APPEND, 0777);
+#endif
     if (fd < 0) {
         return;
     }
@@ -583,8 +618,8 @@ static int sh_cached(GLuint sh, const char *src, GLint len) {
         Vita_Log("vgl: a shader not in the bank: %08x%08x, %d bytes of source: compiled\n", (unsigned)(h >> 32), (unsigned)h, (int)len);
         gVitaShCache[4]++;
     }
-    sceIoMkdir(PORT_VITA_HOME "/shcache", 0777);
-    snprintf(path, sizeof(path), PORT_VITA_HOME "/shcache/f%08x%08x.gxp", (unsigned)(h >> 32), (unsigned)h);
+    sceIoMkdir("ux0:data/bt3/shcache", 0777);
+    snprintf(path, sizeof(path), "ux0:data/bt3/shcache/f%08x%08x.gxp", (unsigned)(h >> 32), (unsigned)h);
     if (!(gVglSafe2 & 32768) && gVitaShHarvest != 2 && (fd = sceIoOpen(path, SCE_O_RDONLY, 0)) >= 0) {
         int n = sceIoRead(fd, sShBin, sizeof(sShBin));
         sceIoClose(fd);
@@ -821,6 +856,7 @@ static const Variant *variant(int kind, int f) {
 static void dp_init(void);
 static void ol_init(void); /* the fighters' outline */
 static void fx_init(void); /* the effects' passes */
+static void tex_redescribe(GLuint t, void *data, SceGxmTextureFormat fmt, int w, int h); /* (below: the buffers' rows) */
 /* the variants drawn with: with a texture, those of the reads straight from the coordinates or those divided by Q */
 static int var_used(int ff) {
     return (ff & 16) == 0 && ((ff & 3) == 0 ? (ff & 8) == 0 : ((ff & 8) != 0) == (sNoProj != 0));
@@ -1257,6 +1293,7 @@ static int sTblOn;
 static int sTblState;          /* state_of_: the texture left out (a table pass: its own shader reads the source) */
 static GLuint sOlProg;
 static GLuint sOlTex[3];       /* (the display buffers as textures, below) */
+static float sTexUk[2] = {1.0f, 1.0f}; /* the picture's and the depth's textures: the coordinate across times this (tex_strided, below) */
 extern unsigned int gxm_back_buffer_index;
 static int sTexXf;             /* the primitive's texture is a picture drawn here: its coordinates moved into it (put) */
 static float sTexXfV[4];       /* s' = [0] + s * [1], t' = [2] + t * [3] */
@@ -1653,6 +1690,8 @@ static void frame_begin(void) {
     target_set(0);
     {   /* a fight's picture in parts: decided before the picture's first scene is begun (by the clear) */
         extern int Vita_InBattle(void);
+        /* (a fight only: the dragon's screen, drawn otherwise the fights' way, handed over in parts lost its glow and
+           brightness and drew the dragon balls' shadows as solid navy discs; whole, it keeps its 30 pictures a second) */
         vgl_bt3_split_on = Vita_InBattle() && !(gVglSafe2 & 1);
         sSplitN = 0;
         {   /* the effects at a lower resolution (fxlow): in a fight, with what they need built */
@@ -1712,14 +1751,23 @@ int GsGpu_Init(void) {
         gVitaMenuHi = 0; /* (the menus' size only without multisampling) */
     }
     /* (the display takes only its own sizes: 640 x 368, 720 x 408 and 960 x 544 here) */
+    if (gVitaFightW != 0) { /* (bt3.txt fightres=<size>: that size always) */
+        gVitaFightAuto = 0;
+    } else {
+        gVitaFightW = 640;
+    }
+    if (gVitaFightAuto && !gVitaMenuHi) { /* (the display memory made at the fights' size: no room for 720 x 408) */
+        gVitaFightAuto = 0;
+    }
     gVitaFightW = gVitaFightW >= 840 ? 960 : gVitaFightW >= 680 ? 720 : 640;
     sFightH = gVitaFightW == 960 ? 544 : gVitaFightW == 720 ? 408 : 368;
     /* the display memory made for the menus' size when they are drawn at it; the fights' size from the
        first picture on (the boot logos and the films are not the menus) */
     vglInitExtended(0x1000000, gVitaMenuHi ? SCR_W_MENU : SCR_W_FIGHT, gVitaMenuHi ? SCR_H_MENU : SCR_H_FIGHT, 0x1800000,
                     gVitaMsaa == 4 ? SCE_GXM_MULTISAMPLE_4X : gVitaMsaa == 2 ? SCE_GXM_MULTISAMPLE_2X : SCE_GXM_MULTISAMPLE_NONE);
-    Vita_Log("vgl: multisampling %s; menus at %s, fights at %d x %d\n", gVitaMsaa == 4 ? "4x" : gVitaMsaa == 2 ? "2x" : "off",
-             gVitaMenuHi ? "960 x 544" : "the fights' size", SCR_W_FIGHT, SCR_H_FIGHT);
+    Vita_Log("vgl: multisampling %s; menus at %s, fights at %s\n", gVitaMsaa == 4 ? "4x" : gVitaMsaa == 2 ? "2x" : "off",
+             gVitaMenuHi ? "960 x 544" : "the fights' size",
+             gVitaFightAuto ? "720 x 408 or 640 x 368, by the chip's time" : gVitaFightW == 960 ? "960 x 544" : gVitaFightW == 720 ? "720 x 408" : "640 x 368");
     vglSetDisplayCallback(pace_cb); /* (the pictures shown in step with the game's clock) */
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClearDepthf(0.0f);
@@ -1764,7 +1812,8 @@ int GsGpu_Init(void) {
     }
     rt_start(); /* (last, vitaGL is set up) */
     Vita_Log("vita: vitaGL back end started (shaders: %u from the bank, %u from the card, %u compiled and kept, %u compiled%s)\n",
-             gVitaShCache[3], gVitaShCache[0], gVitaShCache[1], gVitaShCache[2], gVitaShHarvest == 1 ? "; shbank=1: written to " PORT_VITA_HOME "/shbank.bin" : gVitaShHarvest == 2 ? "; shbank=2: the bank checked" : "");
+             gVitaShCache[3], gVitaShCache[0], gVitaShCache[1], gVitaShCache[2],
+             gVitaShHarvest == 1 ? "; shbank=1: written to ux0:data/bt3/shbank.bin" : gVitaShHarvest == 2 ? "; shbank=2: the bank checked" : "");
     return 1;
 }
 
@@ -2518,7 +2567,7 @@ static inline void wt_swap(void) {
     rt_sync();
     gVitaDrawWhere = 3;
     pace_swap(0);
-    vglSwapBuffers(GL_FALSE);
+    vglSwapBuffers(gVitaDialogOn ? GL_TRUE : GL_FALSE); /* (a dialog of the system's is drawn over the picture: vita_net.c) */
     pace_swap(1);
     gVitaDrawWhere = 0;
     gVitaWall[0] += sceKernelGetProcessTimeWide() - t0;
@@ -3882,7 +3931,7 @@ static int state_of_(int ctx, int type, State *d) {
             } else if (mainPage && page == 2 && tbw == 8 && sOlTex[gxm_back_buffer_index % 3] != 0) {
                 pageTex = 3; /* (the scene drawing the picture has ended with the switch to the target: it is in memory) */
                 sTexXf = 1;
-                sTexXfV[0] = (float)VIEW_X / (float)SCR_W; sTexXfV[1] = tw / 512.0f * (float)VIEW_W / (float)SCR_W;
+                sTexXfV[0] = (float)VIEW_X / (float)SCR_W * sTexUk[0]; sTexXfV[1] = tw / 512.0f * (float)VIEW_W / (float)SCR_W * sTexUk[0];
                 sTexXfV[2] = 0.0f; sTexXfV[3] = th / 448.0f;
                 gVitaWt[4]++;
             }
@@ -4396,12 +4445,27 @@ void GsGpu_Draw(int type, int ctx, const GsVertex *v) {
 /* one axis of a 2D piece: coordinates c0 at position p0 and c1 at p1 (GS pixels); the GS reads the
    texels of the pixels from the nearer position up to one short of the farther: the farther corner's coordinate
    moved back by one pixel's worth (pieces under a pixel across are left alone) */
-static inline void spr_far_edge(float p0, float p1, float *c0, float *c1) {
+/* How much of that pixel's worth the chip needs (k: the chip's pixels to the GS's; texel: a texel's width in the
+   coordinates). The GS's last pixel of the piece reads at its own corner; the chip's last pixel, 1/k of a GS pixel
+   wide, reads half of its width inside the edge already. What it needs moved is what keeps its filter half a texel
+   inside the piece's texels, no more: a whole pixel's worth moved every texel of a large piece of lettering a
+   fraction back, and its top half against its bottom half (the start screen's large lettering, drawn in two halves,
+   looked cut through with the halves a pixel apart). Into a work target (k 0): the whole pixel's worth, as before. */
+static inline float far_share(float dc, float texel, float k) {
+    float a = dc < 0.0f ? -dc : dc, need;
+    if (k <= 0.0f || a <= 0.0f) {
+        return 1.0f;
+    }
+    need = 0.5f * texel - (0.5f / k) * a;
+    return need <= 0.0f ? 0.0f : need >= a ? 1.0f : need / a;
+}
+static inline void spr_far_edge(float p0, float p1, float *c0, float *c1, float texel, float k) {
     float dp = p1 - p0, dc;
     if (dp < 1.0f && dp > -1.0f) {
         return;
     }
     dc = (*c1 - *c0) / dp;
+    dc *= far_share(dc, texel, k);
     if (dp > 0.0f) {
         *c1 -= dc;
     } else {
@@ -4411,7 +4475,7 @@ static inline void spr_far_edge(float p0, float p1, float *c0, float *c1) {
 /* A triangle of a 2D piece drawn as a strip (the HUD's pieces: two triangles over a rectangle, the texel
    coordinates (UV) along its sides): the far corners as spr_far_edge. Only a triangle whose corners are corners of
    one rectangle, with U following X alone and V following Y alone, so the two triangles of the piece agree. */
-static void tri_far_edge(const GsVertex *v, float *s, float *t) {
+static void tri_far_edge(const GsVertex *v, float *s, float *t, float texS, float texT, float kx, float ky) {
     float x0 = v[0].x, x1 = v[0].x, y0 = v[0].y, y1 = v[0].y, sA = 0.0f, sB = 0.0f, tA = 0.0f, tB = 0.0f, ds, dt;
     int i, nA = 0, nB = 0, mA = 0, mB = 0;
     for (i = 1; i < 3; i++) {
@@ -4448,6 +4512,8 @@ static void tri_far_edge(const GsVertex *v, float *s, float *t) {
     }
     ds = (sB - sA) / (x1 - x0);
     dt = (tB - tA) / (y1 - y0);
+    ds *= far_share(ds, texS, kx);
+    dt *= far_share(dt, texT, ky);
     for (i = 0; i < 3; i++) {
         if (v[i].x == x1) { s[i] -= ds; }
         if (v[i].y == y1) { t[i] -= dt; }
@@ -5065,8 +5131,9 @@ page_draw:
                near the far edge it read up to the corner's coordinate itself: the filter took in the texels next to
                the piece in its sheet (a faint line under a HUD bar whose own texels are clear). The far corner's
                coordinates are given as the GS's last pixel has them. */
-            spr_far_edge(a->x, b->x, &s0, &s1);
-            spr_far_edge(a->y, b->y, &t0s, &t1);
+            float kx = d.target ? 0.0f : (float)SCR_W / GS_W, ky = d.target ? 0.0f : (float)SCR_H / GS_H;
+            spr_far_edge(a->x, b->x, &s0, &s1, 1.0f / (float)tw, kx);
+            spr_far_edge(a->y, b->y, &t0s, &t1, 1.0f / (float)th, ky);
         }
         {   /* two corners worked out, the other two taken from them: put's x and S depend on x and S alone,
                its y and T on y and T, the rest on the second vertex (Q 1 at all four), so the six are the six put
@@ -5087,7 +5154,8 @@ page_draw:
         }
     } else {
         if (n == 3 && fst && gVitaSprInset && d.tme && d.linear && !d.pad_[0] && !sTexXf) {
-            tri_far_edge(v, s, t); /* a 2D piece drawn as triangles (the HUD) */
+            tri_far_edge(v, s, t, 1.0f / (float)tw, 1.0f / (float)th, d.target ? 0.0f : (float)SCR_W / GS_W,
+                         d.target ? 0.0f : (float)SCR_H / GS_H); /* a 2D piece drawn as triangles (the HUD) */
         }
         sQn = 1.0f;
         if (d.qlin && gVitaQlinOpt && sProf != 2) {
@@ -5792,6 +5860,7 @@ static GLuint ol_view(void) {
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
         vglSetupTexture(GL_TEXTURE_2D, gxm_color_surfaces_addr[i], SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR, SCE_GXM_TEXTURE_LINEAR, SCR_W, SCR_H, 1);
+        tex_redescribe(sOlTex[i], gxm_color_surfaces_addr[i], SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR, SCR_W, SCR_H);
         Vita_Log("vgl: outline: display buffer %u as a texture (%u)\n", i, (unsigned)sOlTex[i]);
     }
     return sOlTex[i];
@@ -5821,9 +5890,9 @@ static void ol_draw(const uint8_t *p) {
         glUniform1i(sOlU[2], 0);
     }
     {   /* (a pixel's width at 640; whole pixels, the ids are read without filtering: 2 at 960 x 544) */
-        float k = (float)(int)(fx_px() + 0.5f);
+        float k = (float)(int)(fx_px() + 0.5f), uk = fromIds ? 1.0f : sTexUk[0];
         k = k < 1.0f ? 1.0f : k;
-        glUniform4f(sOlU[0], (float)VIEW_X / (float)SCR_W, (float)VIEW_W / (float)SCR_W, k / (float)SCR_W, k / (float)SCR_H);
+        glUniform4f(sOlU[0], (float)VIEW_X / (float)SCR_W * uk, (float)VIEW_W / (float)SCR_W * uk, k / (float)SCR_W * uk, k / (float)SCR_H);
     }
     glUniform4f(sOlU[1], 100.0f / 255.0f, 0.0f, 0.0f, 0.0f);
     glDisable(GL_DEPTH_TEST);
@@ -6094,6 +6163,7 @@ static void fx_init(void) {
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
             vglSetupTexture(GL_TEXTURE_2D, gxm_color_surfaces_addr[i], SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR, SCE_GXM_TEXTURE_LINEAR, SCR_W, SCR_H, 1);
+            tex_redescribe(sOlTex[i], gxm_color_surfaces_addr[i], SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR, SCR_W, SCR_H);
         }
     }
     glBindTexture(GL_TEXTURE_2D, 0);
@@ -6134,6 +6204,12 @@ static void fx_init(void) {
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         }
+    } else { /* its rows as the depth buffer's (made here at 720 x 408 when a test's fights are that size from the start:
+                build 313's fightres=720 read the depth 720 apart, not 736) */
+        SceGxmTexture *gt = vglGetGxmTexture(GL_TEXTURE_2D);
+        if (gt != NULL) {
+            tex_redescribe(sDepthTex, sceGxmTextureGetData(gt), SCE_GXM_TEXTURE_FORMAT_DF32M, SCR_W, SCR_H);
+        }
     }
     glBindTexture(GL_TEXTURE_2D, 0);
     sTblOn = sFxProg[0] && sFxProg[1] && sFxProg[2] && sIdsTex && sIdsFbo && sDepthTex;
@@ -6143,6 +6219,35 @@ static void fx_init(void) {
 }
 /* A linear texture over memory that is not its own (the display's buffers) described again for a new
    size; its filters and edge modes kept. (vglSetupTexture would hand the memory it had to the allocator.) */
+/* A display buffer (or the depth buffer) as a texture of the picture's size, its rows as far apart as the buffer's:
+   the colour buffers' rows are the width rounded up to 64 pixels apart (vitaGL's DISPLAY_STRIDE), the depth
+   buffer's to 32 (SCE_GXM_TILE_SIZEX). At 640 and 960 that is the width itself; at 720 x 408 the rows are 768 and
+   736 apart, and a texture of rows 720 apart read every row further off: build 311's fights at 720 x 408 on stage 12,
+   streaks and lines across the picture where the effects read it (the outline, the fog, the sea's reflections).
+   Such a texture (SCE_GXM_TEXTURE_LINEAR_STRIDED) keeps its stride in the bits other kinds keep the min and mip
+   filters, the mip count and the LOD bias in: vitaGL's setters of those (glTexParameteri, its draws) leave it alone
+   (vitagl.patch); build 312's wrote over it, and the rows were read 5 to 32 pixels off each all the same. Its mag
+   filter is its min filter too.
+   A strided texture the chip refuses: a plain one as wide as the rows' spacing, the padding at each row's end
+   part of it, read across only the picture's part (sTexUk: the passes that read them scale the coordinate across). */
+static int sStridedSaid[2];
+static int tex_strided(SceGxmTexture *gt, void *data, SceGxmTextureFormat fmt, int w, int h, int rowAlign) {
+    unsigned stride = (((unsigned)w + (unsigned)rowAlign - 1u) & ~((unsigned)rowAlign - 1u)) * 4u;
+    int r = 1, depth = fmt == SCE_GXM_TEXTURE_FORMAT_DF32M;
+    sTexUk[depth] = 1.0f;
+    if (stride == (unsigned)w * 4u) {
+        sceGxmTextureInitLinear(gt, data, fmt, (unsigned)w, (unsigned)h, 0);
+    } else if ((r = sceGxmTextureInitLinearStrided(gt, data, fmt, (unsigned)w, (unsigned)h, stride)) < 0) {
+        sceGxmTextureInitLinear(gt, data, fmt, stride / 4u, (unsigned)h, 0);
+        sTexUk[depth] = (float)w / (float)(stride / 4u);
+    }
+    if (r != 1 && !sStridedSaid[fmt == SCE_GXM_TEXTURE_FORMAT_DF32M]) { /* (once each: the log) */
+        sStridedSaid[fmt == SCE_GXM_TEXTURE_FORMAT_DF32M] = 1;
+        Vita_Log("vgl: the %s as a texture of %d x %d, rows %u apart: %s (%08x)\n", fmt == SCE_GXM_TEXTURE_FORMAT_DF32M ? "depth" : "picture",
+                 w, h, stride / 4u, r >= 0 ? "strided" : "the chip refused a strided one: as wide as the rows' spacing", (unsigned)r);
+    }
+    return r;
+}
 static void tex_redescribe(GLuint t, void *data, SceGxmTextureFormat fmt, int w, int h) {
     SceGxmTexture *gt, old;
     glBindTexture(GL_TEXTURE_2D, t);
@@ -6151,8 +6256,10 @@ static void tex_redescribe(GLuint t, void *data, SceGxmTextureFormat fmt, int w,
         return;
     }
     old = *gt;
-    sceGxmTextureInitLinear(gt, data, fmt, (unsigned)w, (unsigned)h, 0);
-    sceGxmTextureSetMinFilter(gt, sceGxmTextureGetMinFilter(&old));
+    tex_strided(gt, data, fmt, w, h, fmt == SCE_GXM_TEXTURE_FORMAT_DF32M ? 32 : 64);
+    if (sceGxmTextureGetType(gt) != SCE_GXM_TEXTURE_LINEAR_STRIDED) { /* (a strided one before: its mag filter was both) */
+        sceGxmTextureSetMinFilter(gt, sceGxmTextureGetType(&old) == SCE_GXM_TEXTURE_LINEAR_STRIDED ? sceGxmTextureGetMagFilter(&old) : sceGxmTextureGetMinFilter(&old));
+    }
     sceGxmTextureSetMagFilter(gt, sceGxmTextureGetMagFilter(&old));
     sceGxmTextureSetUAddrMode(gt, sceGxmTextureGetUAddrMode(&old));
     sceGxmTextureSetVAddrMode(gt, sceGxmTextureGetVAddrMode(&old));
@@ -6172,10 +6279,17 @@ static void scr_resized(int w, int h) {
     }
     if (sDepthTex != 0) {
         extern void vglTexImageDepthBuffer(GLenum target);
+        SceGxmTexture *gt;
         glBindTexture(GL_TEXTURE_2D, sDepthTex);
         vglTexImageDepthBuffer(GL_TEXTURE_2D);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        if ((gt = vglGetGxmTexture(GL_TEXTURE_2D)) != NULL) { /* (its rows as the depth buffer's: tex_strided) */
+            tex_redescribe(sDepthTex, sceGxmTextureGetData(gt), SCE_GXM_TEXTURE_FORMAT_DF32M, w, h);
+            glBindTexture(GL_TEXTURE_2D, sDepthTex);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        }
     }
     if (sIdsTex != 0) {
         fx_targets();
@@ -6195,9 +6309,25 @@ static void scr_resized(int w, int h) {
 /* the picture's swap; the menus' size or the fights' asked for the next picture */
 static void swap_sized(void) {
     extern int gPortMenuMode; /* port/src/headless.c: the menus are running */
-    int menu = gVitaMenuHi && gPortMenuMode;
+    int menu = gVitaMenuHi && gPortMenuMode && !sMenuLow;
     int w = menu ? SCR_W_MENU : SCR_W_FIGHT, h = menu ? SCR_H_MENU : SCR_H_FIGHT;
     int change = w != sScrW || h != sScrH;
+    if (!gPortMenuMode && sMenuLow) {
+        sMenuLow = 0; /* (the next menus start at their own size) */
+    }
+    if (sMenuLowSaid != sMenuLow) {
+        sMenuLowSaid = sMenuLow;
+        Vita_Log("vgl: this menu screen at %s (the chip's time per picture %u us, %u blanks per picture)\n",
+                 sMenuLow ? "the fights' size: too slow at 960 x 544" : "960 x 544 again", sMenuGpuLast, sListBlanks);
+    }
+    if (sFightHiSaid != sFightHi) {
+        sFightHiSaid = sFightHi;
+        Vita_Log("vgl: the fight at %s (the chip's time per picture %u us, %u blanks per picture)\n",
+                 sFightHi ? "720 x 408: the chip has the time" : "640 x 368: the chip short of time at 720 x 408", sFightGpuLast, sListBlanks);
+    }
+    if (!menu && sScrW == 720 && gVitaFightAuto) {
+        gVitaFightRes[2]++;
+    }
     if (change) {
         rt_sync();
         vglSwapResolution(w, h);
@@ -6233,7 +6363,7 @@ static void ids_exec(void) {
     if (sFxU[0][1] >= 0) {
         glUniform1i(sFxU[0][1], 0);
     }
-    glUniform4f(sFxU[0][0], 0.0f, 1.0f, -1.0f, 0.0f); /* (into a picture of ours: turned over, so its rows are the display's) */
+    glUniform4f(sFxU[0][0], 0.0f, sTexUk[0], -1.0f, 0.0f); /* (into a picture of ours: turned over, so its rows are the display's) */
     glDisable(GL_BLEND);
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_STENCIL_TEST);
@@ -6261,7 +6391,7 @@ static void fog_exec(const uint8_t *p) {
     if (sFxU[3][1] >= 0) {
         glUniform1i(sFxU[3][1], 0);
     }
-    glUniform4f(sFxU[3][0], 0.0f, 1.0f, -1.0f, 0.0f); /* (the whole display, turned over into a picture of ours) */
+    glUniform4f(sFxU[3][0], 0.0f, sTexUk[1], -1.0f, 0.0f); /* (the whole display, turned over into a picture of ours) */
     if (sFxU[3][3] >= 0) {
         glUniform4f(sFxU[3][3], zmax, 0.0f, 0.0f, 0.0f);
     }
@@ -6294,7 +6424,7 @@ static void xf_exec(const uint8_t *p) {
             if (sFxU[0][1] >= 0) {
                 glUniform1i(sFxU[0][1], 0);
             }
-            glUniform4f(sFxU[0][0], 0.0f, 1.0f, -1.0f, 0.0f);
+            glUniform4f(sFxU[0][0], 0.0f, sTexUk[0], -1.0f, 0.0f);
             glDisable(GL_BLEND);
             glDisable(GL_DEPTH_TEST);
             glDisable(GL_STENCIL_TEST);
@@ -6470,7 +6600,10 @@ static void tbl_exec(const uint8_t *p) {
     if (sFxU[k][2] >= 0) {
         glUniform1i(sFxU[k][2], 1);
     }
-    glUniform4f(sFxU[k][0], (float)VIEW_X / (float)SCR_W, (float)VIEW_W / (float)SCR_W, 1.0f, 0.0f);
+    {
+        float uk = k == 2 ? sTexUk[1] : 1.0f; /* (the depth read straight) */
+        glUniform4f(sFxU[k][0], (float)VIEW_X / (float)SCR_W * uk, (float)VIEW_W / (float)SCR_W * uk, 1.0f, 0.0f);
+    }
     if (sFxU[k][3] >= 0) {
         glUniform4f(sFxU[k][3], op->zmax, 0.0f, 0.0f, 0.0f);
     }
@@ -6775,8 +6908,8 @@ static void glow_exec(const uint8_t *p) {
     if (sGlowU[0][1] >= 0) {
         glUniform1i(sGlowU[0][1], 0);
     }
-    glUniform4f(sGlowU[0][0], (float)VIEW_X / (float)SCR_W, (float)VIEW_W / (float)SCR_W, -1.0f, 0.0f);
-    glUniform4f(sGlowU[0][2], fx_px() / (float)SCR_W, fx_px() / (float)SCR_H, 0.0f, 0.0f); /* (its taps as far apart on the screen as at 640) */
+    glUniform4f(sGlowU[0][0], (float)VIEW_X / (float)SCR_W * sTexUk[0], (float)VIEW_W / (float)SCR_W * sTexUk[0], -1.0f, 0.0f);
+    glUniform4f(sGlowU[0][2], fx_px() / (float)SCR_W * sTexUk[0], fx_px() / (float)SCR_H, 0.0f, 0.0f); /* (its taps as far apart on the screen as at 640) */
     glUniform4f(sGlowU[0][3], r, g, b, 1.0f);
     fx_quad();
     /* the blur: across, then down */
@@ -6993,6 +7126,19 @@ static void t114_list_end_old(int drawn) {
 }
 int gVitaGxmCache = 1;
 void GsGpu_FrameEnd(void) {
+    { /* the blanks the game waits per picture (menu_res_feed): the least of the last sixteen pictures' */
+        extern unsigned gPortVBlanks;
+        static unsigned last, ring[16], at;
+        unsigned now = gPortVBlanks, d = now - last, k, least = 4;
+        last = now;
+        ring[at++ & 15] = d >= 1 && d <= 4 ? d : 4;
+        for (k = 0; k < 16; k++) {
+            if (ring[k] != 0 && ring[k] < least) {
+                least = ring[k];
+            }
+        }
+        sListBlanks = least;
+    }
     al_frame_end(!gVitaGsSkip);
     flush();
     flush_bins_c(1);
@@ -8018,10 +8164,10 @@ unsigned gVglConstGen; /* counts the times the back end took new strip constants
    seconds, so that two models too large for the buffers together do not make it every picture. */
 #define DP_IBO_BYTES (4u << 20)
 int Vita_ChipResetDue(void) {
-    extern int Vita_InBattle(void);
+    extern int Vita_RenderAsFight(void);
     static int was;
     static unsigned lastFull;
-    int now = Vita_InBattle(), r = 0, full = 0;
+    int now = Vita_RenderAsFight(), r = 0, full = 0;
     if (now && (sFtUsed > FT_VERTS - FT_VERTS / 8 || sFtIdxUsed > FT_IDX - FT_IDX / 8 || sDpIboUsed > DP_IBO_BYTES - DP_IBO_BYTES / 8) &&
         (lastFull == 0 || gGsFrame - lastFull > 600)) {
         full = 1;
@@ -8109,7 +8255,13 @@ int Vita_ChipPlan(int which, int layer, const float *v, uint32_t count, const fl
     if (!stable || count < 3 || count > 1024 || Port_DmaInList((uint32_t)(uintptr_t)v) || Port_InSnap(v)) {
         return -1;
     }
-    if (which == 0 && layer <= 2 && sFtProg != 0 && Vita_InBattle() && !(gT116Fe & 4)) { /* (the fighters not on the chip; layer 2, the silhouettes, too) */
+    extern int Vita_RenderAsFight(void);
+    extern int Vita_InBattle(void), gVitaShenFast;
+    if (which == 0 && layer <= (Vita_InBattle() ? 2 : gVitaShenFast >= 4 ? -1 : gVitaShenFast - 1) && sFtProg != 0 && Vita_RenderAsFight() && !(gT116Fe & 4)) {
+        /* (the fighters not on the chip; layer 2, the silhouettes, too. The dragon's screen: its models' first layer
+           only (bt3.txt shenfast=2, 3: more; 4: none): the dragon balls' glow and their shadows are its other layers, which
+           drawn from the chip came out wrong, the glow as white crescents beside the balls and the shadows as solid
+           discs) */
         h = ((uint32_t)(uintptr_t)v * 0x9E3779B1u ^ count) >> 19;
         for (k = 0; k < 8; k++, h = (h + 1) & 8191) {
             if (sFtCache[h].src == NULL || (sFtCache[h].src == v && sFtCache[h].count == count)) {
@@ -8125,12 +8277,24 @@ int Vita_ChipPlan(int which, int layer, const float *v, uint32_t count, const fl
             if (k < 8 && sFtCache[h].src != NULL && sFtCache[h].sig == sig) {
                 sFtCache[h].seen = gGsFrame;
             }
-        } else if (k < 8 && sFtCache[h].src != NULL && gGsFrame - sFtCache[h].seen < 32u) {
+        } else if (k < 8 && sFtCache[h].src != NULL && gGsFrame - sFtCache[h].seen < 32u && Vita_InBattle()) {
             sig = sFtCache[h].sig; /* (of 15000 strips a run looked at again, none had changed) */
         } else {
             sig = stage_sig(v, count);
             if (k < 8 && sFtCache[h].src != NULL && sFtCache[h].sig == sig) {
                 sFtCache[h].seen = gGsFrame;
+            }
+        }
+        if (!Vita_InBattle() && k < 8 && sFtCache[h].src != NULL) {
+            /* (the dragon's screen, Vita_RenderAsFight: its models' vertices are looked at every picture, and a strip
+               whose vertices the game moves itself (the dragon balls and their white outlines, flying) is drawn the
+               other way from then on: a copy on the chip would be a picture behind) */
+            if (sFtCache[h].moving) {
+                return -1;
+            }
+            if (sFtCache[h].sig != sig) {
+                sFtCache[h].moving = 1;
+                return -1;
             }
         }
         p->upload = 0;
@@ -8144,6 +8308,7 @@ int Vita_ChipPlan(int which, int layer, const float *v, uint32_t count, const fl
             sFtCache[h].src = v; sFtCache[h].count = count; sFtCache[h].sig = sig; sFtCache[h].at = sFtUsed; sFtCache[h].seen = gGsFrame;
             sFtCache[h].slot = sFtSlotNext++ & 15;
             sFtCache[h].ioff = sFtIdxUsed;
+            sFtCache[h].moving = 0;
             sFtUsed += count;
             sFtIdxUsed += need;
             p->upload = 1;
@@ -10661,6 +10826,107 @@ static void pace_swap(int phase) { /* the drawing thread, around the swap */
 }
 /* vitaGL's display queue callback (the chip has finished the picture; vitaGL puts it up at the next blank when
    this returns) */
+/* (pace_cb) one picture's time on the chip: the menus' size kept or not */
+static void menu_res_feed(unsigned g) {
+    extern int gPortMenuMode;
+    unsigned budget = sListBlanks * 16683u;
+    sMenuGpuLast = g;
+    if (!gVitaMenuAuto || !gVitaMenuHi || !gPortMenuMode) {
+        sMenuBad = sMenuGood = 0;
+        return;
+    }
+    if (!sMenuLow) {
+        if (sScrW != SCR_W_MENU) {
+            return;
+        }
+        if (g > budget / 10u * 9u) {
+            if (++sMenuBad >= 12) {
+                sMenuLow = 1;
+                sMenuBad = sMenuGood = 0;
+            }
+        } else if (sMenuBad > 0) {
+            sMenuBad--;
+        }
+    } else {
+        unsigned long long full;
+        if (sScrW == SCR_W_MENU || sScrW == 0 || sScrH == 0) {
+            return;
+        }
+        full = (unsigned long long)g * (SCR_W_MENU * SCR_H_MENU) / (unsigned)(sScrW * sScrH);
+        if (full < budget / 10u * 6u) {
+            if (++sMenuGood >= 60u * 3u / sListBlanks) {
+                sMenuLow = 0;
+                sMenuBad = sMenuGood = 0;
+            }
+        } else {
+            sMenuGood = 0;
+        }
+    }
+}
+
+/* (pace_cb) one fight picture's time on the chip: 720 x 408 or 640 x 368 for the next (gVitaFightAuto, above) */
+static void fight_res_feed(unsigned g) {
+    extern int gPortMenuMode;
+    extern int Vita_InBattle(void);
+    /* (the picture's time: the fights' 30 a second, 2 blanks; sListBlanks, the fewest of the last lists, is 1 at
+       times in them, a list drawn soon after a late one: build 310's stages 12 and 22 stepped down at 17 ms so) */
+    unsigned budget = (sListBlanks > 2 ? sListBlanks : 2u) * 16683u;
+    unsigned long long now;
+    if (!gVitaFightAuto) {
+        return;
+    }
+    if (gPortMenuMode || !Vita_InBattle()) {
+        sFightHi = 0; /* (each fight begins at 640 x 368) */
+        sFightGood = sFightBad = sFightDowns = 0;
+        sFightSettle = 8;
+        sFightHold = 0;
+        return;
+    }
+    sFightGpuLast = g;
+    if (sFightSettle > 0) { /* (the first pictures of a fight, or after a change: drawn at the size before, or the new
+                               size's targets just made) */
+        sFightSettle--;
+        return;
+    }
+    now = sceKernelGetProcessTimeWide();
+    if (!sFightHi) {
+        if (sScrW != 640) {
+            return;
+        }
+        if (now < sFightHold) {
+            sFightGood = 0;
+        } else if (g / 2u * 3u < budget / 10u * 6u) { /* (what 720 x 408 would take: about 1.45 times) */
+            if (++sFightGood >= 90u) { /* (three seconds of pictures, at 30 a second) */
+                sFightHi = 1;
+                sFightGood = sFightBad = 0;
+                sFightSettle = 4;
+                gVitaFightRes[0]++;
+            }
+        } else { /* (a heavier picture: a second's worth taken off, not all: one spike does not undo the rest; build 307's
+                    fights on stage 12 stayed at 640 x 368 after one) */
+            sFightGood = sFightGood > 30u ? sFightGood - 30u : 0u;
+        }
+    } else {
+        if (sScrW != 720) {
+            return;
+        }
+        if (g > budget / 20u * 17u) {
+            if (++sFightBad >= 3 || g > budget) { /* (three over 0.85 of the time, or one over all of it: build 307's
+                                                     stage 22, pictures late while three were counted) */
+                unsigned sh = sFightDowns < 5 ? sFightDowns : 5;
+                sFightHi = 0;
+                sFightGood = sFightBad = 0;
+                sFightSettle = 4;
+                sFightHold = now + (5000000ull << sh); /* (5 s, 10 s, 20 s ... up to 160 s) */
+                sFightDowns++;
+                gVitaFightRes[1]++;
+            }
+        } else if (g < budget / 10u * 7u && sFightBad > 0) {
+            sFightBad--;
+        }
+    }
+}
+
 static void pace_cb(void *fb) {
     extern int Vita_InBattle(void);
     gVitaShown++;
@@ -10696,6 +10962,8 @@ static void pace_cb(void *fb) {
                 unsigned long long st = sDoneLast > r->tSw0 ? sDoneLast : r->tSw0, g = t - st;
                 unsigned bin = r->cov < 2000 ? 0 : r->cov < 2500 ? 1 : r->cov < 3000 ? 2 : r->cov < 3500 ? 3 : r->cov < 4000 ? 4 : r->cov < 4500 ? 5 : 6;
                 r->gpu = (unsigned)g;
+                menu_res_feed((unsigned)g);
+                fight_res_feed((unsigned)g);
                 if (gVitaFxSweep && !r->hold) {
                     unsigned m = r->fxm & 15;
                     gFxGpu[m][0] += g;
@@ -10838,6 +11106,10 @@ void Vita_PaceLog(void) { /* vita_main.c, with the log's other lines */
         }
     }
     Vita_Log("%s\n", line);
+    if (gVitaFightAuto && (gVitaFightRes[0] | gVitaFightRes[1] | gVitaFightRes[2]) != 0) {
+        Vita_Log("vita:   the fights' size by the chip's time: %u steps up to 720 x 408, %u down to 640 x 368; %u pictures at 720 x 408 "
+                 "(the chip's last picture %u us)\n", gVitaFightRes[0], gVitaFightRes[1], gVitaFightRes[2], sFightGpuLast);
+    }
     for (j = 0; j < sPaceMissN; j++) {
         const PaceRec *r = &sPaceMiss[j];
         unsigned long long b = r->tTick;
@@ -10860,6 +11132,7 @@ void Vita_PaceLog(void) { /* vita_main.c, with the log's other lines */
     memset(gPace, 0, sizeof(gPace));
     memset(gPaceHist, 0, sizeof(gPaceHist));
     memset(gPaceGpu, 0, sizeof(gPaceGpu));
+    memset(gVitaFightRes, 0, sizeof(gVitaFightRes));
 }
 void Vita_ListDone(unsigned us) { /* gs_core.c, after every list (on the thread that ran it) */
     int drawn = !gVitaGsSkip;

@@ -19,6 +19,9 @@ import clang.cindex as ci
 from clang.cindex import CursorKind as K, TokenKind, TypeKind
 
 ROOT_B = str(__import__("pathlib").Path(__file__).resolve().parents[2]).replace("\\", "/").encode() + b"/"
+# BT4's tree when its game is built (port/vita/build.py with BT3_BT4): its src/ and include/ are the game's text too
+BT4_B = (str(__import__("pathlib").Path(__import__("os").environ["BT3_BT4"]).resolve()).replace("\\", "/").encode() + b"/"
+         if __import__("os").environ.get("BT3_BT4") else None)
 P32 = "* __ptr32 __uptr "
 TYPE_EXPRS = {K.CSTYLE_CAST_EXPR, K.CXX_UNARY_EXPR, K.COMPOUND_LITERAL_EXPR, K.DECL_STMT}  # expressions that contain a type name
 
@@ -42,7 +45,9 @@ def origins(data):
         # those are installed.
         f = f.replace(b"\\\\", b"/").replace(b"\\", b"/")
         rel = f[len(ROOT_B):] if f.startswith(ROOT_B) else f
-        game = b"port/build/gen/src/" in f or ((rel.startswith(b"src/") or rel.startswith(b"include/")) and
+        if BT4_B and f.startswith(BT4_B):  # (BT4's game, built from its own tree: port/vita/build.py BT3_BT4=...)
+            rel = f[len(BT4_B):]
+        game = b"port/build/gen/src/" in f or b"port/build/gen/bt4src/" in f or ((rel.startswith(b"src/") or rel.startswith(b"include/")) and
                                                not rel.startswith(b"src/port/") and not rel.startswith(b"include/port/"))
         out.append((m.end(), game))
     return out

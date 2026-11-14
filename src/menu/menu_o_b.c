@@ -12,6 +12,11 @@ DiscFusion *gDiscFusion = NULL; /* 0x3B735C */
 
 /* Copies the two "recognised" bits of gProgress into the work area. */
 void DiscFusion_UpdateHave(void) {
+#ifdef PORT_VITA
+    /* The Vita has no disc drive to swap the earlier games' discs into: both count as recognised, so their modes
+       open from the plates (as after a swap) */
+    UO_PROG->discFlags |= UB_DISC_0 | UB_DISC_1;
+#endif
     if (UO_PROG->discFlags & UB_DISC_0) {
         gDiscFusion->have[0] = 1;
     } else {

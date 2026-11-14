@@ -11,6 +11,19 @@ BootCard *gBootCard = NULL; /* 0x3B5908 */
 
 /* Card-flow callback (both outcomes): start the 15-frame countdown to the fade out. */
 void BootCard_OnFlowDone(void) {
+#ifdef PORT_VITA
+    { /* the start menu's cheat (port/vita/vita_start.c): the save just loaded (or made) is given everything */
+        extern int gVitaCheatUnlock;
+        extern void Vita_Log(const char *fmt, ...);
+        extern void Vita_UnlockOnLoad(void);
+        if (gVitaCheatUnlock) {
+            gVitaCheatUnlock = 0;
+            Save_UnlockAll(gSaveData);
+            Vita_Log("vita: everything unlocked (start menu)\n");
+        }
+        Vita_UnlockOnLoad(); /* (the options' Unlock All, while it is on: src/menu/menu_x_c.c) */
+    }
+#endif
     gBootCard->flags |= BOOTCARD_DONE;
     gBootCard->flags |= BOOTCARD_LEAVING;
     gBootCard->timer = 0xF;
@@ -20,6 +33,27 @@ void BootCard_OnFlowDone(void) {
 void BootCard_Init(s32 section) {
     gBootCard = Heap_Alloc(0x14, 0x20, 0, 2);
     memset(gBootCard, 0, 0x14);
+#ifdef PORT_VITA
+    /*
+     * Memory-card lines for this screen live in USA archive baseFile+0x19 (AFS 473). That file has no
+     * European language banks in pzs3eu1. The same dialog blob is slot 12 of the title archive
+     * (baseFile+1), which is remapped for es/de/fr/it — reuse it so "Checking memory card..." is translated.
+     */
+    {
+        extern int VitaEu_UsesMenuRemap(void);
+        if (VitaEu_UsesMenuRemap()) {
+            void *arc = File_LoadSync(gProgress->baseFile + 1, NULL, 0);
+            gBootCard->pack = NULL;
+            gBootCard->res = Sprite_Unpack(MPACK_AT(arc, 1), NULL, NULL);
+            Heap_Free(arc);
+            Dialog_Init(MPACK_AT(gBootCard->res, 12), NULL, 0);
+            McFlow_Init(1);
+            McFlow_SetDoneCb(0, BootCard_OnFlowDone, NULL);
+            McFlow_SetDoneCb(1, BootCard_OnFlowDone, NULL);
+            return;
+        }
+    }
+#endif
     gBootCard->pack = (u32 *)MPACK_AT(gMenuArc0, section);
     gBootCard->res = Sprite_Unpack(gBootCard->pack, NULL, NULL);
     Dialog_Init(MPACK_AT(gBootCard->res, 1), NULL, 0);

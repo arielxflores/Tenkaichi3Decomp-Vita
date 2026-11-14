@@ -36,6 +36,21 @@ static int sLastCmd, sLastResult;
 static int sSeen;             /* slot 1 was reported once: later sceMcGetInfo calls answer "same card" */
 static FILE *sFiles[MC_FILES];
 
+#ifdef PORT_VITA
+/* (port/vita/vita_warm.c) the game starts again inside the running program: no file open, the card not seen yet */
+void Port_McWarm(void) {
+    int fd;
+    for (fd = 0; fd < MC_FILES; fd++) {
+        if (sFiles[fd] != NULL) {
+            fclose(sFiles[fd]);
+            sFiles[fd] = NULL;
+        }
+    }
+    sLastCmd = sLastResult = 0;
+    sSeen = 0;
+}
+#endif
+
 static int request(int cmd, int result) {
     sLastCmd = cmd;
     sLastResult = result;
