@@ -1307,6 +1307,24 @@ index 342b5ab..32aaadd 100644
                  ColorFade_StartOut(0, 0, 0, 0x14);
              }
          }
+diff --git a/src/menu/menu_c_e.c b/src/menu/menu_c_e.c
+index 3472417..ab57dee 100644
+--- a/src/menu/menu_c_e.c
++++ b/src/menu/menu_c_e.c
+@@ -912,9 +912,11 @@ void CharSel_Draw(void) {
+             gCharSel->faceAlpha[i] = 0.0f;
+         }
+         Flash_FindLabel(f, NULL, i ? "mc_single_chara_r" : "mc_single_chara_l", &ref);
+-#ifdef PORT
++#if defined(PORT) && !defined(PORT_VITA)
+         /* BT4 keeps this portrait clip in the map movie. Do not let its
+-         * selection fade remain visible over the stage preview. */
++         * selection fade remain visible over the stage preview.
++         * (The Vita: the two fighters' portraits stay over the map select, as on the PS2; its menus are not
++         * widened, so the stage preview does not reach under them.) */
+         Flash_ClipSetAlpha(f, &ref, (gCharSel->flags & CHARSEL_STAGE_PHASE) ? 0.0f : gCharSel->faceAlpha[i]);
+         /* The movie can add alpha after the multiplier. Visibility also
+          * suppresses that additive pass over the map preview. */
 diff --git a/src/menu/menu_g_c.c b/src/menu/menu_g_c.c
 index a55a3d5..339e537 100644
 --- a/src/menu/menu_g_c.c
