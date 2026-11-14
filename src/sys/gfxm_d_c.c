@@ -276,6 +276,12 @@ void ObjDraw_UploadTextures(ObjDrawObj *obj) {
     u8 count;
     u8 first;
 
+#ifdef PORT_VITA
+    {   /* (the port's textures named by the game: a MARK in the packet's VIF NOP, port/src/gs_marker.c) */
+        extern u32 Port_EsTexModelWord(void);
+        pkt[2] = Port_EsTexModelWord();
+    }
+#endif
     i = 0;
     file = obj->mdl.tex;
     first = obj->mdl.model->texFirst;

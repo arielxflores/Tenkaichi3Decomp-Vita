@@ -258,11 +258,20 @@ void Res_RelocateOffsets(TexFile **out, u8 *base, TexFile *hdr) {
     }
 }
 
+#ifdef PORT_VITA
+extern u32 Port_EsTexWord(void);
+#define TEX_ES_ADD()                                                                                                        do {                                                                                                                        u32 esWord = Port_EsTexWord(), esOld = gTexBltPacket.dmaTag[2];                                                         if (esWord != 0) {                                                                                                          gTexBltPacket.dmaTag[2] = esWord;                                                                                   }                                                                                                                       Dma_AddData(&gTexBltPacket, sizeof(TexBltPacket));                                                                      gTexBltPacket.dmaTag[2] = esOld;                                                                                    } while (0)
+#endif
+
 /* Queues the upload of a texture's pixels to GS block `tbp`. */
 void Tex_UploadPixels(TexEntry *e, s32 tbp) {
     if (e->pixOfs != 0) {
         gTexBltPacket.bitbltbuf = ((s64)tbp << 32) | ((u64)e->pixBlt << 48);
+#ifdef PORT_VITA
+        TEX_ES_ADD(); /* (the port's textures named by the game: a MARK in the packet's VIF NOP, port/src/gs_marker.c) */
+#else
         Dma_AddData(&gTexBltPacket, sizeof(TexBltPacket));
+#endif
         Dma_AddRef(e->pix, e->pixSize);
     }
 }
@@ -271,7 +280,11 @@ void Tex_UploadPixels(TexEntry *e, s32 tbp) {
 void Tex_UploadClut(TexEntry *e, s32 cbp) {
     if (e->clutOfs != 0) {
         gTexBltPacket.bitbltbuf = ((s64)cbp << 32) | ((u64)e->clutBlt << 48);
+#ifdef PORT_VITA
+        TEX_ES_ADD();
+#else
         Dma_AddData(&gTexBltPacket, sizeof(TexBltPacket));
+#endif
         Dma_AddRef(e->clut, e->clutSize);
     }
 }

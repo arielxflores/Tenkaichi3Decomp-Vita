@@ -1,0 +1,13 @@
+# The native renderer's experiments (docs/vita/native.md, branch native-next), each battle twice: side A without
+# them, side B with them; Kame House (12) for the sea, 4 and 22 the heaviest. The figures:
+# python3 port/vita/tools/perfsum.py --ab log.txt; the log's lines texbind (wrong: 0 expected), esdirect, seavtx.
+mode=demo
+soak=1
+soakduel=1
+soakstages=12,4,22
+soakab=1
+report=1
+upprof=1
+texbind=2
+esdirect=2
+seavtx=2

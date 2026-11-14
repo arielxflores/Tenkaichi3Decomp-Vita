@@ -351,7 +351,7 @@ Multiplayer is new: when something goes wrong, `ux0:data/bt3/log.txt` from both 
 ## Notes
 
 - Saves (a virtual memory card) and settings are kept in `ux0:data/bt3/`: `saves/`, `bt3_settings.txt` (Clashes,
-  2nd Pad, Mods) and `touch.txt` (Touch); a multiplayer match's own save is `net_saves/`. `log.txt` there describes the last runs, which helps with bug reports.
+  2nd Pad, Mods) and `touch.txt` (Touch); a multiplayer match's own save is `net_saves/`. `log.txt` there describes the last runs (`log-prev.txt` the ones before), which helps with bug reports.
 - The first start takes a little longer: the shaders are compiled and kept in `ux0:data/bt3/shcache/`.
 - The port runs the Vita at its standard maximum clocks (CPU 444 MHz, GPU 222 MHz); no overclocking plugin is
   used or needed.

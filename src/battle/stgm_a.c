@@ -39,6 +39,28 @@ typedef struct StgMFrustum {
 extern BtlStageM *gBtlStage;
 extern StgMOfsTable *gStgAnimTable;
 
+#ifdef PORT_VITA
+/* The port's engine seam (port/src/gs_marker.c): the stage's meshes named to the renderer as the stage's own static
+   data, so that it keeps them for the stage's life instead of finding them again by a cache of calls. The same
+   packets as Vu1Pkt_CallProg4 / 7; nothing changes on the PS2. */
+extern void Port_EsStg4(void *mdl, u32 chain);
+extern void Port_EsStg7(void *mdl, u32 chain, f32 w);
+extern void Port_EsStageBusy(void);
+#define STGM_CALL4(chain) Port_EsStg4(gBtlStage->mdl, chain)
+#define STGM_CALL7(chain, w) Port_EsStg7(gBtlStage->mdl, chain, w)
+#define STGM_BUSY() Port_EsStageBusy()
+extern void Port_EsTexStage(void *file);
+extern void Port_EsTexStageEnd(void);
+#define STGM_TEX_BEGIN(file) Port_EsTexStage(file)
+#define STGM_TEX_END() Port_EsTexStageEnd()
+#else
+#define STGM_TEX_BEGIN(file)
+#define STGM_TEX_END()
+#define STGM_CALL4(chain) Vu1Pkt_CallProg4(chain)
+#define STGM_CALL7(chain, w) Vu1Pkt_CallProg7(chain, w)
+#define STGM_BUSY()
+#endif
+
 extern StgMWork *Battle_GetWork(void);
 extern s32 BtlStage_IsObjBroken(s32 idx);
 extern s32 BtlStage_GetId(void);
@@ -122,7 +144,9 @@ void StgModel_DrawAnims(void) {
             Vu1Node_Animate(mdl, track, mtx, def->frame);
             def++;
             if (!uploaded) {
+                STGM_TEX_BEGIN(gBtlStage->tex);
                 TexFile_UploadPacked(tex, 0x3480, 0x3700);
+                STGM_TEX_END();
                 uploaded = 1;
             }
             Vu1Node_Draw(mdl);
@@ -274,7 +298,9 @@ void StgModel_FadeDebris(void) {
 /* Uploads one texture of the stage texture file to the stage's work block and selects it. */
 void StgModel_SetTexture(s32 index) {
     Dma_AddTexFlush();
+    STGM_TEX_BEGIN(gBtlStage->tex);
     TexFile_UploadOne(gBtlStage->tex, index, 0x2A00, 0x32C0);
+    STGM_TEX_END();
     Dma_AddTex0(gBtlStage->tex->ent[index].tex0 | 0x0006580400002A00);
 }
 
@@ -304,7 +330,7 @@ s32 StgModel_DrawDebris(s32 drawn, u8 *vis) {
                     }
                     chain = mesh[j].chain;
                     Vu0Cur_LoadMtx(mesh[j].mtx);
-                    Vu1Pkt_CallProg7(chain, (f32)mesh[j].alpha);
+                    STGM_CALL7(chain, (f32)mesh[j].alpha);
                 }
             }
         }
@@ -324,7 +350,7 @@ s32 StgModel_DrawDebris(s32 drawn, u8 *vis) {
                     StgModel_SetTexture(mats[i].tex);                           \
                 }                                                               \
                 chain = mesh[j].chain;                                          \
-                Vu1Pkt_CallProg4(chain);                                        \
+                STGM_CALL4(chain);                                              \
             }                                                                   \
         }                                                                       \
     }
@@ -351,9 +377,11 @@ void StgModel_Draw(void *view) {
     u32 chain;
 
     if (Battle_GetWork()->flags & 0x2000) {
+        STGM_BUSY(); /* (a stage being loaded: its meshes are new data, wherever they lie) */
         return;
     }
     if (gBtlStage->flags & 1) {
+        STGM_BUSY();
         return;
     }
     mdl = gBtlStage->mdl;
@@ -446,7 +474,7 @@ void StgModel_Draw(void *view) {
                     prog = mesh[j].prog;
                 }
                 if (mesh[j].prog == 0) {
-                    Vu1Pkt_CallProg4(chain);
+                    STGM_CALL4(chain);
                 }
             }
         }
