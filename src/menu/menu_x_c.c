@@ -268,8 +268,23 @@ static void Option_VoiceVita(s32 line) {
     }
 }
 #define OPT_VOICE(line) Option_VoiceVita(line)
+/* The "Vita Settings" row's guide line: what its page holds, and whether the game has the fourth CPU core (the
+   CapUnlocker kernel plugin; tried at start-up, port/vita/vita_main.c). Written into lines 39 / 40 as the page's own
+   guide lines are; line 24, the fixed text, when those slots are not there. */
+extern s32 Vita_OptionGuide(const char *text);
+extern int Vita_Core3State(void);
+static s32 Option_VitaRowLine(void) {
+    char text[120];
+    s32 core3 = Vita_Core3State();
+
+    sprintf(text, "Touch buttons, clashes, a\nsecond controller and mods.\n4th CPU core: %s",
+            core3 > 0 ? "ON (CapUnlocker)" : core3 == 0 ? "OFF (no CapUnlocker)" : "not tested");
+    return Vita_OptionGuide(text);
+}
+#define OPT_VIB_LINE Option_VitaRowLine()
 #else
 #define OPT_VOICE(line) Voice_PlayWithSubtitle(gOption->subtitles, OPTION_VOICE_BASE, line)
+#define OPT_VIB_LINE 24
 #endif
 #define OPT_PLATE(kind, label) Option_PlateGoto(0, kind, label)
 
@@ -837,7 +852,7 @@ static void Option_VitaTouchInput(void) {
             gOption->cursor = OPT_ITEM_VIB;
             Flash_GotoLabel(&gOption->flash[0], "fl_value_out", 1);
             OPT_PLATE(OPT_CLIP_ROW_CTRL, "fl_on_start");
-            gOption->voiceLine = 24;
+            gOption->voiceLine = OPT_VIB_LINE;
             OPT_VOICE(gOption->voiceLine);
         }
         break;
@@ -1783,7 +1798,7 @@ s32 Option_Input(void) {
             if (gOption->cursor == OPT_ITEM_KEYS) {
                 gOption->voiceLine = 23;
             } else if (gOption->cursor == OPT_ITEM_VIB) {
-                gOption->voiceLine = 24;
+                gOption->voiceLine = OPT_VIB_LINE;
             } else {
                 gOption->voiceLine = 10;
             }
@@ -1812,7 +1827,7 @@ s32 Option_Input(void) {
             if (gOption->cursor == OPT_ITEM_KEYS) {
                 gOption->voiceLine = 23;
             } else if (gOption->cursor == OPT_ITEM_VIB) {
-                gOption->voiceLine = 24;
+                gOption->voiceLine = OPT_VIB_LINE;
             } else {
                 gOption->voiceLine = 10;
             }
@@ -2175,7 +2190,7 @@ s32 Option_Input(void) {
             gOption->cursor = OPT_ITEM_VIB;
             Flash_GotoLabel(&gOption->flash[0], "fl_value_out", 1);
             OPT_PLATE(OPT_CLIP_ROW_CTRL, "fl_on_start");
-            gOption->voiceLine = 24;
+            gOption->voiceLine = OPT_VIB_LINE;
             OPT_VOICE(gOption->voiceLine);
             Snd_PlaySe(1, 2);
         }

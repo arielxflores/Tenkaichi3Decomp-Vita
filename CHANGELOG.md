@@ -1,5 +1,46 @@
 # Changes (PS Vita port)
 
+## Unreleased
+
+Faster
+
+- **Detailed stages stay fast**: in a survey of 25 stages (a duel on each, stages 0 to 24), the slowest went from
+  16.7-18.7 pictures a second to 26-29, the average from 25.2 to 28.8, and stages at 28 or more from 7 to 21 of 25.
+  Three causes, all in the copies of the game's model calls the port keeps: their cache filled up over a session and
+  was never emptied (a stage played after others ran without it); the kept parts' places were too few and shared at
+  random; and only the first 2 MB of a stage's vertices could be kept, so a fight began fast and slowed down as more
+  of the stage came into view.
+- **The first fight on a stage is as fast as the next ones**: some of the stage's kept parts were refused for the
+  whole first fight on a stage and drawn the long way (up to a quarter of the drawing thread's time; stage 20 at 27.9
+  pictures a second against 29.9 in the next fight there). Development build: `dpsplit=0` goes back.
+- Kept parts are no longer drawn again the long way every other frame (the game draws into its two display buffers
+  in turn).
+- With the CapUnlocker plugin, the fourth CPU core works out the image uploads' numbers the list reader worked out
+  before, and vitaGL leaves out GPU state calls that change nothing.
+- The screen-filling effects (auras, beams, flashes) are drawn at half the resolution each way and added to the
+  picture, as TwinsanityEvolved does with its particles: the graphics chip shades a quarter of their pixels. Only
+  effects covering at least two screens' worth are drawn so; the edge of a fighter inside a beam can show a step of
+  two pixels. Development build: `fxlow=0` goes back.
+
+- **The first steps of a native renderer** (the "engine seam", as BT3-Recomp's and Celosia's; `docs/vita/native.md`):
+  the game names what it draws to the renderer instead of the renderer finding it again in the PS2 display list
+  every frame. The stage's meshes and animated objects and the fighters' model parts are kept by their names; the
+  stage's and the fighters' textures are known by their names and each upload's destination remembers what it left
+  there; the kept parts are drawn with what does not change worked out once; the effects' particles are read as
+  runs. On three heavy stages the list reader works a third of what it did and the drawing thread about two thirds:
+  the pictures a second were at the 30 cap already, what this gives is room in the busy moments and for a console
+  without the fourth core. The textures are then found by the names of what their uploads left (a quarter less time
+  in the texture lookups), and the sea's corners are worked out once a frame each instead of once for each triangle
+  that has them. Development build: `native=0`, `nativetex=0`, `updest=0`, `dpfast=0`, `fxrun=0`, `texbind=0`,
+  `seavtx=0` go back.
+
+- The log no longer gets a sample of the picture's draws every five seconds of a fight (that picture was drawn the
+  slow way), and `log.txt` is kept under 1 MB: a longer one becomes `log-prev.txt` at the next start.
+
+New
+
+- Options → Controller → Vita Settings says whether the game has the fourth CPU core (CapUnlocker on or off).
+
 ## 1.2.1
 
 Fixed

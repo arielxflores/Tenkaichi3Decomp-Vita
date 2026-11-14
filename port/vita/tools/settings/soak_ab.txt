@@ -1,0 +1,9 @@
+# The speed survey with each battle twice, side A (the settings of value 2 off) and side B (on): for the console
+# (docs/vita/compare.md, stage 2). Add the setting under test with the value 2 (native=2, fxlow=2); the figures:
+# python3 port/vita/tools/perfsum.py --ab log.txt. 25 stages, about 50 battles: give the run its time.
+mode=demo
+soak=1
+soakduel=1
+soakstages=0-24
+soakab=1
+report=1

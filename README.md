@@ -48,7 +48,7 @@ Requirements:
 - A PS Vita running HENkaku / Ensō
 - Recommended: the [CapUnlocker](https://github.com/GrapheneCt/CapUnlocker) kernel plugin, which lets the game use
   the Vita's fourth CPU core. Without it the game runs, but heavy scenes are slower.
-- About 3 GB free on `ux0:` for the game files
+- Free space on `ux0:` for the game files: about 3 GB unpacked, or the size of your `.iso` copied as it is
 
 The game's shaders come already compiled in the package, so `libshacccg.suprx` is not needed (if it is in
 `ur0:data/`, it is used only for a shader the package lacks).
@@ -352,7 +352,7 @@ Multiplayer is new: when something goes wrong, `ux0:data/bt3/log.txt` from both 
 
 - Saves (a virtual memory card) and settings are kept in `ux0:data/bt3/`: `saves/`, `bt3_settings.txt` (Clashes,
   2nd Pad, Mods) and `touch.txt` (Touch); a multiplayer match's own save is `net_saves/`. `log.txt` there describes the last runs, which helps with bug reports.
-- The first start takes a little longer: the shaders are compiled and kept in `ux0:data/bt3/shcache/`.
+- The game's shaders come already compiled in the package (`shbank.bin`): `libshacccg.suprx` is not needed.
 - The port runs the Vita at its standard maximum clocks (CPU 444 MHz, GPU 222 MHz); no overclocking plugin is
   used or needed.
 - Optional settings go in `ux0:data/bt3/bt3.txt`, one per line: `wide=0` shows the PS2's original 4:3 picture,

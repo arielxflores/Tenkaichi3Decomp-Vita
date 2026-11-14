@@ -25,6 +25,13 @@
 #include "common.h"
 #include "sys/vu1_packet.h"
 #include "sys/dma.h"
+#ifdef PORT_VITA
+/* the port's engine seam: the call packet's last NOP made a VIF MARK naming static data (port/src/gs_marker.c) */
+extern void Port_EsMarkCall(u32 *last, s32 prog);
+#define VU1_ES_MARK(last, prog) Port_EsMarkCall(last, prog)
+#else
+#define VU1_ES_MARK(last, prog)
+#endif
 
 extern void *memset(void *dst, s32 value, u32 size);
 extern void Vec4_Set(void *dst, f32 x, f32 y, f32 z, f32 w);
@@ -92,6 +99,7 @@ u32 *Vu1Pkt_CallProg0(u32 chain) {
     p[0x8D] = VU1_VIF_BASE(0x22);
     p[0x8E] = VU1_VIF_OFFSET(0x1EF);
     p[0x8F] = VU1_VIF_NOP;
+    VU1_ES_MARK(&p[0x8F], 0);
     return p;
 }
 
@@ -124,6 +132,7 @@ u32 *Vu1Pkt_CallProg1(u32 obj) {
     p[0x8D] = VU1_VIF_BASE(0x22);
     p[0x8E] = VU1_VIF_OFFSET(0x1EF);
     p[0x8F] = VU1_VIF_NOP;
+    VU1_ES_MARK(&p[0x8F], 1);
     return p;
 }
 
@@ -156,6 +165,7 @@ u32 *Vu1Pkt_CallProg2(u32 obj) {
     p[0x31] = VU1_VIF_BASE(0x13);
     p[0x32] = VU1_VIF_OFFSET(0x1F6);
     p[0x33] = VU1_VIF_NOP;
+    VU1_ES_MARK(&p[0x33], 2);
     return p;
 }
 
@@ -362,6 +372,7 @@ u32 *Vu1Pkt_CallProg8(Vu1Node *node) {
     p[0x2D] = VU1_VIF_BASE(0x12);
     p[0x2E] = VU1_VIF_OFFSET(0x1F7);
     p[0x2F] = VU1_VIF_NOP;
+    VU1_ES_MARK(&p[0x2F], -1);
     return p;
 }
 

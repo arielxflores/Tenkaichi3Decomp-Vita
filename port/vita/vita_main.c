@@ -57,6 +57,7 @@ char gVitaDisc[256] = VITA_DISC_DEFAULT;
 static FILE *sLog;
 static int sHeapCdram, sFloatChoice = -1; /* -1: ask */
 static unsigned long long sStart, sBattleStart, sLastDraw;
+static int gVitaExitAfter; /* bt3.txt exitafter=<s> (development build): the program ends itself after that many seconds */
 static unsigned sBattleStartVb, sLastVb, sLastState = 0xFFFFFFFFu;
 static volatile int sEnded;
 static int sMode = -1; /* 0 the menus (play), 1 the demo fight; -1: ask */
@@ -646,6 +647,14 @@ void Vita_VBlank(unsigned vblanks) {
     if (t - sLastDraw < 500000) {
         return;
     }
+#ifndef PORT_VITA_RELEASE
+    if (gVitaExitAfter > 0 && t - sStart >= (unsigned long long)gVitaExitAfter * 1000000ull) {
+        /* a test run's end from inside (bt3.txt exitafter=<s>): its log written whole, and a line the runners wait for
+           (port/vita/tools: vita_agent_run.sh's completion) */
+        logf_("vita: exitafter: the test run ends after %d s\n", gVitaExitAfter);
+        quit();
+    }
+#endif
     sceKernelPowerTick(SCE_KERNEL_POWER_TICK_DISABLE_AUTO_SUSPEND);
     static int sClockFix;
     if (sClockFix < 8 && (scePowerGetGpuClockFrequency() < 222 || scePowerGetArmClockFrequency() < 444 || scePowerGetBusClockFrequency() < 222)) {
@@ -701,6 +710,85 @@ void Vita_VBlank(unsigned vblanks) {
                     logf_("vita:   lists: %u not drawn, %u us each; %u drawn, %u us each | vectors unpacked per blank: %u the short way, %u the long way\n",
                           gVitaList[0][0], gVitaList[0][1] / (gVitaList[0][0] ? gVitaList[0][0] : 1), gVitaList[1][0],
                           gVitaList[1][1] / (gVitaList[1][0] ? gVitaList[1][0] : 1), gVitaUnpack[0] / vb, gVitaUnpack[1] / vb);
+                    {   /* the replayed calls and the kept parts, without the counters plugin too (with it, these come with the
+                           counters below, and are reset there) */
+                        extern int gVitaPerfOn;
+                        if (!gVitaPerfOn) {
+                            extern unsigned gVitaCc[4], gVitaDp[8], gVitaCcWhy[9], gVitaCcMax, gVitaCcNoRoom, gVitaDpBusy, gVitaCcEvicted, gVitaDpWalk[3];
+                            extern void GsFE_CcCensus(unsigned out[6]);
+                            unsigned cen[6];
+                            GsFE_CcCensus(cen);
+                            logf_("vita:   call cache: %u of %u places taken (%u new, %u read once, %u kept, %u never), %u calls found no place, %u places"
+                                  " given up | model calls: %u sent from copies, %u read the long way and recorded, %u kept, %u dropped (changed)\n",
+                                  cen[0], cen[5], cen[1], cen[2], cen[3], cen[4], gVitaCcNoRoom, gVitaCcEvicted, gVitaCc[0], gVitaCc[1], gVitaCc[2], gVitaCc[3]);
+                            gVitaCcEvicted = 0;
+                            { extern unsigned gVitaEs[6], gVitaEsGens[2]; if (gVitaEs[0] | gVitaEs[1] | gVitaEs[3] | gVitaEs[4]) { logf_("vita:   engine seam (native): %u calls sent from their copies, %u read the long way, %u kept, %u to the cache (table full), %u of an old generation, %u places taken over; generations %u of the stage, %u of the models\n", gVitaEs[0], gVitaEs[1], gVitaEs[2], gVitaEs[3], gVitaEs[4], gVitaEs[5], gVitaEsGens[0], gVitaEsGens[1]); memset(gVitaEs, 0, sizeof(gVitaEs)); } } /* (and with the processor counters below, when libperf is there) */
+                            logf_("vita:   kept parts: %u drawn directly, %u walked (%u kept now, %u refused, %u found in another state), %u not recorded"
+                                  " (their place another part's) | calls not kept: %u too big (largest %u KB), %u wrapped, %u empty, %u strips copied,"
+                                  " %u strips not planned, %u other constants, %u other records, %u writing the constants\n",
+                                  gVitaDp[0], gVitaDp[6], gVitaDp[3], gVitaDp[4], gVitaDp[5], gVitaDpBusy, gVitaCcWhy[0], gVitaCcMax >> 10, gVitaCcWhy[1],
+                                  gVitaCcWhy[2], gVitaCcWhy[3], gVitaCcWhy[4], gVitaCcWhy[5], gVitaCcWhy[6], gVitaCcWhy[8]);
+                            memset(gVitaCc, 0, sizeof(gVitaCc));
+                            memset(gVitaDp, 0, 7 * sizeof(gVitaDp[0])); /* ([7]: the KB of indices on the chip, a total) */
+                            memset(gVitaCcWhy, 0, sizeof(gVitaCcWhy));
+                            gVitaCcMax = 0;
+                            gVitaCcNoRoom = 0;
+                            gVitaDpBusy = 0;
+                            {
+                                extern unsigned gVitaFeHelp[4], vgl_bt3_gxm_skipped[2];
+                                logf_("vita:   GXM state calls: %u left out (they changed nothing), %u made\n", vgl_bt3_gxm_skipped[0], vgl_bt3_gxm_skipped[1]);
+                                vgl_bt3_gxm_skipped[0] = vgl_bt3_gxm_skipped[1] = 0;
+                                { extern int gVitaUpProf; extern unsigned gVitaUpCat[8][2], gVitaKeyProf[2]; if (gVitaUpProf) { logf_("vita:   uploads by the way they went (count / us): small same %u/%u, small written %u/%u, large same %u/%u, large by the block %u/%u, large not by the block %u/%u, left out %u/%u, film %u/%u, other %u/%u | texture lookups %u/%u\n", gVitaUpCat[0][0], gVitaUpCat[0][1], gVitaUpCat[1][0], gVitaUpCat[1][1], gVitaUpCat[2][0], gVitaUpCat[2][1], gVitaUpCat[3][0], gVitaUpCat[3][1], gVitaUpCat[4][0], gVitaUpCat[4][1], gVitaUpCat[5][0], gVitaUpCat[5][1], gVitaUpCat[6][0], gVitaUpCat[6][1], gVitaUpCat[7][0], gVitaUpCat[7][1], gVitaKeyProf[0], gVitaKeyProf[1]); memset(gVitaUpCat, 0, sizeof(gVitaUpCat)); memset(gVitaKeyProf, 0, sizeof(gVitaKeyProf)); } }
+                                { extern unsigned gVitaDest[7]; if (gVitaDest[0] | gVitaDest[2] | gVitaDest[3]) { logf_("vita:   uploads' destinations (updest): %u uploads found the same there, rectangles' numbers %u kept, %u worked out; texture keys %u from a destination, %u checked, %u wrong; %u destinations found changed\n", gVitaDest[0], gVitaDest[1], gVitaDest[2], gVitaDest[3], gVitaDest[4], gVitaDest[5], gVitaDest[6]); memset(gVitaDest, 0, sizeof(gVitaDest)); } }
+                                { extern unsigned gVitaBind[8]; if (gVitaBind[0] | gVitaBind[1] | gVitaBind[6] | gVitaBind[7]) { logf_("vita:   textures bound by their names (texbind): %u found by the names, %u bindings made, %u checked, %u wrong (%u of them other contents); %u destinations unbound by another's write, %u lookups in no destination, %u bindings found lost\n", gVitaBind[0], gVitaBind[1], gVitaBind[2], gVitaBind[3], gVitaBind[4], gVitaBind[5], gVitaBind[6], gVitaBind[7]); memset(gVitaBind, 0, sizeof(gVitaBind)); } }
+                                { extern unsigned gVitaEsDirectN[2]; if (gVitaEsDirectN[0]) { logf_("vita:   the seam's call packets the direct way (esdirect): %u\n", gVitaEsDirectN[0]); memset(gVitaEsDirectN, 0, sizeof(gVitaEsDirectN)); } }
+                                { extern unsigned gVitaSeaVtxN[4]; if (gVitaSeaVtxN[0] | gVitaSeaVtxN[3]) { logf_("vita:   the surfaces' corners once (seavtx): %u triangles from them, %u corners worked out, %u found worked out, %u meshes numbered\n", gVitaSeaVtxN[0], gVitaSeaVtxN[1], gVitaSeaVtxN[2], gVitaSeaVtxN[3]); memset(gVitaSeaVtxN, 0, sizeof(gVitaSeaVtxN)); } }
+                                { extern unsigned gVitaDpFastN[3]; if (gVitaDpFastN[0]) { logf_("vita:   kept parts the quick way (dpfast): %u parts\n", gVitaDpFastN[0]); memset(gVitaDpFastN, 0, sizeof(gVitaDpFastN)); } }
+                                { extern unsigned gVitaQuadRunN[2], gVitaTriAg[2]; extern unsigned gVitaTriAgWhy[8]; if (gVitaQuadRunN[0] | gVitaTriAg[0] | gVitaTriAg[1] | gVitaTriAgWhy[7] | gVitaTriAgWhy[0]) { { extern unsigned gVitaTriAgWhy[8]; logf_("vita:   the effects as runs (fxrun): %u quad runs, %u quads in them; %u triangles of the runs into the additive groups (%u runs that could; not: %u no groups, %u target, %u blend, %u depth, %u date/fba, %u pad, %u tex moved, %u alpha)\n", gVitaQuadRunN[0], gVitaQuadRunN[1], gVitaTriAg[0], gVitaTriAg[1], gVitaTriAgWhy[0], gVitaTriAgWhy[1], gVitaTriAgWhy[2], gVitaTriAgWhy[3], gVitaTriAgWhy[4], gVitaTriAgWhy[5], gVitaTriAgWhy[6], gVitaTriAgWhy[7]); memset(gVitaTriAgWhy, 0, sizeof(gVitaTriAgWhy)); } memset(gVitaQuadRunN, 0, sizeof(gVitaQuadRunN)); memset(gVitaTriAg, 0, sizeof(gVitaTriAg)); } }
+                                { extern unsigned gVitaTexId[5]; if (gVitaTexId[0] | gVitaTexId[3] | gVitaTexId[4]) { logf_("vita:   textures named by the game (nativetex): %u uploads' numbers from their names, %u checked by their bytes, %u found changed, %u named first or anew, %u read by their bytes (found changed before)\n", gVitaTexId[0], gVitaTexId[1], gVitaTexId[2], gVitaTexId[3], gVitaTexId[4]); memset(gVitaTexId, 0, sizeof(gVitaTexId)); } }
+                                logf_("vita:   uploads' numbers on the fourth core: %u worked out (%u ms), %u left to the drawing thread (too many waiting), %u dropped (late)\n",
+                                      gVitaFeHelp[0], gVitaFeHelp[1] / 1000, gVitaFeHelp[2], gVitaFeHelp[3]);
+                                memset(gVitaFeHelp, 0, sizeof(gVitaFeHelp));
+                            }
+                            {   /* (and which GS field the kept parts found in another state differed in first, the three most) */
+                                extern unsigned gVitaDpMiss[34];
+                                unsigned best[3] = {0, 0, 0}, bi[3] = {0, 0, 0}, i2, j2, k2;
+                                for (i2 = 0; i2 < 34; i2++) {
+                                    for (j2 = 0; j2 < 3; j2++) {
+                                        if (gVitaDpMiss[i2] > best[j2]) {
+                                            for (k2 = 2; k2 > j2; k2--) {
+                                                best[k2] = best[k2 - 1];
+                                                bi[k2] = bi[k2 - 1];
+                                            }
+                                            best[j2] = gVitaDpMiss[i2];
+                                            bi[j2] = i2;
+                                            break;
+                                        }
+                                    }
+                                }
+                                extern unsigned gVitaDpRefWhy[4], gVitaDpBadWhy[4];
+                                logf_("vita:   kept parts walked: %u not to be recorded (off, or their indices' room full), %u refused before; %u refused now as changing"
+                                      " | found in another state, by field: %u x %u, %u x %u, %u x %u | not kept: %u vertices being written, %u a strip that cannot be;"
+                                      " %u a GS primitive in it, %u an image upload, %u a register, %u another reason\n",
+                                      gVitaDpWalk[0], gVitaDpWalk[1], gVitaDpWalk[2], bi[0], best[0], bi[1], best[1], bi[2], best[2], gVitaDpRefWhy[0], gVitaDpRefWhy[1],
+                                      gVitaDpBadWhy[0], gVitaDpBadWhy[1], gVitaDpBadWhy[2], gVitaDpBadWhy[3]);
+                                {   extern unsigned gVitaDpEndWhy[8];
+                                    if (gVitaDpBadWhy[3] != 0) {
+                                        logf_("vita:   kept parts not kept for another reason: %u nothing recorded, %u a strip not recordable, %u over 64 groups, %u indices beyond a bank,"
+                                              " %u the indices' room full, %u no memory, %u too many uniform blocks, %u a GIF loop open\n",
+                                              gVitaDpEndWhy[0], gVitaDpEndWhy[1], gVitaDpEndWhy[2], gVitaDpEndWhy[3], gVitaDpEndWhy[4], gVitaDpEndWhy[5], gVitaDpEndWhy[6], gVitaDpEndWhy[7]);
+                                    }
+                                    memset(gVitaDpEndWhy, 0, sizeof(gVitaDpEndWhy));
+                                }
+                                memset(gVitaDpRefWhy, 0, sizeof(gVitaDpRefWhy));
+                                memset(gVitaDpBadWhy, 0, sizeof(gVitaDpBadWhy));
+                                if (!gVitaPerfOn) {
+                                    memset(gVitaDpMiss, 0, sizeof(gVitaDpMiss));
+                                }
+                            }
+                            memset(gVitaDpWalk, 0, sizeof(gVitaDpWalk));
+                        }
+                    }
                     {
                         extern unsigned gVglUs[6], gVglCalls[6];
                         logf_("vita:   per picture, us (calls): vertex-program calls %u (%u), of them strips %u (%u); state %u (%u); GS primitives %u (%u); to the chip %u (%u); swap %u (%u)\n",
@@ -710,14 +798,23 @@ void Vita_VBlank(unsigned vblanks) {
                         memset(gVglCalls, 0, sizeof(gVglCalls));
                     }
                     {
-                        extern unsigned gProfHist[2][12], gProfGameHist[3], gVitaUnpackSkipped, gVitaWaitSkips, gVitaSnap[2];
-                        static const char *const kName[10] = {"idle", "list", "unpack", "GS packets", "uploads", "program calls", "strips", "to the chip", "swap", "GS primitives"};
-                        char line[400];
+                        extern unsigned gProfHist[2][16], gProfGameHist[3], gVitaUnpackSkipped, gVitaWaitSkips, gVitaSnap[2];
+                        static const char *const kName[13] = {"idle", "list", "unpack", "GS packets", "uploads", "program calls", "strips", "to the chip", "swap", "GS primitives",
+                                                              "chip strips", "kept drawn", "kept walked"};
+                        char line[700];
                         int n = 0, k;
-                        for (k = 0; k < 10; k++) {
-                            n += snprintf(line + n, sizeof(line) - (size_t)n, "%s %u/%u%s", kName[k], gProfHist[0][k], gProfHist[1][k], k < 9 ? ", " : "");
+                        for (k = 0; k < 13; k++) {
+                            n += snprintf(line + n, sizeof(line) - (size_t)n, "%s %u/%u%s", kName[k], gProfHist[0][k], gProfHist[1][k], k < 12 ? ", " : "");
                         }
                         logf_("vita:   picture thread, ms in frames not drawn / drawn: %s | %u vectors per blank not unpacked\n", line, gVitaUnpackSkipped / vb);
+                        {   /* (the list reader's and the render thread's own, counted apart since: the line above had them mixed in) */
+                            extern unsigned gProfHistFe[12], gProfHistRt[12];
+                            logf_("vita:   list reader, ms: idle %u, list %u, unpack %u, GS packets %u, program calls %u, other %u | render thread, ms: idle %u, to the chip %u\n",
+                                  gProfHistFe[0], gProfHistFe[1], gProfHistFe[2], gProfHistFe[3], gProfHistFe[5],
+                                  gProfHistFe[4] + gProfHistFe[6] + gProfHistFe[7] + gProfHistFe[8] + gProfHistFe[9] + gProfHistFe[10] + gProfHistFe[11], gProfHistRt[0], gProfHistRt[7]);
+                            memset(gProfHistFe, 0, sizeof(gProfHistFe));
+                            memset(gProfHistRt, 0, sizeof(gProfHistRt));
+                        }
                         extern unsigned gVitaSnapSame2[2];
                         logf_("vita:   game thread, ms: running %u, waiting for the blank %u, waiting for the picture thread %u | %u lists not drawn for that wait | %u pieces (%u bytes) copied for the lists"
                               " | images read in place as unchanged %u, copied %u\n",
@@ -1014,6 +1111,7 @@ void Vita_VBlank(unsigned vblanks) {
                                         }
                                     }
                                 }
+                                { extern unsigned gVitaEs[6], gVitaEsGens[2]; if (gVitaEs[0] | gVitaEs[1] | gVitaEs[3] | gVitaEs[4]) { logf_("vita:   engine seam (native): %u calls sent from their copies, %u read the long way, %u kept, %u to the cache (table full), %u of an old generation, %u places taken over; generations %u of the stage, %u of the models\n", gVitaEs[0], gVitaEs[1], gVitaEs[2], gVitaEs[3], gVitaEs[4], gVitaEs[5], gVitaEsGens[0], gVitaEsGens[1]); memset(gVitaEs, 0, sizeof(gVitaEs)); } } /* (the seam's line with the counters: printed above without libperf) */
                                 {
                                     extern unsigned long long gVitaWall[6];
                                     logf_("vita:   drawing thread, wall ms in this stretch: swap %u, buffer maps %u, draw calls %u, new textures %u, asleep waiting for work %u; fighter glDrawElements alone %u\n",
@@ -1335,6 +1433,7 @@ static void find_disc(void) {
 static void read_settings(void) {
     FILE *fp = fopen(HOME "/bt3.txt", "r");
     char line[400];
+    int sweepSet = 0;
 
     if (fp == NULL) {
         return;
@@ -1372,6 +1471,7 @@ static void read_settings(void) {
             sMode = strcmp(eq, "demo") == 0;
         } else if (strcmp(line, "sweep") == 0) {
             sSweepSec = atoi(eq);
+            sweepSet = 1;
         } else if (strcmp(line, "texearly") == 0) { /* 0: a new texture waits for the render thread before its pixels are read (vita_vgl.c) */
             extern int gVitaTexEarly;
             gVitaTexEarly = atoi(eq);
@@ -1574,6 +1674,94 @@ static void read_settings(void) {
             if (atoi(eq) != 0) {
                 setenv("BT3_SOAK", "1", 1);
             }
+        } else if (strcmp(line, "soakstages") == 0) { /* the soak's stages in turn: ids and ranges, "0-34" or "1,6,0x10" */
+            setenv("BT3_SOAK_STAGES", eq, 1);
+        } else if (strcmp(line, "ccsize") == 0) { /* the replayed calls' places (gs_core.c cc_find): a power of two, 2048 .. 16384 */
+            extern int gVitaCcBits;
+            int n = atoi(eq), b = 11;
+            while (b < 14 && (1 << b) < n) {
+                b++;
+            }
+            gVitaCcBits = b;
+        } else if (strcmp(line, "ccevict") == 0) { /* 0: a replayed call's place is never given up (as before; gs_core.c cc_find) */
+            extern int gVitaCcEvict;
+            gVitaCcEvict = atoi(eq) != 0;
+        } else if (strcmp(line, "dppick") == 0) { /* 0: a kept part's place is its number's, taken or not (as before; gs_core.c dp_pick_serial) */
+            extern int gVitaDpPick;
+            gVitaDpPick = atoi(eq) != 0;
+        } else if (strcmp(line, "dpslots") == 0) { /* the kept parts' places: a power of two, 1024 (as before) to 8192 (gs_core.c dp_alloc) */
+            extern int gVitaDpSlots;
+            int v = atoi(eq), n = 1024;
+            while (n < v && n < 8192) {
+                n *= 2;
+            }
+            gVitaDpSlots = n;
+        } else if (strcmp(line, "fehelper") == 0) { /* the uploads' numbers on the fourth core: 0 off, 1 on, 2 on in the soak's B battles (gs_core.c) */
+            extern int gVitaFeHelper;
+            gVitaFeHelper = atoi(eq);
+        } else if (strcmp(line, "gxmcache") == 0) { /* vitaGL's GXM state calls left out when they change nothing: 0 off, 1 on, 2 in the soak's B battles */
+            extern int gVitaGxmCache;
+            gVitaGxmCache = atoi(eq);
+        } else if (strcmp(line, "dpsplit") == 0) { /* kept parts' stage strips grouped by their bank too: 0 off, 1 on, 2 in the soak's B battles (vita_vgl.c GsGpu_DpCapEnd) */
+            extern int gVitaDpSplit;
+            gVitaDpSplit = atoi(eq);
+        } else if (strcmp(line, "dpframe") == 0) { /* kept parts matched with FRAME's buffer as "the picture": 0 off, 1 on, 2 in the soak's B battles (gs_core.c dp_norm) */
+            extern int gVitaDpFrame;
+            gVitaDpFrame = atoi(eq);
+        } else if (strcmp(line, "exitafter") == 0) { /* the program ends itself after that many seconds, its log written (test runs) */
+            gVitaExitAfter = atoi(eq);
+        } else if (strcmp(line, "native") == 0) { /* the engine seam: the stage's meshes named by the game, kept for the stage's life: 0 off, 1 on (default), 2 in the soak's B battles (gs_marker.c, gs_core.c es_find) */
+            extern int gVitaNative;
+            gVitaNative = atoi(eq);
+        } else if (strcmp(line, "fxrun") == 0) { /* the effects as runs: quad particles decoded as triangle runs, triangle runs into the additive groups: 0 off, 1 on (default), 2 in the soak's B battles (gs_core.c quad_run, vita_vgl.c GsGpu_DrawTriRun) */
+            extern int gVitaFxRun;
+            gVitaFxRun = atoi(eq);
+        } else if (strcmp(line, "dpfast") == 0) { /* kept parts drawn with what does not change worked out once, their textures remembered while GS memory is the same: 0 off, 1 on (default), 2 in the soak's B battles (vita_vgl.c GsGpu_DpDraw) */
+            extern int gVitaDpFast;
+            gVitaDpFast = atoi(eq);
+        } else if (strcmp(line, "updest") == 0) { /* native textures, step 2: each upload's destination remembers what it left there; the texture keys take the rectangle's number from it: 0 off, 1 on (default), 2 in the soak's B battles (gs_core.c Gs_DestRect) */
+            extern int gVitaUpDest;
+            gVitaUpDest = atoi(eq);
+        } else if (strcmp(line, "seavtx") == 0) { /* the surfaces' (the sea's) corners tested and projected once a frame each, not once for each of their triangles: 0 off, 1 on (default), 2 in the soak's B battles (src/battle/eft_c.c sea_tri) */
+            extern int gVitaSeaVtx;
+            gVitaSeaVtx = atoi(eq);
+        } else if (strcmp(line, "esdirect") == 0) { /* the seam's call packets of the models' parts done as what they are (their constants into VU memory, the program's registers) instead of read code by code: 0 off (default), 1 on, 2 in the soak's B battles (gs_core.c es_direct) */
+            extern int gVitaEsDirect;
+            gVitaEsDirect = atoi(eq);
+        } else if (strcmp(line, "texbind") == 0) { /* native textures, step 3: textures bound by the names of what their destinations hold, a destination unbound at another's write: 0 off, 1 on (default), 2 in the soak's B battles (gs_core.c Gs_TexNames, vita_vgl.c texture_get_k) */
+            extern int gVitaTexBind;
+            gVitaTexBind = atoi(eq);
+        } else if (strcmp(line, "updestlog") == 0) {
+            extern int gVitaUpDestLog;
+            gVitaUpDestLog = atoi(eq);
+        } else if (strcmp(line, "upprof") == 0) { /* a measuring run: every upload timed by the way it went, and the texture lookups (gs_core.c transfer_data) */
+            extern int gVitaUpProf;
+            gVitaUpProf = atoi(eq);
+        } else if (strcmp(line, "nativetex") == 0) { /* the stage's and the fighters' textures named by the game: their uploads' numbers not worked out from their bytes each time: 0 off, 1 on (default), 2 in the soak's B battles (gs_marker.c, gs_core.c texid_hash) */
+            extern int gVitaNativeTex;
+            gVitaNativeTex = atoi(eq);
+        } else if (strcmp(line, "nativetexcheck") == 0) { /* a named texture's bytes read again every n-th upload (default 128; 0 never) */
+            extern int gVitaTexCheck;
+            gVitaTexCheck = atoi(eq);
+        } else if (strcmp(line, "nativecheck") == 0) { /* the engine seam's meshes read again the long way every n-th call (default 512; 0 never) */
+            extern int gVitaEsCheck;
+            gVitaEsCheck = atoi(eq);
+        } else if (strcmp(line, "fxlow") == 0) { /* the screen-filling additive effects drawn at a lower resolution and added: 0 off (as before), 1 on (default), 2 in the soak's B battles (vita_vgl.c) */
+            extern int gVitaFxLow;
+            gVitaFxLow = atoi(eq);
+        } else if (strcmp(line, "fxlowmin") == 0) { /* the screens (of 512 x 448) an additive group covers at least to be drawn smaller (default 2) */
+            extern float gVitaFxLowMin;
+            gVitaFxLowMin = (float)atof(eq);
+        } else if (strcmp(line, "fxlowdiv") == 0) { /* the smaller picture: the view's size / this each way, 2 to 4 (default 2) */
+            extern int gVitaFxLowDiv;
+            gVitaFxLowDiv = atoi(eq);
+        } else if (strcmp(line, "soakab") == 0) { /* each soak battle twice, the settings of value 2 off then on (headless.c) */
+            setenv("BT3_SOAK_AB", eq, 1);
+        } else if (strcmp(line, "dpbank") == 0) { /* 0: the stage's kept groups only from the stage buffer's first 2 MB (as before; vita_vgl.c gVitaDpBank) */
+            extern int gVitaDpBank;
+            gVitaDpBank = atoi(eq) != 0;
+        } else if (strcmp(line, "soakduel") == 0) { /* 1: the soak's battles all duels (the same work on every stage) */
+            setenv("BT3_SOAK_DUEL", eq, 1);
         } else if (strcmp(line, "pgoname") == 0) { /* (a BT3_PGO=gen build) its counts in pgo/<name>.pgo (vita_pgo.c) */
             extern char gVitaPgoName[32];
             int k;
@@ -1621,6 +1809,11 @@ static void read_settings(void) {
         logf_("vita: setting %s=%s\n", line, eq);
     }
     fclose(fp);
+    if (getenv("BT3_SOAK") != NULL && !sweepSet) {
+        /* the soak goes from battle to battle itself: the sweep's start again after 32 s would put it back to its first
+           battle every time (a sweep= line still has its say) */
+        sSweepSec = 0;
+    }
 }
 
 static void start_screen(void) {
@@ -1716,6 +1909,12 @@ SceUID Vita_ThreadOnCore3(const char *name, SceKernelThreadEntry entry, int prio
         th = sceKernelCreateThread(name, entry, prio, stack, 0, fallbackMask, NULL);
     }
     return th;
+}
+
+/* For the menus (Options > Controller, the "Vita Settings" row's guide line): 1 the fourth core takes our threads
+   (the CapUnlocker plugin is in), 0 it does not, -1 not tried yet. */
+int Vita_Core3State(void) {
+    return gVitaCore3;
 }
 
 /* The threads that matter, as the system sees them (for the log): processor time, where they ran, how often
@@ -1932,6 +2131,16 @@ int __wrap_main(int argc, char **argv) {
     sceIoMkdir("ux0:data", 0777);
     sceIoMkdir(HOME, 0777);
     sceIoMkdir(HOME "/mods", 0777); /* (where mods go: vita_file.c) */
+#ifdef PORT_VITA_RELEASE
+    {   /* the released program's log, appended to at every start, kept under 1 MB: a longer one becomes log-prev.txt
+           (the one before it is let go) and this run starts a new one */
+        SceIoStat st;
+        if (sceIoGetstat(HOME "/log" SFX, &st) >= 0 && st.st_size > 1024 * 1024) {
+            sceIoRemove(HOME "/log-prev" SFX);
+            sceIoRename(HOME "/log" SFX, HOME "/log-prev" SFX);
+        }
+    }
+#endif
     sLog = fopen(HOME "/log" SFX, "a");
     logf_("\n======== new run ========\n");
     {   /* the parts of a log split before (logsplit=): this run's own, if any, are made anew */

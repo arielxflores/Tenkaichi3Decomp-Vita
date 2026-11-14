@@ -139,6 +139,7 @@ int __wrap_Progress_Main(int arg) {
    three against three with a quarter of the health,
    whose fighters are knocked out and replaced quickly (a new model loaded each time), over the attract demo's
    characters, those with a seam (Videl, the Great Saiyaman, Hercule and others) and the demo's stages. */
+int gVitaAbSide = -1; /* the soak's A/B side (soakab=1): 0 A, 1 B; -1 no A/B */
 int Port_SoakNext(int first) {
     static const int kChara[] = {0xA, 0x93, 0x38, 0x2A, 0x6C, 0x37, 0x19, 0x5C, 0x39, 0x27, 0x60, 0x6E, 0x17, 0x6F, 0x86,
                                  0x49, 0x5B, 0, 0x1E, 0x32, 0x72, 5, 0x25};
@@ -151,8 +152,50 @@ int Port_SoakNext(int first) {
     extern void BattleSetup_Finish(void);
     extern int CpuLevel_FromSetting(unsigned setting);
     extern void Vita_Log(const char *fmt, ...);
+    /* bt3.txt soakstages=<ids and ranges>: these stages in turn instead of the demo's (a speed survey of the stages);
+       soakduel=1: duels only, so that every stage is measured with the same work */
+    static int sStages[64], sStageN = -1;
     const int nc = (int)(sizeof(kChara) / sizeof(kChara[0]));
-    int team = n & 1, members = team ? 3 : 1, stage = kStage[n % (int)(sizeof(kStage) / sizeof(kStage[0]))], i, k;
+    int duelOnly = getenv("BT3_SOAK_DUEL") != NULL && atoi(getenv("BT3_SOAK_DUEL")) != 0;
+    /* bt3.txt soakab=1: each battle twice in a row, the same stage and fighters, the second time with the settings
+       given the value 2 on (gVitaAbSide 1; fehelper=2, ...): a change measured against itself in one run */
+    int ab = getenv("BT3_SOAK_AB") != NULL && atoi(getenv("BT3_SOAK_AB")) != 0;
+    int team, members, stage, i, k, n0 = n;
+    extern int gVitaAbSide;
+
+    if (sStageN < 0) {
+        const char *s = getenv("BT3_SOAK_STAGES");
+        char *e;
+        sStageN = 0;
+        while (s != NULL && *s != '\0' && sStageN < 64) {
+            long a = strtol(s, &e, 0), b = a;
+            if (e == s) {
+                break;
+            }
+            if (*e == '-') {
+                const char *t = e + 1;
+                b = strtol(t, &e, 0);
+                if (e == t) {
+                    b = a;
+                }
+            }
+            for (; a <= b && sStageN < 64; a++) {
+                sStages[sStageN++] = (int)a;
+            }
+            s = e;
+            while (*s == ',' || *s == ' ') {
+                s++;
+            }
+        }
+    }
+    if (ab) { /* (A first in one round of the stages, B first in the next: the second battle on a stage starts with what
+                  the first left, and a B always second measured that too) */
+        n = n0 / 2;
+        gVitaAbSide = (n0 & 1) ^ ((n / (sStageN > 0 ? sStageN : (int)(sizeof(kStage) / sizeof(kStage[0])))) & 1);
+    }
+    team = duelOnly ? 0 : n & 1;
+    members = team ? 3 : 1;
+    stage = sStageN > 0 ? sStages[n % sStageN] : kStage[n % (int)(sizeof(kStage) / sizeof(kStage[0]))];
 
     if (first) {
         extern int File_LoadPartitionNw(int pt);
@@ -171,9 +214,9 @@ int Port_SoakNext(int first) {
         }
     }
     BattleSetup_Finish();
-    Vita_Log("soak: battle %d, %s on stage %d: %d against %d\n", n, team ? "three against three" : "a duel", stage,
-             kChara[(n * 5) % nc], kChara[(n * 5 + 3) % nc]);
-    n++;
+    Vita_Log("soak: battle %d, %s on stage %d: %d against %d%s\n", n0, team ? "three against three" : "a duel", stage,
+             kChara[(n * 5) % nc], kChara[(n * 5 + 3) % nc], !ab ? "" : gVitaAbSide ? " (side B: the settings of value 2 on)" : " (side A: the settings of value 2 off)");
+    n = n0 + 1;
     return 0;
 }
 #endif

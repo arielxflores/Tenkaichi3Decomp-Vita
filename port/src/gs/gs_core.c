@@ -183,7 +183,7 @@ unsigned gVitaUp[5];     /* pixels written one by one, written by the block, not
    written first (blk_real). A block written pixel by pixel takes its id from its content when asked (dirty).
    gGsEpoch counts every change, so that a key need not be made twice for the same state. ---- */
 typedef struct Up { uint64_t hash; uint32_t len, seen; uint8_t *data; } Up;
-typedef struct Blk { uint32_t id, off; uint16_t up, stride; uint8_t bits, dirty; } Blk;
+typedef struct Blk { uint32_t id, off; uint16_t up, stride; uint8_t bits, dirty; uint16_t dest; } Blk; /* dest: the upload's destination (sDest + 1), 0 none */
 #ifndef UP_MAX
 #define UP_MAX 3072
 #define UP_BYTES_MAX (16u << 20)
@@ -387,7 +387,8 @@ static uint64_t up_hash_quick_q(UpQ *qs, const uint8_t *src, uint32_t len) {
    drawing thread takes a number when the place, the length and the list agree (a seqlock: the reader may be at the
    next list already), and works it out itself otherwise. */
 typedef struct FeHash { volatile uint32_t seq; const uint8_t *p; uint32_t len; uint64_t hash; } FeHash;
-static FeHash sFeHash[4096];
+static FeHash sFeHash[16384]; /* (4,096 places for four lists each; were 1,024: ~60,000 numbers in a test's 15 minutes found their
+                                 place another upload's and were worked out by the drawing thread) */
 /* the slot of an upload's data: by all of its address. With the low bits alone (address / 16 mod 2048)
    every texture 32 KB apart from another took the same slot, and the textures of the effects lie at such addresses:
    in the busiest stretches the drawing thread worked out 1,400 to 2,500 numbers itself.
@@ -395,7 +396,7 @@ static FeHash sFeHash[4096];
    the drawing thread when that one is slow, and the same texture sent from the same place in the next list took the
    slot before the drawing thread had read it (nearly all of what it still worked out was "another list's") */
 static inline FeHash *fe_slot_seq(const uint8_t *d, uint32_t seq) {
-    return &sFeHash[(((uint32_t)(uintptr_t)d * 0x9E3779B1u) >> 22 << 2) | (seq & 3)];
+    return &sFeHash[(((uint32_t)(uintptr_t)d * 0x9E3779B1u) >> 20 << 2) | (seq & 3)];
 }
 static UpQ sUpQFe;
 static uint32_t sFeListSeq = 1;   /* the list reader: the list it reads (numbered from 1) */
@@ -403,6 +404,175 @@ static uint32_t sBeListSeq;       /* the drawing thread: the list it draws */
 static uint32_t sFeGifLeft;       /* the list reader: quadwords of the GIF packet's data still to come */
 unsigned gVitaFeMiss[4];
 unsigned gVitaFeHash[3];          /* for the log: numbers worked out ahead, taken, worked out by the drawing thread */
+static void fe_publish(const uint8_t *d, uint32_t len, uint64_t h, uint32_t seq) {
+    FeHash *e = fe_slot_seq(d, seq);
+    e->seq = 0;
+    __sync_synchronize();
+    e->p = d;
+    e->len = len;
+    e->hash = h;
+    __sync_synchronize();
+    e->seq = seq;
+}
+#ifdef PORT_VITA
+/* The numbers worked out on the fourth core (with the CapUnlocker plugin), which the render thread leaves mostly
+   idle, instead of by the list reader, whose core is as busy as the drawing thread's in a fight: the reader hands
+   each one over (place, length, list) and goes on. A number not ready when the drawing thread wants it is worked out
+   there as before (up_hash_quick); one whose data the reader copied into the queue is published only if the drawing
+   thread had not reached that record yet when it was done (the bytes were still those). At most 64 wait: past
+   that (the system stops the fourth core now and then) the drawing thread works them out itself (the reader does
+   not: two threads writing one slot could leave an upload's place with another's number).
+   bt3.txt fehelper=0: off; fehelper=2: on in every other soak battle (soakab=1). Not without the fourth core. */
+int gVitaFeHelper = 1;
+extern int gVitaAbSide;
+static volatile unsigned sGrHead, sGrTail; /* (below, with the queue) */
+int Port_InGr(const void *p);
+typedef struct FeJob { const uint8_t *d; uint32_t len, seq, at; uint32_t inGr, ready; uint64_t h; } FeJob; /* ready: h is the number already (a texture named by the game) */
+/* (at the render thread's priority, the highest an application's thread can have (60 was refused: the helper
+   was not made, the reader worked the numbers out as before), asleep on a semaphore when there is nothing: below
+   it, with 64 waiting at most, the drawing thread found a number not ready 4.7 times as often as the reader alone had left it, and worked
+   out the rest itself: its uploads' part 60-90 ms a 2 s longer in an A/B test) */
+#define FEJ_N 512
+#define FEJ_MAX 384
+static SceUID sFeSema = -1;
+static volatile int sFeSleep;
+static FeJob sFeJob[FEJ_N];
+static volatile unsigned sFeJobPut, sFeJobGot;
+static volatile int sFeHelperUp; /* 1 the thread runs, -1 it could not be (or not on the fourth core) */
+static UpQ sUpQHelp;             /* (the helper's own: sUpQFe stays the reader's) */
+unsigned gVitaFeHelp[4];         /* for the log: numbers worked out by the helper, its microseconds, not handed over (too many waiting), dropped (late) */
+static int fe_helper_thread(SceSize args, void *argp) {
+    extern unsigned long long sceKernelGetProcessTimeWide(void);
+    unsigned idle = 0;
+    (void)args; (void)argp;
+    for (;;) {
+        unsigned got = sFeJobGot;
+        if (got != sFeJobPut) {
+            const FeJob *j = &sFeJob[got % FEJ_N];
+            const uint8_t *d = j->d;
+            uint32_t len = j->len, seq = j->seq, at = j->at, inGr = j->inGr;
+            __sync_synchronize();
+            idle = 0;
+            if (seq + 3 < sFeListSeq || (sBeListSeq != 0 && sBeListSeq > seq) || (inGr && (int)(sGrHead - at) > 0)) {
+                gVitaFeHelp[3]++; /* (late: the drawing thread is there or past it) */
+            } else {
+                unsigned long long t0 = sceKernelGetProcessTimeWide();
+                uint64_t h = j->ready ? j->h : up_hash_quick_q(&sUpQHelp, d, len);
+                __sync_synchronize();
+                if (inGr && (int)(sGrHead - at) > 0) {
+                    gVitaFeHelp[3]++; /* (the bytes may have been read by the drawing thread meanwhile, or be others now) */
+                } else {
+                    fe_publish(d, len, h, seq);
+                    gVitaFeHelp[0]++;
+                }
+                gVitaFeHelp[1] += (unsigned)(sceKernelGetProcessTimeWide() - t0);
+            }
+            __sync_synchronize();
+            sFeJobGot = got + 1;
+        } else if (++idle > 200) { /* (nothing: asleep until the reader hands one over) */
+            sFeSleep = 1;
+            __sync_synchronize();
+            if (sFeJobGot == sFeJobPut) {
+                sceKernelWaitSema(sFeSema, 1, NULL);
+            }
+            sFeSleep = 0;
+            idle = 0;
+        }
+    }
+    return 0;
+}
+static int fe_helper_use(void) {
+    if (gVitaFeHelper == 0 || (gVitaFeHelper == 2 && gVitaAbSide != 1) || sFeHelperUp < 0) {
+        return 0;
+    }
+    if (sFeHelperUp == 0) {
+        extern int gVitaCore3;
+        extern SceUID Vita_ThreadOnCore3(const char *name, SceKernelThreadEntry entry, int prio, int stack, int fallbackMask);
+        extern void Vita_Log(const char *fmt, ...);
+        SceUID th = -1;
+        sFeSema = sceKernelCreateSema("bt3_fehash", 0, 0, 1, NULL);
+        if (gVitaCore3 == 1 && sFeSema >= 0) {
+            th = Vita_ThreadOnCore3("bt3_fehash", fe_helper_thread, 64, 0x4000, 0);
+        }
+        if (th < 0) {
+            Vita_Log("gs: the uploads' numbers' helper not made (%08x, semaphore %08x)\n", (unsigned)th, (unsigned)sFeSema);
+        }
+        sFeHelperUp = th >= 0 && gVitaCore3 == 1 && sceKernelStartThread(th, 0, NULL) >= 0 ? 1 : -1;
+        Vita_Log("gs: the uploads' numbers %s\n", sFeHelperUp > 0 ? "worked out on the fourth core" : "worked out by the list reader (no fourth core)");
+    }
+    return sFeHelperUp > 0;
+}
+#endif
+#ifdef PORT_VITA
+/* ---- Textures named by the game (port/src/gs_marker.c, bt3.txt nativetex): the upload in the DMA tag after a
+   BITBLTBUF packet with the seam's texture MARK comes from the stage's or a fighter's texture file, whose bytes stay
+   as they were loaded while their generation (in the MARK) is the same. Its number is the one worked out (all its
+   bytes, up_hash) the first time that place and length came with that generation; every gVitaTexCheck-th time it is
+   worked out again and compared: a texture found changed is read as before (its bytes sampled) from then on. */
+static uint32_t sFeTexMark;      /* the list reader: the texture MARK for the DMA tag being read (0 none) */
+static uint32_t sTexMarkNext;    /* (the MARK of the tag before, for the next one: the BITBLTBUF packet's, for the pixels) */
+int gVitaTexCheck = 128;         /* bt3.txt nativetexcheck: a named texture's bytes read again every n-th upload (0 never) */
+unsigned gVitaTexId[5];          /* for the log: numbers taken from the names, checked, found changed, named first or anew, read by their bytes (found changed before) */
+typedef struct TexId { const uint8_t *p; uint32_t len, mark, uses; uint64_t h; uint8_t bad; } TexId;
+#define TEXID_N 8192
+static TexId *sTexId;
+static int texid_hash(const uint8_t *d, uint32_t len, uint32_t mark, uint64_t *h) {
+    uint32_t k = ((uint32_t)(uintptr_t)d * 0x9E3779B1u ^ len * 0x85EBCA6Bu) >> 19, i;
+    TexId *e = NULL;
+    if (sTexId == NULL) {
+        sTexId = (TexId *)calloc(TEXID_N, sizeof(TexId));
+        if (sTexId == NULL) {
+            return 0;
+        }
+    }
+    for (i = 0; i < 8; i++) {
+        TexId *c = &sTexId[(k + i) & (TEXID_N - 1)];
+        if (c->p == d && c->len == len) {
+            e = c;
+            break;
+        }
+        if (e == NULL && c->p == NULL) {
+            e = c;
+        }
+    }
+    if (e == NULL) {
+        e = &sTexId[k & (TEXID_N - 1)]; /* (eight places taken: the first is given to this one) */
+    }
+    if (e->p != d || e->len != len || e->mark != mark) { /* (first seen, or another generation: the bytes read once) */
+        e->p = d;
+        e->len = len;
+        e->mark = mark;
+        e->uses = 0;
+        e->bad = 0;
+        e->h = up_hash(d, len);
+        gVitaTexId[3]++;
+        *h = e->h;
+        return 1;
+    }
+    if (e->bad) {
+        gVitaTexId[4]++;
+        return 0;
+    }
+    if (gVitaTexCheck > 0 && ++e->uses % (unsigned)gVitaTexCheck == 0) {
+        uint64_t h2 = up_hash(d, len);
+        gVitaTexId[1]++;
+        if (h2 != e->h) {
+            extern void Vita_Log(const char *fmt, ...);
+            static unsigned lines;
+            gVitaTexId[2]++;
+            e->bad = 1;
+            if (lines < 50) {
+                lines++;
+                Vita_Log("gs: a named texture changed: %u bytes at %p (mark %04x), list %u: read by its bytes from now on\n", len, (const void *)d, (unsigned)(mark & 0xFFFF), sFeListSeq);
+            }
+            return 0;
+        }
+    }
+    gVitaTexId[0]++;
+    *h = e->h;
+    return 1;
+}
+#endif
 static void fe_hash_gif(const uint8_t *p, uint32_t qwc, int keep) {
     uint32_t q = 0;
     if (sFeGifLeft >= qwc) {
@@ -423,17 +593,53 @@ static void fe_hash_gif(const uint8_t *p, uint32_t qwc, int keep) {
         q++;
         if (keep && flg >= 2 && nloop >= 128 && q + dq <= qwc) {
             const uint8_t *d = p + (size_t)q * 16;
-            FeHash *e = fe_slot_seq(d, sFeListSeq);
-            uint64_t h = up_hash_quick_q(&sUpQFe, d, nloop * 16);
-            e->seq = 0;
-            __sync_synchronize();
-            e->p = d;
-            e->len = nloop * 16;
-            e->hash = h;
-            __sync_synchronize();
-            e->seq = sFeListSeq;
+#ifdef PORT_VITA
+            uint64_t named = 0;
+            int isNamed = sFeTexMark != 0 && texid_hash(d, nloop * 16, sFeTexMark, &named);
+            if (isNamed && !fe_helper_use()) {
+                if (sFeHelperUp > 0 && sFeJobGot != sFeJobPut) {
+                    gVitaFeHelp[2]++; /* (the helper still at the last ones: one writer a slot; the drawing thread works it out) */
+                    goto next;
+                }
+                fe_publish(d, nloop * 16, named, sFeListSeq);
+                goto next;
+            }
+            if (fe_helper_use()) {
+                unsigned put = sFeJobPut;
+                if (put - sFeJobGot < FEJ_MAX) {
+                    FeJob *j = &sFeJob[put % FEJ_N];
+                    j->d = d;
+                    j->len = nloop * 16;
+                    j->seq = sFeListSeq;
+                    j->inGr = Port_InGr(d);
+                    j->at = sGrTail; /* (the record being made begins here: GsFE_GifHashed) */
+                    j->ready = (uint32_t)isNamed;
+                    j->h = named;
+                    __sync_synchronize();
+                    sFeJobPut = put + 1;
+                    __sync_synchronize();
+                    if (sFeSleep) { /* (asleep: woken; a system call, only then) */
+                        sFeSleep = 0;
+                        sceKernelSignalSema(sFeSema, 1);
+                    }
+                    gVitaFeHash[0]++;
+                    goto next;
+                }
+                gVitaFeHelp[2]++;
+                goto next; /* (not here either: two writers of one slot could leave one upload's place with another's
+                              number. The drawing thread works it out) */
+            }
+            if (sFeHelperUp > 0 && sFeJobGot != sFeJobPut) {
+                gVitaFeHelp[2]++; /* (the helper still at the last ones: as above) */
+                goto next;
+            }
+#endif
+            fe_publish(d, nloop * 16, up_hash_quick_q(&sUpQFe, d, nloop * 16), sFeListSeq);
             gVitaFeHash[0]++;
         }
+#ifdef PORT_VITA
+    next:
+#endif
         if (q + dq > qwc) {
             sFeGifLeft = q + dq - qwc;
             return;
@@ -533,13 +739,29 @@ static inline int psm_planes(uint32_t psm) {
     default: return 7;
     }
 }
+/* ---- The uploads' destinations (bt3.txt updest; with Gs_DestRect below), declared here for the block writes: a block
+   written by another than the destination that left it there unbinds that destination (sDestBok) at the write
+   (bt3.txt texbind; Gs_TexNames below). ---- */
+typedef struct UpDest { uint32_t dk, pos, size, rect, pg0, pgN, sig; uint64_t name; uint8_t valid, lazy, nblk; uint16_t blk[8]; } UpDest; /* lazy: its blocks taken note of (ids from its number), not written; nblk: a small one's blocks (blk), checked by their writes (sPlaneGen) instead of by the pages */
+static UpDest sDest[1024];
+static UpDest *sDestPend;        /* (the destination of the upload being made: its pages' numbers taken at its end) */
+static uint8_t sDestBok[1024];   /* (texbind) 1: nothing but its own upload wrote its blocks since it was made */
+unsigned gVitaBind[8];           /* for the log (texbind): texture lookups by their names, bindings made, checked, wrong; -, destinations unbound by another's write, lookups with no destination, bindings found lost */
+static inline void bind_touch(uint32_t b) {
+    uint32_t o = sBlk[b].dest;
+    if (o != 0 && sDestBok[o - 1] && (sDestPend == NULL || o != (uint32_t)(sDestPend - sDest) + 1u)) {
+        sDestBok[o - 1] = 0;
+        gVitaBind[5]++;
+    }
+}
 static inline void plane_bump(uint32_t b, int planes) {
     b &= 0x3FFF;
+    bind_touch(b);
     sPlaneGen[b][0] += (uint32_t)(planes & 1);
     sPlaneGen[b][1] += (uint32_t)(planes >> 1 & 1);
     sPlaneGen[b][2] += (uint32_t)(planes >> 2 & 1);
 }
-#define VRAM_TOUCH(n) do { uint32_t b_ = (n) & 0x3FFF; if (sBlk[b_].up != 0) { blk_real(b_); } if (write) { sBlk[b_].dirty = 1; plane_bump(b_, psm_planes(psm)); } } while (0)
+#define VRAM_TOUCH(n) do { uint32_t b_ = (n) & 0x3FFF; if (sBlk[b_].up != 0) { blk_real(b_); } if (write) { sBlk[b_].dirty = 1; plane_bump(b_, psm_planes(psm)); sBlk[b_].dest = sDestPend != NULL ? (uint16_t)(sDestPend - sDest + 1) : 0; } } while (0)
 #else
 #define VRAM_TOUCH(n) ((void)0)
 #endif
@@ -759,6 +981,268 @@ static uint32_t up_rect_id(uint32_t bp, uint32_t bw, uint32_t psm, uint32_t x0, 
     }
     return g;
 }
+#ifdef PORT_VITA
+/* ---- Where each upload went, and what it left there (bt3.txt updest; native textures, step 2). The stage's
+   materials go one after another to one place (0x2A00 and its palette at 0x32C0) and a fighter's palettes to one
+   place for all of its pieces: each upload there was taken apart block by block again (the number of the rectangle
+   after it, up_rect_id: 40 us an upload, 5,700 every two seconds), and each drawing state after it made its texture's
+   key again from the 64 blocks of the texture (Gs_RectId: ~30,000 lookups every two seconds, a quarter of the
+   drawing thread with the uploads). A destination (place, width, format, rectangle) now remembers the last upload's
+   number (its bytes'), the rectangle's number it left, and the numbers of the 8 KB pages it covers (gGsPageSig,
+   which every write into GS memory changes): while those are the same, GS memory there holds what it left. The
+   rectangle's number for a given upload and destination is always the same (the blocks' ids are made from the
+   upload's number and their place, up_piece), so it is worked out once and kept (sRectMemo). The renderer's
+   texture key then takes the rectangle's number from the destination whose rectangle is the texture (or its
+   palette) instead of from its blocks; every 16th time from the blocks too, compared. ---- */
+int gVitaUpDest = 1;      /* 0 off, 1 on (default), 2 in the soak's B battles */
+int gVitaUpDestLog;       /* (bt3.txt updestlog=1: the destinations made and the lookups that found none, in the log) */
+unsigned gVitaDest[7];    /* for the log: uploads found the same by their destination, rectangles' numbers kept, worked out;
+                             texture keys from a destination, checked, wrong; destinations found changed */
+static struct { uint64_t name; uint32_t dk, pos, size, rect; } sRectMemo[4096];
+static int dest_on(void) {
+    extern int gVitaAbSide;
+    return gVitaUpDest == 2 ? gVitaAbSide == 1 : gVitaUpDest != 0;
+}
+static inline uint32_t dest_key(uint64_t bb) { /* DBP, DBW (0 is 1, as for the GS), DPSM */
+    uint32_t dk = (uint32_t)(bb >> 32) & 0x3F3F3FFFu;
+    return (dk & 0x3F0000u) != 0 ? dk : dk | 0x10000u;
+}
+static inline UpDest *dest_slot(uint32_t dk, uint32_t pos, uint32_t size) {
+    return &sDest[((dk * 0x9E3779B1u) ^ (pos * 0x85EBCA6Bu) ^ (size * 0xC2B2AE35u)) >> 22];
+}
+static uint32_t dest_sig(uint32_t pg0, uint32_t n) {
+    uint32_t k, sig = 0x811C9DC5u;
+    for (k = 0; k < n; k++) {
+        sig = (sig ^ gGsPageSig[(pg0 + k) & 511]) * 16777619u;
+    }
+    return sig;
+}
+/* a small destination's blocks' writes (a fighter's palettes lie many to a page: every one written changed the
+   numbers of the page of all the others) */
+static uint32_t dest_bsig(const UpDest *d) {
+    uint32_t k, sig = 0x811C9DC5u;
+    for (k = 0; k < d->nblk; k++) {
+        const uint32_t *g = sPlaneGen[d->blk[k]];
+        sig = (sig ^ g[0] ^ g[1] << 10 ^ g[2] << 20) * 16777619u;
+    }
+    return sig;
+}
+static inline uint32_t dest_check(const UpDest *d) {
+    return d->nblk != 0 ? dest_bsig(d) : dest_sig(d->pg0, d->pgN);
+}
+static void dest_pages(uint32_t dbp, uint32_t dbw, uint32_t bits, uint32_t ty, uint32_t th, uint32_t *pg0, uint32_t *pgN) {
+    uint32_t rowbytes = (dbw ? dbw : 1) * 64 * bits / 8, first = dbp / 32 + (ty * rowbytes) / 8192;
+    uint32_t last = dbp / 32 + ((ty + th) * rowbytes + 8191) / 8192;
+    *pg0 = first;
+    *pgN = last - first + 1;
+}
+/* the rectangle's number an upload with number `name` leaves at a destination: kept, or worked out */
+static uint32_t dest_rect(uint64_t name, uint32_t dk, uint32_t pos, uint32_t size, uint32_t dbp, uint32_t dbw, uint32_t dpsm) {
+    uint32_t h = (uint32_t)((name ^ name >> 32) * 0x9E3779B1u ^ dk * 0x85EBCA6Bu ^ pos ^ size * 31u) >> 20;
+    __typeof__(&sRectMemo[0]) r = &sRectMemo[h];
+    if (r->name == name && r->dk == dk && r->pos == pos && r->size == size) {
+        gVitaDest[1]++;
+        return r->rect;
+    }
+    r->name = name; r->dk = dk; r->pos = pos; r->size = size;
+    r->rect = up_rect_id(dbp, dbw, dpsm, pos & 0xFFFF, pos >> 16, size & 0xFFFF, size >> 16);
+    gVitaDest[2]++;
+    return r->rect;
+}
+/* (vita_vgl.c, the texture key) the number of the rectangle (0, 0, w, h) of buffer (bp, bw, psm), if an upload made
+   it whole and nothing wrote there since: 1, and *rect; else 0 (Gs_RectId then) */
+/* (a texture whose shape is not its upload's: an 8- or 4-bit texture sent as 32-bit pixels, the usual way) whether
+   every block of the texture is one of the destination's: worked out once for each pair of shapes */
+static struct { uint32_t ddk, dpos, dsize, tdk, tsize; uint8_t res; } sDestPair[1024];
+static uint32_t sDestMark[16384], sDestMarkN;
+static int dest_contains(const UpDest *d, uint32_t tdk, uint32_t tw, uint32_t th) {
+    uint32_t tsize = tw | th << 16, h = (d->dk * 0x9E3779B1u ^ d->pos * 31u ^ d->size * 0x85EBCA6Bu ^ tdk * 0xC2B2AE35u ^ tsize) >> 22;
+    __typeof__(&sDestPair[0]) e = &sDestPair[h];
+    uint32_t gw, gh, x, y, x0, y0, w, hh;
+    int ok = 1;
+    if (e->res != 0 && e->ddk == d->dk && e->dpos == d->pos && e->dsize == d->size && e->tdk == tdk && e->tsize == tsize) {
+        return e->res == 1;
+    }
+    if (++sDestMarkN == 0) {
+        memset(sDestMark, 0, sizeof(sDestMark));
+        sDestMarkN = 1;
+    }
+    x0 = d->pos & 0xFFFF; y0 = d->pos >> 16; w = d->size & 0xFFFF; hh = d->size >> 16;
+    psm_block(d->dk >> 24, &gw, &gh);
+    for (y = y0 & ~(gh - 1); y < y0 + hh; y += gh) {
+        for (x = x0 & ~(gw - 1); x < x0 + w; x += gw) {
+            sDestMark[vram_rw(d->dk & 0x3FFF, (d->dk >> 16) & 0x3F, d->dk >> 24, x, y, 2, 0) & 0x3FFF] = sDestMarkN;
+        }
+    }
+    psm_block(tdk >> 24, &gw, &gh);
+    for (y = 0; y < th && ok; y += gh) {
+        for (x = 0; x < tw; x += gw) {
+            if (sDestMark[vram_rw(tdk & 0x3FFF, (tdk >> 16) & 0x3F, tdk >> 24, x, y, 2, 0) & 0x3FFF] != sDestMarkN) {
+                ok = 0;
+                break;
+            }
+        }
+    }
+    e->ddk = d->dk; e->dpos = d->pos; e->dsize = d->size; e->tdk = tdk; e->tsize = tsize;
+    e->res = ok ? 1 : 2;
+    return ok;
+}
+/* the rectangle's number of a texture lying inside a destination, by the destination's upload (its number) */
+static struct { uint64_t name; uint32_t ddk, dpos, dsize, tdk, tsize, gi; uint8_t lazy, valid; } sDestKey[4096];
+int Gs_DestRect(uint32_t bp, uint32_t bw, uint32_t psm, uint32_t w, uint32_t h, uint32_t *rect) {
+    static unsigned n;
+    uint32_t dk, size = w | h << 16;
+    UpDest *d;
+    if (!dest_on()) {
+        return 0;
+    }
+    bw = bw ? bw : 1;
+    dk = (bp & 0x3FFF) | (bw & 0x3F) << 16 | (psm & 0x3F) << 24;
+    d = dest_slot(dk, 0, size);
+    if (d->valid && d->name != 0 && (d->dk != dk || d->pos != 0 || d->size != size)) {
+        d = NULL;
+    }
+    if (d == NULL || !d->valid || d->dk != dk || d->pos != 0 || d->size != size) {
+        /* the destination of the upload that made the texture's first block, if the texture lies inside it */
+        uint32_t b0 = vram_rw(bp, bw, psm, 0, 0, 2, 0) & 0x3FFF, di = sBlk[b0].dest, kh;
+        __typeof__(&sDestKey[0]) k;
+        UpDest *c = di != 0 ? &sDest[di - 1] : NULL;
+        if (c != NULL && c->valid && c->name != 0 && c->sig == dest_check(c) && dest_contains(c, dk, w, h)) {
+            kh = (uint32_t)((c->name ^ c->name >> 32) * 0x9E3779B1u ^ c->dk * 0x85EBCA6Bu ^ c->pos ^ c->size * 31u ^ dk * 0xC2B2AE35u ^ size * 131u ^ c->lazy) >> 20;
+            k = &sDestKey[kh];
+            if (k->valid && k->name == c->name && k->ddk == c->dk && k->dpos == c->pos && k->dsize == c->size && k->tdk == dk && k->tsize == size && k->lazy == c->lazy) {
+                gVitaDest[3]++;
+                if ((++n & 15) == 0) {
+                    uint32_t g = Gs_RectId(bp, bw, psm, 0, 0, w, h);
+                    gVitaDest[4]++;
+                    if (g != k->gi) {
+                        gVitaDest[5]++;
+                        k->gi = g;
+                    }
+                }
+                *rect = k->gi;
+                return 1;
+            }
+            k->name = c->name; k->ddk = c->dk; k->dpos = c->pos; k->dsize = c->size; k->tdk = dk; k->tsize = size; k->lazy = c->lazy;
+            k->gi = Gs_RectId(bp, bw, psm, 0, 0, w, h);
+            k->valid = 1;
+            gVitaDest[2]++;
+            *rect = k->gi;
+            return 1;
+        }
+        static unsigned lines;
+        if (gVitaUpDestLog && lines < 60) {
+            extern void Vita_Log(const char *fmt, ...);
+            lines++;
+            Vita_Log("gs: dest lookup missed: bp %04x bw %u psm %02x %u x %u (first block's destination %u)\n", bp, bw, psm, w, h, (unsigned)sBlk[vram_rw(bp, bw, psm, 0, 0, 2, 0) & 0x3FFF].dest);
+        }
+        return 0;
+    }
+    if (d->sig != dest_check(d)) {
+        d->valid = 0;
+        gVitaDest[6]++;
+        return 0;
+    }
+    gVitaDest[3]++;
+    if ((++n & 15) == 0) {
+        uint32_t g = Gs_RectId(bp, bw, psm, 0, 0, w, h);
+        gVitaDest[4]++;
+        if (g != d->rect) {
+            gVitaDest[5]++;
+            d->valid = 0;
+            *rect = g;
+            return 1;
+        }
+    }
+    *rect = d->rect;
+    return 1;
+}
+/* ---- Textures bound by their names (bt3.txt texbind; native textures, step 3). A texture's key was made at every
+   drawing state that has it (~30,000 lookups every two seconds, each reading the numbers of its pages and those of
+   its palette's, and the destinations' after them: texture_get_k): the stage's materials go one after another to
+   one place, a fighter's palettes to one place for all of its pieces, and every upload there changed the pages'
+   numbers. Now a destination knows at the write whether anything but its own upload wrote its blocks since
+   (sDestBok, bind_touch), and the texture (TEX0 with its palette's place) remembers the destinations it lies in
+   (sBind1): the names of what they hold (their rectangles' numbers, rect) are the texture's, and the renderer finds
+   its texture by these names (vita_vgl.c texture_get_k, sBind2), checked the long way every 64th time. A texture
+   that lies in no destination, or one unbound, is found the long way as before. ---- */
+int gVitaTexBind = 1; /* 0 off, 1 on (default), 2 in the soak's B battles */
+int Gs_TexBindOn(void) {
+    extern int gVitaAbSide;
+    return dest_on() && (gVitaTexBind == 2 ? gVitaAbSide == 1 : gVitaTexBind != 0);
+}
+extern int Gs_PsmBits(uint32_t psm);
+typedef struct Bind1 { uint64_t key; unsigned epoch; uint16_t dT, dC; uint32_t dkT, posT, sizeT, dkC, posC, sizeC; uint8_t ok; } Bind1;
+static Bind1 sBind1[2048];
+/* the destination a texture (or a palette) lies in: one made for it, or the one that made its first block, whole */
+static UpDest *bind_dest(uint32_t bp, uint32_t bw, uint32_t psm, uint32_t w, uint32_t h) {
+    uint32_t dk, size = w | h << 16, b0, di;
+    UpDest *d, *c;
+    bw = bw ? bw : 1;
+    dk = (bp & 0x3FFF) | (bw & 0x3F) << 16 | (psm & 0x3F) << 24;
+    d = dest_slot(dk, 0, size);
+    if (d->valid && d->dk == dk && d->pos == 0 && d->size == size) {
+        return d;
+    }
+    b0 = vram_rw(bp, bw, psm, 0, 0, 2, 0) & 0x3FFF;
+    di = sBlk[b0].dest;
+    c = di != 0 ? &sDest[di - 1] : NULL;
+    if (c != NULL && c->valid && c->name != 0 && dest_contains(c, dk, w, h)) {
+        return c;
+    }
+    return NULL;
+}
+static inline int bind_ok(const UpDest *d, uint32_t dk, uint32_t pos, uint32_t size) {
+    return d->valid && sDestBok[d - sDest] && d->dk == dk && d->pos == pos && d->size == size && d->rect < 0xFFFFFFFEu &&
+           (d->nblk == 0 || d->sig == dest_bsig(d)); /* (a small one, a palette sharing its block with others: its blocks' writes too, one or two) */
+}
+/* (vita_vgl.c texture_get_k) the names of what the texture of TEX0 t0 (its palette's place in it as the renderer
+   takes it) and its palette lie in: 1 and *nT, *nC; 0: none (found the long way) */
+int Gs_TexNames(uint64_t t0, uint32_t *nT, uint32_t *nC) {
+    uint32_t tbp = (uint32_t)(t0 & 0x3FFF), tbw = (uint32_t)((t0 >> 14) & 0x3F), psm = (uint32_t)((t0 >> 20) & 0x3F);
+    uint32_t tw = 1u << ((t0 >> 26) & 15), th = 1u << ((t0 >> 30) & 15), bits = (uint32_t)Gs_PsmBits(psm);
+    uint32_t cbp = (uint32_t)((t0 >> 37) & 0x3FFF), cpsm = (uint32_t)((t0 >> 51) & 15);
+    uint64_t key = (t0 & 0x3FFFFFFFFull) | (bits <= 8 ? (t0 & 0x7FFFE000000000ull) : 0);
+    Bind1 *e = &sBind1[(uint32_t)(((key ^ key >> 31) * 0x9E3779B97F4A7C15ull) >> 53)];
+    const UpDest *dt, *dc;
+    if (tw > 512) {
+        tw = 512; /* (as the renderer cuts them) */
+    }
+    if (th > 512) {
+        th = 512;
+    }
+    if (e->key != key || !e->ok) {
+        UpDest *a, *b = NULL;
+        if (e->key == key && e->epoch == gGsEpoch) {
+            return 0; /* (looked for in this state of GS memory: none) */
+        }
+        e->key = key;
+        e->ok = 0;
+        e->epoch = gGsEpoch;
+        a = bind_dest(tbp, tbw, psm, tw, th);
+        if (a == NULL || (bits <= 8 && (b = bind_dest(cbp, 1, cpsm, bits == 8 ? 16 : 8, bits == 8 ? 16 : 2)) == NULL)) {
+            gVitaBind[6]++;
+            return 0;
+        }
+        e->dT = (uint16_t)(a - sDest); e->dkT = a->dk; e->posT = a->pos; e->sizeT = a->size;
+        if (b != NULL) {
+            e->dC = (uint16_t)(b - sDest); e->dkC = b->dk; e->posC = b->pos; e->sizeC = b->size;
+        }
+        e->ok = 1;
+    }
+    dt = &sDest[e->dT];
+    dc = bits <= 8 ? &sDest[e->dC] : NULL;
+    if (!bind_ok(dt, e->dkT, e->posT, e->sizeT) || (dc != NULL && !bind_ok(dc, e->dkC, e->posC, e->sizeC))) {
+        e->ok = 0; /* (looked for again once GS memory changed) */
+        e->epoch = gGsEpoch;
+        gVitaBind[7]++;
+        return 0;
+    }
+    *nT = dt->rect;
+    *nC = dc != NULL ? dc->rect ^ 0x5BD1E995u : 0;
+    return 1;
+}
+#endif
 /* the large uploads written pixel by pixel: format, size, place, and why they were written */
 static struct { uint32_t key, n, px, why[4]; } sUpTop[16];
 static void up_top_add(uint32_t psm, uint32_t tx, uint32_t ty, uint32_t tw, uint32_t th, int why) {
@@ -1147,7 +1631,8 @@ static void draw_line(Target *sf, int ctx, const Vertex *a, const Vertex *b) {
    The registers as fields of gs: 0 prim (the effective one), 1 PRIM, 2 RGBAQ, 3 ST, 4 UV, 5 TEXA, 6 PRMODECONT,
    7 PRMODE, 8/9 TEX0, 10/11 TEX1, 12/13 CLAMP, 14/15 XYOFFSET, 16/17 SCISSOR, 18/19 ALPHA, 20/21 TEST, 22/23 FRAME,
    24/25 ZBUF, 26/27 FBA, 28..31 BITBLTBUF, TRXPOS, TRXREG, TRXDIR; 32 Q, 33 the vertex queue (emptied by PRIM). */
-static int sDpCap, sDpBad;
+static int sDpCap, sDpBad; /* sDpBad: why the part walked now cannot be kept: 1 a GS primitive in it, 2 an image upload, 4 a register */
+unsigned gVitaDpBadWhy[4]; /* for the log: walks recorded and spoiled by a GS primitive, an image upload, a register; not kept for another reason (vita_vgl.c) */
 static uint64_t sDpCmp, sDpWr;
 #define DPF(i) (1ull << (i))
 #define DP_STRIP_READS (DPF(0) | DPF(5) | 0x0FFFFF00ull) /* what a strip's state is made of: prim, TEXA, fields 8..27 */
@@ -1188,7 +1673,7 @@ static void dp_note(uint32_t addr) {
     case 0x4C: case 0x4D: dp_wr(DPF(22 + addr - 0x4C)); break;
     case 0x4E: case 0x4F: dp_wr(DPF(24 + addr - 0x4E)); break;
     case 0x50: case 0x51: case 0x52: dp_wr(DPF(28 + addr - 0x50)); break;
-    case 0x04: case 0x05: case 0x0C: case 0x0D: case 0x53: case 0x7F: sDpBad = 1; break; /* vertices, a transfer, a marker */
+    case 0x04: case 0x05: case 0x0C: case 0x0D: case 0x53: case 0x7F: sDpBad |= 4; break; /* vertices, a transfer, a marker */
     default: break;
     }
 }
@@ -1315,7 +1800,7 @@ static void vertex(uint32_t x, uint32_t y, uint32_t z, int kick) {
     Target *sf;
 #ifdef PORT_VITA
     if (sDpCap) {
-        sDpBad = 1;
+        sDpBad |= 1;
     }
 #endif
     Vertex v;
@@ -1396,6 +1881,16 @@ static void vertex(uint32_t x, uint32_t y, uint32_t z, int kick) {
                 gGsEpoch++; /* (the renderer's keys and states remembered by the epoch) */
                 { extern unsigned gT121Ep[8]; gT121Ep[0]++; }
                 { extern unsigned gVitaPaints; gVitaPaints++; }
+                {   /* (texbind: the destinations of the two pages' blocks unbound, however the sprite is written) */
+                    uint32_t b;
+                    for (b = fb * 32; b < fb * 32 + 64; b++) {
+                        uint32_t o = sBlk[b & 0x3FFF].dest;
+                        if (o != 0 && sDestBok[o - 1]) {
+                            sDestBok[o - 1] = 0;
+                            gVitaBind[5]++;
+                        }
+                    }
+                }
 #endif
             } else if (kick) {
                 if (sGpu) { GsGpu_Draw(6, ctx, gs.vtx); } else { draw_sprite(sf, ctx, &gs.vtx[0], &gs.vtx[1]); }
@@ -1414,8 +1909,14 @@ extern volatile unsigned char gProf; /* vita_vgl.c: where the time goes */
 extern volatile int gVitaProfMeasure;
 extern void Vita_ProfSwitch(int n);
 #define VPROF(n) ((gProf = (n)), (gVitaProfMeasure ? Vita_ProfSwitch(n) : (void)0))
+/* the list reader's place, when it is a thread of its own (gGsSplit): its own, the drawing thread's was written over
+   by both (the picture thread's parts in the log mixed the two threads' time) */
+extern volatile unsigned char gProfFe;
+extern int gGsSplit;
+#define VPROF_FE(n) (gGsSplit ? (void)(gProfFe = (n)) : (void)VPROF(n))
 #else
 #define VPROF(n) ((void)0)
+#define VPROF_FE(n) ((void)0)
 #endif
 static void transfer_begin(void) {
     if (sDumpFrame == (int)sFrame && (gs.trxdir & 3) != 0) {
@@ -1446,6 +1947,9 @@ static void transfer_begin(void) {
 #define UP_LAZY_MIN 2048 /* bytes: a palette or a single small block is written faster than it is kept account of */
 #endif
 /* Whole block rows of an upload: the rectangle (x0, y0, w, h) of the buffer, made of whole blocks, from `src`. */
+#ifdef PORT_VITA
+static int sUpLazyAll; /* (the upload being made: all of its blocks taken note of, none written: up_piece) */
+#endif
 static void up_piece(uint32_t bp, uint32_t bw, uint32_t psm, int bits, uint32_t gw, uint32_t gh, uint32_t x0, uint32_t y0,
                      uint32_t w, uint32_t h, const uint8_t *src) {
     uint32_t stride = w * (uint32_t)bits / 8, bx, by;
@@ -1467,19 +1971,28 @@ static void up_piece(uint32_t bp, uint32_t bw, uint32_t psm, int bits, uint32_t 
                     k->stride = (uint16_t)stride;
                     k->bits = (uint8_t)bits;
                     k->dirty = 0;
-                    plane_bump((uint32_t)(k - sBlk), 7);
+                    plane_bump((uint32_t)(k - sBlk), 7); /* (before the block is the new destination's: bind_touch) */
+#ifdef PORT_VITA
+                    k->dest = sDestPend != NULL ? (uint16_t)(sDestPend - sDest + 1) : 0;
+#endif
                 }
             }
             gVitaUp[2] += w * h;
             return;
         }
     }
+#ifdef PORT_VITA
+    sUpLazyAll = 0;
+#endif
     for (by = 0; by < h; by += gh) {
         for (bx = 0; bx < w; bx += gw) {
             uint32_t b = vram_rw(bp, bw, psm, x0 + bx, y0 + by, 2, 0);
             sBlk[b].up = 0; /* (whatever waited for this block is overwritten whole) */
             sBlk[b].dirty = 1;
-            plane_bump(b, 7);
+            plane_bump(b, 7); /* (before the block is the new destination's: bind_touch) */
+#ifdef PORT_VITA
+            sBlk[b].dest = sDestPend != NULL ? (uint16_t)(sDestPend - sDest + 1) : 0;
+#endif
             block_write(b, bits, src + by * stride + bx * (uint32_t)bits / 8, stride);
         }
     }
@@ -1530,6 +2043,7 @@ static void up_pixels(uint32_t dbp, uint32_t dbw, uint32_t dpsm, uint32_t bits, 
             }
             sBlk[b].dirty = 1;
             plane_bump(b, psm_planes(dpsm));
+            sBlk[b].dest = sDestPend != NULL ? (uint16_t)(sDestPend - sDest + 1) : 0; /* (texbind: the block's writer) */
             d = &sVram[b * 64];
             switch (base) {
             case 0x02: case 0x0A:
@@ -1591,9 +2105,27 @@ static void up_pixels(uint32_t dbp, uint32_t dbw, uint32_t dpsm, uint32_t bits, 
 extern volatile int gVitaZoneOn; /* (vita_vgl.c: the zones of a measured list) */
 extern void Vita_Z(int z);
 static void transfer_data_(const uint8_t *p, uint32_t bytes);
+/* bt3.txt upprof=1 (a measuring run): every upload timed, by the way it went (sUpCat): 0 small, found the same;
+   1 small, written; 2 large, found the same; 3 large, taken note of by the block; 4 large, written not by the block;
+   5 left out (a frame not drawn); 6 the film's; 7 another (a piece, a size between) */
+int gVitaUpProf;
+unsigned gVitaUpCat[8][2]; /* for the log: count, microseconds */
+static int sUpCat;
 static void transfer_data(const uint8_t *p, uint32_t bytes) {
     unsigned long long t;
 
+    if (gVitaUpProf) {
+        t = sceKernelGetProcessTimeWide();
+        sUpCat = 7;
+        transfer_data_(p, bytes);
+        t = sceKernelGetProcessTimeWide() - t;
+        gVitaUpCat[sUpCat][0]++;
+        gVitaUpCat[sUpCat][1] += (unsigned)t;
+        if (bytes >= 2048) {
+            gVitaUsUpload += (unsigned)t;
+        }
+        return;
+    }
     if (bytes < 2048) { /* (palettes, the film's blocks: reading the clock would cost as much as they do) */
         transfer_data_(p, bytes);
         return;
@@ -1616,6 +2148,7 @@ static void transfer_data(const uint8_t *p, uint32_t bytes) {
         return;
     }
 #ifdef PORT_VITA
+    sDestPend = NULL;
     if (gVitaUpCheck && gs.tpos == 0 && bytes >= 64) { /* an upload read in place whose bytes are not what they were the last time */
         extern int Port_InGr(const void *p);
         extern void Vita_Log(const char *fmt, ...);
@@ -1659,6 +2192,7 @@ static void transfer_data(const uint8_t *p, uint32_t bytes) {
                 uint32_t n = bytes / 4;
                 gs.tpos = n < total - gs.tpos ? gs.tpos + n : total;
                 gVitaUp[4]++;
+                sUpCat = 6;
                 return;
             }
         }
@@ -1689,6 +2223,7 @@ static void transfer_data(const uint8_t *p, uint32_t bytes) {
                 if (gVitaGsSkip && sFrame - e->frame <= 8) {
                     gs.tpos = total;
                     gVitaUpSkipped++;
+                    sUpCat = 5;
                     return;
                 }
             } else {
@@ -1723,6 +2258,7 @@ static void transfer_data(const uint8_t *p, uint32_t bytes) {
                 for (pg = first; pg <= last; pg++) { /* (as the large uploads found unchanged: the page holds uploaded data again) */
                     gGsPageGen[pg & 511]++;
                 }
+                sUpCat = 0;
                 return;
             }
             { extern unsigned gT121Sm[4]; gT121Sm[!m->valid ? 0 : (m->bb != gs.bitbltbuf || m->pos != pos || m->size != size || m->bytes != bytes) ? 1 : memcmp(m->data, p, bytes) != 0 ? 2 : 3]++; }
@@ -1731,6 +2267,15 @@ static void transfer_data(const uint8_t *p, uint32_t bytes) {
                for its rectangle (2,500 cycles an upload, and none of them ever found unchanged) */
             m->miss = m->bb == gs.bitbltbuf && m->pos == pos && m->size == size && m->bytes == bytes ? m->miss + 1 : 0;
             m->valid = 0; /* (until written: its rectangle's number is taken after) */
+            sUpCat = 1;
+            if (dest_on() && psm_planes(dpsm) == 7) {
+                UpDest *d = dest_slot(dest_key(gs.bitbltbuf), pos, size);
+                d->valid = 0;
+                d->dk = dest_key(gs.bitbltbuf); d->pos = pos; d->size = size; d->name = 0; d->rect = 0xFFFFFFFFu;
+                d->nblk = 0;
+                dest_pages(dbp, dbw, bits, gs.ty, gs.th, &d->pg0, &d->pgN);
+                sDestPend = d;
+            }
             m->bb = gs.bitbltbuf; m->pos = pos; m->size = size; m->bytes = bytes;
             if (m->miss < 4 || (m->miss & 7) == 0) {
                 memcpy(m->data, p, bytes);
@@ -1762,6 +2307,26 @@ static void transfer_data(const uint8_t *p, uint32_t bytes) {
             hash = up_hash_quick(p, (total * bits + 7) / 8);
             if (gVitaZoneOn) { Vita_Z(16); } /* (the upload's bytes looked at) */
 
+            if (dest_on() && byBlock && psm_planes(dpsm) == 7) {
+                uint32_t pos = gs.tx | gs.ty << 16, size = gs.tw | gs.th << 16, dk = dest_key(gs.bitbltbuf);
+                UpDest *d = dest_slot(dk, pos, size);
+                if (d->valid && d->dk == dk && d->pos == pos && d->size == size && d->name == hash && d->sig == dest_check(d)) {
+                    uint32_t pg;
+                    gs.tpos = total;
+                    gVitaUp[2] += total;
+                    for (pg = d->pg0; pg < d->pg0 + d->pgN; pg++) { /* (as below: the page holds uploaded data again) */
+                        gGsPageGen[pg & 511]++;
+                    }
+                    gVitaDest[0]++;
+                    sUpCat = 2;
+                    return;
+                }
+                d->valid = 0;
+                d->dk = dk; d->pos = pos; d->size = size; d->name = hash; d->rect = 0xFFFFFFFEu; /* (its rectangle's number: below, once written by the block) */
+                d->nblk = 0;
+                dest_pages(dbp, dbw, bits, gs.ty, gs.th, &d->pg0, &d->pgN);
+                sDestPend = d;
+            }
             m = (void *)&memo[(uint32_t)((hash ^ gs.bitbltbuf >> 32 ^ gs.tx * 31u ^ gs.ty * 131u) * 0x9E3779B1u) >> 24];
             memoWhy = !m->valid ? 0 : (m->bb != gs.bitbltbuf || m->x != gs.tx || m->y != gs.ty || m->w != gs.tw || m->h != gs.th) ? 2 : m->hash != hash ? 1 : 3;
             if (memoWhy == 3 && up_rect_id(dbp, dbw, dpsm, gs.tx, gs.ty, gs.tw, gs.th) == m->rect) {
@@ -1778,13 +2343,24 @@ static void transfer_data(const uint8_t *p, uint32_t bytes) {
                     }
                 }
                 if (gVitaZoneOn) { Vita_Z(12); } /* (its place in GS memory found holding it still) */
+                sUpCat = 2;
+                if (sDestPend != NULL) {
+                    sDestPend->rect = m->rect;
+                    sDestPend->sig = dest_check(sDestPend);
+                    sDestPend->lazy = 2; /* (its blocks as they were: taken note of or written, not known here) */
+                    sDestPend->valid = 1;
+                    sDestBok[sDestPend - sDest] = 1;
+                    sDestPend = NULL;
+                }
                 return;
             }
             m->bb = gs.bitbltbuf; m->hash = hash; m->x = gs.tx; m->y = gs.ty; m->w = gs.tw; m->h = gs.th;
             m->valid = 0; /* (until written: its rectangle's number is taken after) */
             mm = (void *)m;
+            sUpCat = byBlock ? 3 : 4;
         }
         if (gVitaZoneOn) { Vita_Z(45); } /* (the large ones' memory looked at) */
+        sUpLazyAll = 1;
         if (mm != NULL && !byBlock) {
             struct { uint64_t bb, hash; uint32_t x, y, w, h, rect; int valid; } *m = (void *)mm;
             up_top_add(dpsm, gs.tx, gs.ty, gs.tw, gs.th, memoWhy);
@@ -1831,7 +2407,16 @@ static void transfer_data(const uint8_t *p, uint32_t bytes) {
         { extern unsigned gT121Ep[8]; gT121Ep[bytes < 2048 ? 2 : 3]++; if (bytes < 2048 && sm == NULL) { gT121Ep[gs.tpos != 0 || n != total ? 4 : bytes < 16 ? 5 : 6]++; } }
         if (mm != NULL) {
             struct { uint64_t bb, hash; uint32_t x, y, w, h, rect; int valid; } *m = (void *)mm;
-            m->rect = up_rect_id(dbp, dbw, dpsm, gs.tx, gs.ty, gs.tw, gs.th);
+            if (sDestPend != NULL && sDestPend->rect == 0xFFFFFFFEu && done == n && sUpLazyAll) {
+                /* (taken note of by the block, whole: the blocks' ids are the upload's number's, the rectangle's number always the same) */
+                sDestPend->rect = dest_rect(m->hash, sDestPend->dk, sDestPend->pos, sDestPend->size, dbp, dbw, dpsm);
+                m->rect = sDestPend->rect;
+            } else {
+                m->rect = up_rect_id(dbp, dbw, dpsm, gs.tx, gs.ty, gs.tw, gs.th);
+                if (sDestPend != NULL && sDestPend->rect == 0xFFFFFFFEu) {
+                    sDestPend->rect = m->rect;
+                }
+            }
             m->valid = 1;
         }
     }
@@ -1864,6 +2449,41 @@ static void transfer_data(const uint8_t *p, uint32_t bytes) {
         struct { uint64_t bb; uint32_t pos, size, bytes, rect; int valid; uint32_t miss; uint8_t data[1024]; } *m = sm;
         m->rect = up_rect_id(dbp, dbw, dpsm, gs.tx, gs.ty, gs.tw, gs.th);
         m->valid = 1;
+    }
+    if (sDestPend != NULL) { /* (an upload's destination: its pages' numbers now, after the upload's own) */
+        UpDest *d = sDestPend;
+        sDestPend = NULL;
+        if (gs.tpos >= total) {
+            if (d->rect == 0xFFFFFFFFu) { /* (a small one: its rectangle's number, one or two blocks) */
+                uint32_t gw2, gh2, x2, y2, nb = 0;
+                d->rect = up_rect_id(dbp, dbw, dpsm, gs.tx, gs.ty, gs.tw, gs.th);
+                d->lazy = 0;
+                psm_block(dpsm, &gw2, &gh2);
+                for (y2 = gs.ty & ~(gh2 - 1); y2 < gs.ty + gs.th && nb <= 8; y2 += gh2) {
+                    for (x2 = gs.tx & ~(gw2 - 1); x2 < gs.tx + gs.tw && nb <= 8; x2 += gw2) {
+                        if (nb < 8) {
+                            d->blk[nb] = (uint16_t)(vram_rw(dbp, dbw, dpsm, x2, y2, 2, 0) & 0x3FFF);
+                        }
+                        nb++;
+                    }
+                }
+                d->nblk = nb <= 8 ? (uint8_t)nb : 0; /* (more than eight: by the pages) */
+            } else {
+                d->lazy = (uint8_t)sUpLazyAll;
+            }
+            d->sig = dest_check(d);
+            d->valid = 1;
+            sDestBok[d - sDest] = 1;
+            {
+                static unsigned lines;
+                if (gVitaUpDestLog && lines < 60) {
+                    extern void Vita_Log(const char *fmt, ...);
+                    lines++;
+                    Vita_Log("gs: dest made: bp %04x bw %u psm %02x at %u,%u %u x %u (%u bytes)\n", d->dk & 0x3FFF, (d->dk >> 16) & 0x3F, d->dk >> 24, d->pos & 0xFFFF, d->pos >> 16,
+                             d->size & 0xFFFF, d->size >> 16, bytes);
+                }
+            }
+        }
     }
     if (gVitaZoneOn) { Vita_Z(smallUp ? 42 : 46); } /* (written; 216: a small one's rectangle's number, 42) */
 #endif
@@ -2074,6 +2694,75 @@ static void tri_run(const uint64_t *q, uint32_t n) {
     gs.vcount = 0;
     gs.strip = 3;
 }
+/* ---- bt3.txt fxrun (the effects as runs): a run of the effects' quad packets, EftGfx_DrawSprite's (src/battle/eft_a.c:
+   REGLIST 14: PRIM, TEX0, 4 x (RGBAQ, ST, XYZF2)) or EftPrim_DrawBillboard's / EftBubble_DrawOne's (eft_b.c: REGLIST 12:
+   PRIM, TEX0, RGBAQ, 4 x (ST, XYZF2), NOP), PRIM a triangle strip, all with the same PRIM and TEX0: each drawn as its
+   strip's two triangles the triangle runs' way (GsGpu_DrawTriRun) instead of register by register and the full way
+   for each triangle (a particle: 14 register writes and two GsGpu_Draw_impl). And the triangle runs' additive
+   triangles go into the additive groups (vita_vgl.c) instead of closing them. 0 off, 1 on (default), 2 in the
+   soak's B battles. */
+int gVitaFxRun = 1;
+unsigned gVitaQuadRunN[2]; /* (the log) quad runs, quads in them */
+int Gs_FxRunOn(void) {
+    extern int gVitaAbSide;
+    return gVitaFxRun == 2 ? gVitaAbSide == 1 : gVitaFxRun != 0;
+}
+static void quad_run(const uint64_t *q, uint32_t n, int flat) {
+    extern int gVitaGsSkip;
+    extern void GsGpu_DrawTriRun(int ctx, const GsVertex *v, uint32_t ntri);
+    static GsVertex vb[3 * 64];
+    const uint32_t stride = flat ? 14 : 16; /* (64-bit words a packet: its tag and its 12 or 14 registers) */
+    uint32_t i, j, k, texreg = (uint32_t)((q[1] >> 4) & 0xF);
+    const uint64_t *last = q + stride * (n - 1);
+    int ctx;
+    float ox, oy;
+    gVitaQuadRunN[0]++;
+    gVitaQuadRunN[1] += n;
+    sStat[3] += n;
+    reg_write(0, (q[2] & ~7ull) | 3); /* (its two triangles: PRIM a triangle, the rest of it as it is) */
+    reg_write(texreg, q[3]);
+    ctx = (int)((gs.prim >> 9) & 1);
+    ox = (float)(gs.xyoffset[ctx] & 0xFFFF);
+    oy = (float)((gs.xyoffset[ctx] >> 32) & 0xFFFF);
+    for (i = 0; i < n; i += 32) {
+        uint32_t m = n - i < 32 ? n - i : 32;
+        for (j = 0; j < m; j++) {
+            const uint64_t *pk = q + stride * (i + j);
+            GsVertex c4[4];
+            if (i + j > 0 && (pk[3] >> 61)) {
+                clut_note(pk[3]);
+            }
+            for (k = 0; k < 4; k++) {
+                uint64_t c = flat ? pk[4] : pk[4 + 3 * k], st = flat ? pk[5 + 2 * k] : pk[5 + 3 * k], xyz = flat ? pk[6 + 2 * k] : pk[6 + 3 * k];
+                uint32_t qq = (uint32_t)(c >> 32), tt = (uint32_t)(st >> 32), ss = (uint32_t)st;
+                GsVertex *v = &c4[k];
+                v->x = ((float)(int)(uint32_t)(xyz & 0xFFFF) - ox) / 16.0f;
+                v->y = ((float)(int)(uint32_t)((xyz >> 16) & 0xFFFF) - oy) / 16.0f;
+                v->z = (uint32_t)((xyz >> 32) & 0xFFFFFF);
+                v->r = (uint8_t)c; v->g = (uint8_t)(c >> 8); v->b = (uint8_t)(c >> 16); v->a = (uint8_t)(c >> 24);
+                memcpy(&v->s, &ss, 4);
+                memcpy(&v->t, &tt, 4);
+                memcpy(&v->q, &qq, 4);
+                v->u = (int)(gs.uv & 0x3FFF);
+                v->v = (int)((gs.uv >> 16) & 0x3FFF);
+            }
+            vb[6 * j + 0] = c4[0]; vb[6 * j + 1] = c4[1]; vb[6 * j + 2] = c4[2]; /* (the strip's triangles: 0 1 2, 1 2 3) */
+            vb[6 * j + 3] = c4[1]; vb[6 * j + 4] = c4[2]; vb[6 * j + 5] = c4[3];
+        }
+        if (!gVitaGsSkip) {
+            GsGpu_DrawTriRun(ctx, vb, 2 * m);
+        }
+    }
+    reg_write(0, last[2]); /* (the registers as the last packet leaves them) */
+    gs.rgbaq = flat ? last[4] : last[13];
+    { uint32_t qq = (uint32_t)(gs.rgbaq >> 32); memcpy(&gs.q, &qq, 4); }
+    gs.st = flat ? last[11] : last[14];
+    gs.vtx[0] = vb[3 * ((2 * n - 1) % 64)];
+    gs.vtx[1] = vb[3 * ((2 * n - 1) % 64) + 1];
+    gs.vtx[2] = vb[3 * ((2 * n - 1) % 64) + 2];
+    gs.vcount = 0;
+    gs.strip = 3;
+}
 #endif
 static uint64_t sGifTagLo, sGifTagHi; /* current tag: persists across runs */
 static uint32_t sGifLoops, sGifReg;    /* loops left, register index within the loop */
@@ -2127,6 +2816,19 @@ __attribute__((hot)) void Gs_Gif(const uint8_t *p, uint32_t qwc) {
             }
             q += 14 * n;
             qwc -= 7 * n;
+            continue;
+        }
+        if (loops == 0 && qwc >= 7 && sGpu && !sDpCap && sVtxDbg == 0 && (q[2] & 7) == 4 && Gs_FxRunOn() &&
+            (((q[0] == 0xE400000000008001ull || q[0] == 0xE400000000000001ull) && qwc >= 8 && (q[1] == 0x42142142142160ull || q[1] == 0x42142142142170ull)) ||
+             ((q[0] == 0xC400000000008001ull || q[0] == 0xC400000000000001ull) && (q[1] == 0xF42424242160ull || q[1] == 0xF42424242170ull)))) {
+            int flat = (q[0] >> 60) == 0xC;
+            uint32_t stride = flat ? 14u : 16u, n = 1, maxn = qwc / (stride / 2);
+            while (n < maxn && q[stride * n] == q[0] && q[stride * n + 1] == q[1] && q[stride * n + 2] == q[2] && q[stride * n + 3] == q[3]) {
+                n++;
+            }
+            quad_run(q, n, flat);
+            q += stride * n;
+            qwc -= (stride / 2) * n;
             continue;
         }
 #endif
@@ -2202,7 +2904,7 @@ __attribute__((hot)) void Gs_Gif(const uint8_t *p, uint32_t qwc) {
             uint32_t n = loops < qwc ? loops : qwc;
 #ifdef PORT_VITA
             if (sDpCap) {
-                sDpBad = 1;
+                sDpBad |= 2;
             }
 #endif
             sStat[6] += n;
@@ -2563,27 +3265,139 @@ void GsFE_DrawVu4(int ctx, const float *v, uint32_t count, const float *consts) 
    read the long way again now and then, and dropped if anything in it changed (a part the game writes into). */
 extern const uint8_t *GsVu1_Consts(void);
 extern unsigned gVitaChipGen;
-#define CC_N 2048
-typedef struct CallCache { uint32_t addr, gen, bytes, at, uses, serial; uint8_t state; uint8_t *data; } CallCache; /* state: 0 new, 1 read once, 2 kept, 3 never */
+/* CC_N places at most; bt3.txt ccsize=<power of two> uses that many (gVitaCcBits: 12, 4096 places, unless set; 2048
+   before). A place, once taken, was never given up: the stages fought before kept theirs, and in a session's later
+   fights a stage's calls found no place and were read the long way every frame (a survey: stage 27 fought fourth,
+   16 fps and 13,000 calls a 2 s without a place; stage 4 fought first, 29 fps where after four others it had 17). Now
+   a call that finds its places taken takes the one not called the longest, when that one has not been called for
+   CC_STALE lists (bt3.txt ccevict=0: as before). */
+#define CC_N 16384
+#define CC_STALE 150u
+typedef struct CallCache { uint32_t addr, gen, bytes, at, uses, serial, used, es; uint8_t state; uint8_t *data; } CallCache; /* state: 0 new, 1 read once, 2 kept, 3 never; used: the list it was last called in; es: the engine seam's generation (its own table), 0 the cache's */
 static uint32_t sCcSerial; /* numbers the kept copies (the back end keeps its own form of each: see dp_part) */
 static CallCache sCC[CC_N];
-static int sCcCap = -1;          /* the entry being read the long way (and recorded), -1: none */
+static int sCcCap = -1;          /* the entry being read the long way (and recorded), -1: none (CC_N: one of the engine seam's) */
+static CallCache *sCcCapE;       /* (that entry) */
 static unsigned sCcStart, sCcDepth;
 unsigned gVitaCc[4];              /* for the log: calls replayed, read the long way, kept, dropped */
+int gVitaCcBits = 12;             /* the places used: 1 << this (bt3.txt ccsize) */
+int gVitaCcEvict = 1;             /* bt3.txt ccevict: a place not called for CC_STALE lists is given to a call that finds no other */
+unsigned gVitaCcNoRoom;           /* for the log: calls that found no place (the 16 places they may take all another call's) */
+unsigned gVitaCcEvicted;          /* for the log: places given up by a call not called lately */
+static uint32_t dp_pick_serial(uint32_t want); /* (below, with the kept parts) */
+
+/* For the log: the places taken, by state (out[0] taken, out[1..4] states 0..3), and the places in use. */
+void GsFE_CcCensus(unsigned out[6]) {
+    unsigned i, n = 1u << gVitaCcBits;
+    memset(out, 0, 6 * sizeof(unsigned));
+    for (i = 0; i < n; i++) {
+        if (sCC[i].addr != 0) {
+            out[0]++;
+            out[1 + (sCC[i].state & 3)]++;
+        }
+    }
+    out[5] = n;
+}
 
 static void cc_retire(uint8_t *p);
 static CallCache *cc_find(uint32_t addr) {
-    uint32_t h = (addr * 0x9E3779B1u) >> 21, k;
-    for (k = 0; k < 16; k++, h = (h + 1) & (CC_N - 1)) {
-        if (sCC[h].addr == addr || sCC[h].addr == 0) {
-            if (sCC[h].addr == 0) { memset(&sCC[h], 0, sizeof(sCC[h])); sCC[h].addr = addr; }
-            if (sCC[h].gen != gVitaChipGen) { /* (the chip's buffers were let go: what was kept refers to them) */
-                cc_retire(sCC[h].data); sCC[h].data = NULL; sCC[h].state = 0; sCC[h].gen = gVitaChipGen;
+    const uint32_t mask = (1u << gVitaCcBits) - 1;
+    uint32_t h = (addr * 0x9E3779B1u) >> (32 - gVitaCcBits), k;
+    CallCache *old = NULL;
+    for (k = 0; k < 16; k++, h = (h + 1) & mask) {
+        CallCache *e = &sCC[h];
+        if (e->addr == addr || e->addr == 0) {
+            if (e->addr == 0) { memset(e, 0, sizeof(*e)); e->addr = addr; }
+            if (e->gen != gVitaChipGen) { /* (the chip's buffers were let go: what was kept refers to them) */
+                cc_retire(e->data); e->data = NULL; e->state = 0; e->gen = gVitaChipGen;
             }
-            return &sCC[h];
+            e->used = sFeListSeq;
+            return e;
+        }
+        if (gVitaCcEvict && (int)h != sCcCap && sFeListSeq - e->used > CC_STALE && (old == NULL || sFeListSeq - e->used > sFeListSeq - old->used)) {
+            old = e; /* (the one not called the longest, and not lately) */
         }
     }
+    if (old != NULL) {
+        cc_retire(old->data); /* (freed once the drawing thread is through the lists that may still send it) */
+        memset(old, 0, sizeof(*old));
+        old->addr = addr;
+        old->gen = gVitaChipGen;
+        old->used = sFeListSeq;
+        gVitaCcEvicted++;
+        return old;
+    }
+    gVitaCcNoRoom++;
     return NULL;
+}
+
+/* ---- The engine seam (port/src/gs_marker.c, bt3.txt native=1): a call whose packet carries the seam's MARK is static
+   data named by the game: a mesh of the stage (VU1 programs 4, 7, 8) or a part of an object's model (0, 1, 2). It is
+   kept in a table of its own: found by its address and, for a model's part, the program (the MARK's bits 12, 13: a
+   part is called with program 0 and with program 1, which make other draws), and checked against its generation (the
+   rest: bit 14 the kind, stage or model, and the generation of that kind, a new one whenever the stage may have been
+   loaded or a model was bound),
+   with no place given up to another call while it is drawn and no part found again by the cache's guess. An entry
+   whose generation is not the call's is read again (the memory holds something else now); one not called for ES_STALE
+   lists may be taken by another. Read again the long way only every nativecheck-th call (bt3.txt; 0 never; the
+   cache's calls every 64th), in case the game writes into a mesh. ---- */
+#define SEAM_N 8192
+#define ES_STALE 300u
+static CallCache *sEsTab;       /* (SEAM_N entries, from the heap at the first use) */
+static uint32_t sEsMark;        /* the list reader: the MARK of the DMA tag being read (0x10000 | its value), 0 none */
+int gVitaEsCheck = 512;         /* bt3.txt nativecheck */
+unsigned gVitaEs[6];            /* for the log: calls sent from the seam's copies, read the long way, kept, table full (to the cache), entries of an old generation, places taken from calls not seen lately */
+static CallCache *es_find(uint32_t addr, uint32_t gen) {
+    uint32_t h, k, es = gen | 0x10000u;
+    CallCache *old = NULL;
+    if (sEsTab == NULL) {
+        sEsTab = (CallCache *)calloc(SEAM_N, sizeof(CallCache));
+        if (sEsTab == NULL) {
+            return NULL;
+        }
+    }
+    h = (addr * 0x9E3779B1u) >> (32 - 13);
+    if (gen & 0x4000u) {
+        h ^= (gen >> 12) & 3; /* (a part's calls with each program in places of their own) */
+    }
+    for (k = 0; k < 64; k++, h = (h + 1) & (SEAM_N - 1)) {
+        CallCache *e = &sEsTab[h];
+        if (e->addr == addr && ((e->es ^ es) & 0x7000u) == 0) {
+            if (e->es != es) { /* (another stage or model at that address: what was kept is another's) */
+                cc_retire(e->data);
+                e->data = NULL; e->state = 0; e->uses = 0; e->es = es;
+                gVitaEs[4]++;
+            }
+            if (e->gen != gVitaChipGen) { /* (the chip's buffers were let go: what was kept refers to them) */
+                cc_retire(e->data); e->data = NULL; e->state = 0; e->gen = gVitaChipGen;
+            }
+            e->used = sFeListSeq;
+            return e;
+        }
+        if (e->addr == 0) { /* (the address is nowhere further: places are never emptied, only taken over) */
+            if (old == NULL) {
+                old = e;
+            }
+            break;
+        }
+        if (old == NULL && sFeListSeq - e->used > ES_STALE) {
+            old = e;
+        }
+    }
+    if (old == NULL) {
+        gVitaEs[3]++;
+        return NULL; /* (full: the cache's way) */
+    }
+    if (old->addr != 0) {
+        cc_retire(old->data);
+        gVitaEs[5]++;
+    }
+    memset(old, 0, sizeof(*old));
+    old->addr = addr;
+    old->gen = gVitaChipGen;
+    old->es = es;
+    old->used = sFeListSeq;
+    return old;
 }
 
 /* The call to e->addr ended: keep what it made, if it can be kept. */
@@ -2709,6 +3523,9 @@ static void cc_end(CallCache *e) {
         return;
     }
     gVitaCc[1]++;
+    if (e->es != 0) {
+        gVitaEs[1]++;
+    }
     if (uploads != 0 || e->state == 0) { /* (first sight, or written to the chip just now: kept from the next sight on) */
         free(buf);
         if (e->state == 2) { gVitaCc[3]++; cc_retire(e->data); e->data = NULL; }
@@ -2720,12 +3537,15 @@ static void cc_end(CallCache *e) {
     } else {
         cc_retire(e->data);
         e->data = buf;
-        e->serial = ++sCcSerial;
+        e->serial = sCcSerial = dp_pick_serial(sCcSerial + 1);
     }
     e->bytes = out;
     e->state = 2;
     e->uses = 0;
     gVitaCc[2]++;
+    if (e->es != 0) {
+        gVitaEs[2]++;
+    }
 }
 
 /* Send what the call to e->addr made, with the constants of now: one record (the back end walks the kept ones). */
@@ -2754,7 +3574,8 @@ extern void *GsGpu_DpCapEnd(void);
 extern unsigned gVitaDp[8];
 unsigned gVitaDpMiss[34]; /* for the log: kept parts found in another state, by the first GS field that differed */
 #define DP_NF 34
-#define DP_N 1024
+unsigned gVitaDpBusy; /* for the log: parts not recorded, their place (serial & sDpMask) another part's in use */
+unsigned gVitaDpWalk[3]; /* for the log: parts walked as not to be recorded (kept parts off or their indices' room full), refused before; refused now as changing */
 /* what a kept part's match compares comes first and packed (n fields: their numbers, their values): the
    drawing thread looked it up in a 1 MB table, field by field across 272 bytes, 2,400 cycles a part */
 typedef struct DpForm { void *gpu; uint32_t hits; uint8_t n, idx[DP_NF + 1]; uint64_t val[DP_NF]; uint64_t cmp, wr; uint64_t entry[DP_NF], exit[DP_NF]; } DpForm;
@@ -2763,22 +3584,98 @@ typedef struct DpForm { void *gpu; uint32_t hits; uint8_t n, idx[DP_NF + 1]; uin
    long way three times in four (15,000 a 2 s in the shadows' stretches of a test, the drawing thread 36-45 ms a
    list) and soon refused for good as changing */
 #define DP_FORMS 4
-typedef struct DpSlot { uint32_t serial, refused, made, hits, seen; DpForm f[DP_FORMS]; } DpSlot;
-static DpSlot sDp[DP_N];
+typedef struct DpSlot { uint32_t serial, refused, made, hits, seen, last; DpForm f[DP_FORMS]; } DpSlot; /* last: the form that matched last (dpfast: tried first) */
+/* The places: 2048, were 1024 in the program's memory. A detailed stage keeps 1,000-1,500 parts drawn in a picture
+   (stage 18: ~1,550), more than there were places: two parts on one place took turns being walked the long way
+   (~1,000 a 2 s on stage 18). Taken from the heap when the first number is given out (the list reader, before any
+   record carries one), half as many if that fails; bt3.txt dpslots=<power of two, 1024-8192>. */
+int gVitaDpSlots = 2048;
+static DpSlot *volatile sDp;
+static uint32_t sDpMask;
+static uint32_t *sDpGiven; /* the list a place was last given out in (the list reader's) */
+static void dp_alloc(void) {
+    uint32_t n;
+    for (n = (uint32_t)gVitaDpSlots; n >= 1024 && sDp == NULL; n /= 2) {
+        DpSlot *d = (DpSlot *)calloc(n, sizeof(DpSlot));
+        uint32_t *g = (uint32_t *)calloc(n, sizeof(uint32_t));
+        if (d != NULL && g != NULL) {
+            sDpGiven = g;
+            sDpMask = n - 1;
+            __sync_synchronize(); /* (the size before the places: the drawing thread looks at sDp first) */
+            sDp = d;
+            {
+                extern void Vita_Log(const char *fmt, ...);
+                Vita_Log("gs: kept parts: %u places (%u KB)\n", (unsigned)n, (unsigned)(n * sizeof(DpSlot) >> 10));
+            }
+        } else {
+            free(d);
+            free(g);
+        }
+    }
+}
 static int sDpOn = -1;
+
+/* A kept call's number, which also names its part's place (serial & sDpMask): the next number whose place is not
+   another part's in use (drawn in the last 16 frames, as dp_cap_begin takes it) nor given out lately. The numbers
+   went up one by one, so a part's place was whatever came: a stage with ~1,000 kept calls found a thousand places a
+   2 s another part's and walked those parts the long way (stage 18: 1,200). bt3.txt dppick=0: as before. Read by
+   the list reader while the drawing thread writes the places: only a choice, a part that finds its place taken after
+   all is walked as before. */
+int gVitaDpPick = 1;
+static uint32_t dp_pick_serial(uint32_t want) {
+    uint32_t i, s = want;
+    if (sDp == NULL) {
+        dp_alloc();
+    }
+    if (!gVitaDpPick || sDp == NULL) {
+        return want != 0 ? want : 1;
+    }
+    for (i = 0; i <= sDpMask; i++, s++) {
+        const DpSlot *d;
+        uint32_t slot;
+        if (s == 0) {
+            s = 1;
+        }
+        slot = s & sDpMask;
+        d = &sDp[slot];
+        if ((d->serial == 0 || sFrame - d->seen >= 16) && (sDpGiven[slot] == 0 || sFeListSeq - sDpGiven[slot] >= 16)) {
+            sDpGiven[slot] = sFeListSeq;
+            return s;
+        }
+    }
+    return want != 0 ? want : 1; /* (all in use: as before) */
+}
 static uint64_t sDpEntry[DP_NF];
 _Static_assert(offsetof(GsState, trxdir) == 31 * 8 && offsetof(GsState, prim) == 0, "the GS fields followed lie one after another");
 
+/* FRAME_1 and FRAME_2 (fields 22, 23) with the buffer the frame is drawn into as "the picture" (bit 15, which the
+   GS does not use, instead of the buffer's number): the game draws into its two display buffers in turn, so every
+   kept part drawn into the picture was found in another state every other frame ("field 22 is ...080000, was
+   ...080070") and kept again and again in a second form, ~370 walks the long way a 2 s, 1,500 in the busy
+   stretches. The port's states draw into "the picture" either way (state_of_cached keeps them so too); a part that
+   writes FRAME is given back the buffer of now (dp_apply). bt3.txt dpframe=0: as before; 2: in the soak's B battles. */
+int gVitaDpFrame = 1;
+extern int gGsMainFbp;
+extern int gVitaAbSide;
+static int sDpFrameNow; /* (gVitaDpFrame as it applies to this record: looked at once a kept part) */
+static inline uint64_t dp_norm(int i, uint64_t v) {
+    if ((i == 22 || i == 23) && sDpFrameNow && gGsMainFbp >= 0 && (v & 0x1FF) == (uint64_t)gGsMainFbp) {
+        return (v & ~0x1FFull) | 0x8000u;
+    }
+    return v;
+}
 static void dp_snap(uint64_t *v) {
     uint32_t qq;
     memcpy(v, &gs.prim, 32 * 8);
+    v[22] = dp_norm(22, v[22]);
+    v[23] = dp_norm(23, v[23]);
     memcpy(&qq, &gs.q, 4);
     v[32] = qq;
     v[33] = (uint64_t)(uint32_t)gs.vcount | (uint64_t)(uint32_t)gs.strip << 32;
 }
 static uint64_t dp_field(int i) {
     if (i < 32) {
-        return (&gs.prim)[i];
+        return dp_norm(i, (&gs.prim)[i]);
     }
     if (i == 32) {
         uint32_t qq;
@@ -2801,7 +3698,11 @@ static void dp_apply(const DpForm *f) {
     while (m != 0) {
         int i = __builtin_ctzll(m);
         if (i < 32) {
-            (&gs.prim)[i] = f->exit[i];
+            uint64_t x = f->exit[i];
+            if ((i == 22 || i == 23) && (x & 0x8000u) && gGsMainFbp >= 0) {
+                x = (x & ~0x81FFull) | (uint64_t)gGsMainFbp; /* ("the picture": the buffer of now) */
+            }
+            (&gs.prim)[i] = x;
         } else if (i == 32) {
             uint32_t qq = (uint32_t)f->exit[32];
             memcpy(&gs.q, &qq, 4);
@@ -2813,13 +3714,18 @@ static void dp_apply(const DpForm *f) {
     }
 }
 static void dp_clear(void) {
-    int i, k;
-    for (i = 0; i < DP_N; i++) {
+    DpSlot *d = sDp;
+    uint32_t i;
+    int k;
+    if (d == NULL) {
+        return;
+    }
+    for (i = 0; i <= sDpMask; i++) {
         for (k = 0; k < DP_FORMS; k++) {
-            GsGpu_DpFree(sDp[i].f[k].gpu);
+            GsGpu_DpFree(d[i].f[k].gpu);
         }
     }
-    memset(sDp, 0, sizeof(sDp));
+    memset(d, 0, (sDpMask + 1) * sizeof(DpSlot));
 }
 /* The part numbered `serial` drawn from its kept form: 1, or 0 (walk it). */
 extern int gVitaGsSkip;
@@ -2831,22 +3737,29 @@ static int dp_part(uint32_t serial, const float *consts) {
         extern int gVglSafe;
         sDpOn = !(gVglSafe & 131072) && getenv("BT3_NO_DP") == NULL;
     }
-    if (!sDpOn || serial == 0 || gVitaGsSkip || sGifLoops != 0 || (gT116Be & 8)) { /* (kept parts walked) */
+    if (!sDpOn || serial == 0 || sDp == NULL || gVitaGsSkip || sGifLoops != 0 || (gT116Be & 8)) { /* (kept parts walked) */
         return 0;
     }
-    s = &sDp[serial & (DP_N - 1)];
+    sDpFrameNow = gVitaDpFrame == 2 ? gVitaAbSide == 1 : gVitaDpFrame != 0;
+    s = &sDp[serial & sDpMask];
     if (s->serial != serial) {
         return 0;
     }
-    for (k = 0; k < DP_FORMS; k++) {
-        DpForm *f = &s->f[k];
-        if (f->gpu != NULL && dp_match(f)) {
-            GsGpu_DpDraw(f->gpu, consts);
-            dp_apply(f);
-            f->hits++;
-            s->hits++;
-            s->seen = sFrame;
-            return 1;
+    {
+        extern int GsGpu_DpFastOn(void);
+        int first = GsGpu_DpFastOn() ? (int)(s->last & (DP_FORMS - 1)) : 0; /* (dpfast: the form that matched last first) */
+        for (k = 0; k < DP_FORMS; k++) {
+            int kk = (first + k) & (DP_FORMS - 1);
+            DpForm *f = &s->f[kk];
+            if (f->gpu != NULL && dp_match(f)) {
+                GsGpu_DpDraw(f->gpu, consts);
+                dp_apply(f);
+                f->hits++;
+                s->hits++;
+                s->seen = sFrame;
+                s->last = (uint32_t)kk;
+                return 1;
+            }
         }
     }
     if (s->f[0].gpu != NULL) {
@@ -2884,11 +3797,13 @@ static int dp_part(uint32_t serial, const float *consts) {
 static int dp_cap_begin(uint32_t serial) {
     DpSlot *s;
     gVitaDp[6]++;
-    if (!sDpOn || serial == 0 || gVitaGsSkip || sGifLoops != 0 || !GsGpu_DpOn() || (gT116Be & 8)) {
+    if (!sDpOn || serial == 0 || sDp == NULL || gVitaGsSkip || sGifLoops != 0 || !GsGpu_DpOn() || (gT116Be & 8)) {
+        gVitaDpWalk[0]++;
         return 0;
     }
-    s = &sDp[serial & (DP_N - 1)];
+    s = &sDp[serial & sDpMask];
     if (s->serial != serial && s->serial != 0 && sFrame - s->seen < 16) {
+        gVitaDpBusy++;
         return 0; /* (the place is another part's, in use) */
     }
     if (s->serial != serial) {
@@ -2900,6 +3815,7 @@ static int dp_cap_begin(uint32_t serial) {
         s->serial = serial;
     }
     if (s->refused) {
+        gVitaDpWalk[1]++;
         return 0;
     }
     s->seen = sFrame;
@@ -2911,7 +3827,7 @@ static int dp_cap_begin(uint32_t serial) {
     return 1;
 }
 static void dp_cap_end(uint32_t serial) {
-    DpSlot *s = &sDp[serial & (DP_N - 1)];
+    DpSlot *s = &sDp[serial & sDpMask];
     DpForm *f;
     void *gpu = NULL;
     sDpCap = 0;
@@ -2925,6 +3841,22 @@ static void dp_cap_end(uint32_t serial) {
         return;
     }
     if (gpu == NULL) {
+        /* (for the log: why. A refused part is walked the long way for the rest of the fight: the first fight on a
+           stage refuses more than the next one there, 7,000-19,000 walks against ~500 in the A/B runs) */
+        if (sDpBad & 1) {
+            gVitaDpBadWhy[0]++;
+        }
+        if (sDpBad & 2) {
+            gVitaDpBadWhy[1]++;
+        }
+        if (sDpBad & 4) {
+            gVitaDpBadWhy[2]++;
+        }
+        if (sDpBad == 0) {
+            extern unsigned gVitaDpEndWhy[8];
+            gVitaDpBadWhy[3]++;
+            gVitaDpEndWhy[7] += sGifLoops != 0;
+        }
         s->refused = 1;
         gVitaDp[4]++;
         return;
@@ -2978,6 +3910,7 @@ static void dp_cap_end(uint32_t serial) {
     }
     if (++s->made > 4 * DP_FORMS && s->made * 16 > s->hits) { /* kept again and again: its state keeps changing */
         s->refused = 1;
+        gVitaDpWalk[2]++;
     }
 }
 #endif
@@ -2987,6 +3920,9 @@ static void dp_cap_end(uint32_t serial) {
 /* One run of VIF data (32-bit words): GIF data (DIRECT) goes to the GS, everything else to VU1 (gs_vu1.c).
    A command's data may continue in the next run (the command word often sits in the DMA tag, its data behind):
    DIRECT data is passed on as it comes, the data of the other commands is collected first. */
+#ifdef PORT_VITA
+static int sVifIdle = 1; /* (esdirect) no command's data still to come after the last run */
+#endif
 __attribute__((hot)) static void vif(const uint32_t *w, uint32_t count) {
     static uint32_t direct;                    /* quadwords of GIF data still to come */
     static uint32_t pend, need, have, buf[2048]; /* a command waiting for `need` words of data */
@@ -3001,7 +3937,7 @@ __attribute__((hot)) static void vif(const uint32_t *w, uint32_t count) {
                 break; /* misaligned run: drop it */
             }
             sStat[2] += qwc;
-            VPROF(3);
+            VPROF_FE(3);
 #ifdef PORT_VITA
             if (gGsSplit) { /* in the game's list buffer or a copy of a piece of it: copied (the game writes that again
                                 once the reader is through the list); elsewhere (textures, models): referred to, as before */
@@ -3020,7 +3956,7 @@ __attribute__((hot)) static void vif(const uint32_t *w, uint32_t count) {
             } else
 #endif
             Gs_Gif((const uint8_t *)&w[i], qwc);
-            VPROF(1);
+            VPROF_FE(1);
             i += qwc * 4;
             direct -= qwc;
             continue;
@@ -3044,11 +3980,11 @@ __attribute__((hot)) static void vif(const uint32_t *w, uint32_t count) {
                         extern int gVitaUnpackVolatile; /* gs_vu1.c: this data is gone after the call */
                         gVitaUnpackVolatile = 1;
 #endif
-                        VPROF(2);
+                        VPROF_FE(2);
                         GZM2(21);
                         GsVu1_Unpack(c, pn, pend & 0xFFFF, buf);
                         GZM2(22);
-                        VPROF(1);
+                        VPROF_FE(1);
 #ifdef PORT_VITA
                         gVitaUnpackVolatile = 0;
 #endif
@@ -3073,6 +4009,9 @@ __attribute__((hot)) static void vif(const uint32_t *w, uint32_t count) {
         case 0x03: GsVu1_SetBase(imm); break;
         case 0x04: GsVu1_SetItop(imm); break;
         case 0x05: GsVu1_SetMode(imm); break;
+#ifdef PORT_VITA
+        case 0x07: sEsMark = 0x10000u | imm; break; /* MARK: the engine seam's (port/src/gs_marker.c) */
+#endif
         case 0x14: case 0x15: GsVu1_Call((int)imm); break;
         case 0x17: GsVu1_Call(-1); break;
         case 0x20: need = 1; break;
@@ -3091,11 +4030,11 @@ __attribute__((hot)) static void vif(const uint32_t *w, uint32_t count) {
                     if (gVitaGsSkipF && (imm & 0x8000)) {
                         gVitaUnpackSkipped += num ? num : 256;
                     } else {
-                        VPROF(2);
+                        VPROF_FE(2);
                         GZM2(21);
                         GsVu1_Unpack(cmd, num, imm, &w[i]);
                         GZM2(22);
-                        VPROF(1);
+                        VPROF_FE(1);
                     }
                     i += need;
                     need = 0;
@@ -3105,6 +4044,9 @@ __attribute__((hot)) static void vif(const uint32_t *w, uint32_t count) {
             break;
         }
     }
+#ifdef PORT_VITA
+    sVifIdle = direct == 0 && need == 0;
+#endif
 }
 
 /* ------------------------------------------------------------------------------------------------ DMA and frames */
@@ -3359,8 +4301,17 @@ static float sGrConsts[96] __attribute__((aligned(16))); /* the strips' constant
 int gVitaShadeLog; /* bt3.txt shadelog=1: the fighters' shading layers in the log (an earlier version's) */
 unsigned long long gVitaGrCyc[16]; /* the drawing thread's cycles by record, lists measured part by part */
 unsigned gVitaGrN[16];
+#ifdef PORT_VITA
+extern volatile unsigned char gProfPart;
+/* the drawing thread's place by record (vita_vgl.c gProf): GIF data and registers 3, model strips 6, kept parts 11
+   (12 while one is walked), the rest 1 */
+#define GR_PLACE(n) (gProf = gProfPart ? gProfPart : (n))
+#else
+#define GR_PLACE(n) ((void)0)
+#endif
 static void gr_exec(const GRec *r) {
     GZM(19); /* (between records: the ring, the loop) */
+    GR_PLACE(r->type == GR_GIFP || r->type == GR_GIFC || r->type == GR_REG ? 3 : r->type == GR_VU || r->type == GR_VU2 ? 6 : r->type == GR_PART ? 11 : 1);
     switch (r->type) {
     case GR_GIFP: Gs_Gif((const uint8_t *)(uintptr_t)r->a, r->b); GZM(20); break;
     case GR_GIFC: Gs_Gif((const uint8_t *)(r + 1), r->b); GZM(20); break;
@@ -3481,8 +4432,8 @@ static void gr_exec(const GRec *r) {
     case GR_PART: { /* a model part as one record: its constants once, then the strips the front end kept (gs_core.c cc_replay) */
         const uint8_t *p = (const uint8_t *)(uintptr_t)r->a, *q = p + r->b;
         int cap;
-        {   /* (its kept form fetched while the constants are copied) */
-            const uint8_t *sl = (const uint8_t *)&sDp[r->c & (DP_N - 1)];
+        if (sDp != NULL) {   /* (its kept form fetched while the constants are copied) */
+            const uint8_t *sl = (const uint8_t *)&sDp[r->c & sDpMask];
             const DpSlot *ds = (const DpSlot *)(const void *)sl;
             int fk;
             __builtin_prefetch(sl);
@@ -3499,11 +4450,18 @@ static void gr_exec(const GRec *r) {
             break; /* drawn from its kept form */
         }
         cap = dp_cap_begin(r->c);
+#ifdef PORT_VITA
+        gProfPart = 12;
+        gProf = 12;
+#endif
         while (p < q) {
             const GRec *s = (const GRec *)(const void *)p;
             gr_exec(s);
             p += s->size;
         }
+#ifdef PORT_VITA
+        gProfPart = 0;
+#endif
         if (cap) {
             dp_cap_end(r->c);
         }
@@ -3584,6 +4542,9 @@ static void *gr_thread(void *arg) {
         if (h == sGrTail) {
             if (idle == 0) {
                 sGrIdleFrom = sceKernelGetProcessTimeWide();
+#ifdef PORT_VITA
+                gProf = 0; /* (waiting for the list reader: idle, not the last record's place) */
+#endif
             }
             if (++idle > 2000) {
                 extern unsigned long long gVitaWall[6];
@@ -4399,7 +5360,7 @@ static void run_chain(uint32_t tadr, int tte) {
     unsigned long long t = sceKernelGetProcessTimeWide();
 
     sSnapNext = 0;
-    gProf = 1;
+    VPROF_FE(1);
     {
         extern void Vita_PerfListBegin(void), Vita_PerfListEnd(void);
         if (!gGsSplit) {
@@ -4410,7 +5371,7 @@ static void run_chain(uint32_t tadr, int tte) {
             Vita_PerfListEnd();
         }
     }
-    gProf = 0;
+    VPROF_FE(0);
     if (!gGsSplit) {
         Vita_ListDone((unsigned)(sceKernelGetProcessTimeWide() - t));
     }
@@ -4431,6 +5392,44 @@ static void frame_tail(void) {
     sMissingTex = 0;
 }
 
+#ifdef PORT_VITA
+/* ---- bt3.txt esdirect (the calls of the seam the direct way): the call packet of a model's part named at the seam
+   (src/sys/vu1_packet.c Vu1Pkt_CallProg0..2: in the DMA tag FLUSHE and UNPACK V4-32 of n quadwords at 0, then the n
+   quadwords, MSCALF, BASE, OFFSET and the seam's MARK) is done as what it is: its constants copied into VU memory, the
+   program's call and its double buffer's registers set, the MARK taken, instead of the VIF codes read one by one. The
+   call itself then goes the seam's way (es_find: sent from its kept copy) as before. 0 off (default: no gain measured
+   on the console, 2026-11-12), 1 on, 2 in the soak's B battles. ---- */
+int gVitaEsDirect = 0;
+unsigned gVitaEsDirectN[2];     /* for the log: call packets the direct way; -  */
+static int es_direct_on(void) {
+    extern int gVitaAbSide;
+    return gVitaEsDirect == 2 ? gVitaAbSide == 1 : gVitaEsDirect != 0;
+}
+static int es_direct(const uint32_t *tag, const uint32_t *data, uint32_t qwc) {
+    uint32_t n = (tag[3] >> 16) & 0xFF, m;
+    const uint32_t *c;
+    if (tag[2] != 0x10000000u || (tag[3] & 0xFF00FFFFu) != 0x6C000000u || n == 0 || qwc != n + 1) {
+        return 0; /* (FLUSHE; UNPACK V4-32 of n quadwords at 0, as the packet's tag words) */
+    }
+    c = data + n * 4;
+    m = c[3];
+    if ((c[0] & 0xFFFF0000u) != 0x15000000u || (c[1] & 0xFFFF0000u) != 0x03000000u || (c[2] & 0xFFFF0000u) != 0x02000000u ||
+        (m & 0xFFFFC000u) != 0x0700C000u) {
+        return 0; /* (MSCALF, BASE, OFFSET, and a model part's MARK of the seam) */
+    }
+    if (gVitaGsSkipF) {
+        return 0; /* (a list read but not drawn: the VIF's own way, which leaves out what is not needed) */
+    }
+    GsVu1_Unpack(0x6C, n, 0, data);
+    GsVu1_Call((int)(c[0] & 0xFFFF));
+    GsVu1_SetBase(c[1] & 0xFFFF);
+    GsVu1_SetOffset(c[2] & 0xFFFF);
+    sEsMark = 0x10000u | (m & 0xFFFF);
+    sStat[1] += 6;
+    gVitaEsDirectN[0]++;
+    return 1;
+}
+#endif
 /* Executes one frame's list: the DMA chain at `tadr` on VIF1, then the end-of-frame work of the back end. */
 static void run_chain(uint32_t tadr, int tte) {
     uint32_t stack[2], sp = 0;
@@ -4449,6 +5448,11 @@ static void run_chain(uint32_t tadr, int tte) {
         const uint32_t *data;
         int end = 0;
 
+#ifdef PORT_VITA
+        sEsMark = 0; /* (the engine seam's MARK counts only for the call whose packet carries it) */
+        sFeTexMark = sTexMarkNext; /* (a texture's MARK, in the tag before: for this one, its pixels) */
+        sTexMarkNext = 0;
+#endif
         switch (id) {
         case 0: data = (const uint32_t *)(uintptr_t)addr; end = 1; break;                 /* REFE */
         case 1: data = tag + 4; tadr += 16 + qwc * 16; break;                             /* CNT */
@@ -4463,7 +5467,7 @@ static void run_chain(uint32_t tadr, int tte) {
         if (id == 6 && sCcCap >= 0 && sp == sCcDepth) { /* (the recorded call returns: after its RET's own data) */
             if (tte) { vif(tag + 2, 2); }
             vif(tag + 4, qwc * 4);
-            cc_end(&sCC[sCcCap]);
+            cc_end(sCcCapE);
             continue;
         }
         if (sSnapCountA[sSnapCur] != 0 && (id == 0 || id == 3 || id == 4)) { /* (by the tag, not in order) */
@@ -4488,12 +5492,24 @@ static void run_chain(uint32_t tadr, int tte) {
             fprintf(stderr, "  dma tag at %08x: id %u qwc %u addr %08x | %08x %08x (depth %u)\n", (unsigned)(uintptr_t)tag, id, qwc, addr, tag[2], tag[3], sp);
         }
         sStat[0]++;
-        if (tte) {
-            vif(tag + 2, 2);
+#ifdef PORT_VITA
+        if (id == 5 && tte && sVifIdle && gVitaEsDirect && es_direct_on() && es_direct(tag, data, qwc)) {
+            /* (the call packet of a model's part named at the seam: its constants put in VU memory and its program's
+               registers set without the VIF codes read one by one) */
+        } else
+#endif
+        {
+            if (tte) {
+                vif(tag + 2, 2);
+            }
+            vif(data, qwc * 4);
         }
-        vif(data, qwc * 4);
 #ifdef PORT_VITA
         GZM2(20);
+        sFeTexMark = 0;
+        if ((sEsMark & 0x1B000u) == 0x1B000u) { /* (the seam's texture MARK: gs_marker.c Port_EsTexWord) */
+            sTexMarkNext = sEsMark & 0xFFFFu;
+        }
 #endif
 #ifdef PORT_VITA
         if (id == 5 && ccOn && gGsSplit && !gVitaGsSkipF && sp > 0 && sCcCap < 0) {
@@ -4501,21 +5517,30 @@ static void run_chain(uint32_t tadr, int tte) {
             extern int gT116Fe;
             /* (fights only: a kept call is read the long way again only every 64th time, and the dragon's screen has
                parts the game moves itself, the dragon balls' white outlines among them, which then lagged behind) */
-            CallCache *e = Vita_InBattle() && !(gT116Fe & 2) ? cc_find(addr) : NULL; /* (no calls replayed) */
+            int inb = Vita_InBattle() && !(gT116Fe & 2);
+            CallCache *e = inb && (sEsMark & 0x18000u) == 0x18000u ? es_find(addr, sEsMark & 0x7FFFu) : NULL; /* (the engine seam's) */
+            if (e == NULL) {
+                e = inb ? cc_find(addr) : NULL; /* (no calls replayed) */
+            }
             if (Vita_ChipResetDue()) {
                 gr_simple(GR_CHIPRESET, 0, 0, 0);
                 e = NULL;
             }
-            if (e != NULL && e->state == 2 && e->gen == gVitaChipGen && ++e->uses % 64 != 0) {
+            if (e != NULL && e->state == 2 && e->gen == gVitaChipGen &&
+                (e->es != 0 ? gVitaEsCheck <= 0 || ++e->uses % (unsigned)gVitaEsCheck != 0 : ++e->uses % 64 != 0)) {
                 GZM2(20);
                 cc_replay(e);
+                if (e->es != 0) {
+                    gVitaEs[0]++;
+                }
                 GZM2(24);
                 tadr = stack[--sp]; /* (the chain itself is not read) */
             } else if (e != NULL && e->state != 3) {
                 if (sRegDefN != 0) {
                     reg_def_flush(); /* (what was put off before the call is not the call's) */
                 }
-                sCcCap = (int)(e - sCC); /* read the long way, and recorded */
+                sCcCapE = e;
+                sCcCap = e->es != 0 ? CC_N : (int)(e - sCC); /* read the long way, and recorded */
                 sCcStart = sGrTail;
                 sCcDepth = sp - 1;
                 memcpy(sCcK0, GsVu1_Consts(), 512); /* (the constants as the call found them: cc_end) */
