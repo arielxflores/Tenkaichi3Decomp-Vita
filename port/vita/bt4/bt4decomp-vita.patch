@@ -1028,7 +1028,7 @@ index f3af031..3a64d0b 100644
  }
  
 diff --git a/src/battle/view_b.c b/src/battle/view_b.c
-index 3fb6f20..1c21b2c 100644
+index 3fb6f20..1a809f6 100644
 --- a/src/battle/view_b.c
 +++ b/src/battle/view_b.c
 @@ -275,6 +275,7 @@ void TextBox_AttachString(Flash *flash, FlashRef *ref, s32 x, s32 y, u16 *str, T
@@ -1047,26 +1047,87 @@ index 3fb6f20..1c21b2c 100644
  
  /* BT4 uses the left-pointing atlas arrow for both costume controls. Keep the
     right control's UV mirrored, in every selector which uses that movie. */
-@@ -368,6 +370,18 @@ void Bt4Costume_FixArrows(Flash *flash) {
+@@ -368,6 +370,79 @@ void Bt4Costume_FixArrows(Flash *flash) {
      Flash_ClipSetFlags(flash, &ref, 4, 1);
  }
  
 +#ifdef PORT_VITA
 +/* The Vita: the PC's text overlay (PortTbo_*, its TrueType line renderer) is not there (port/vita/bt4/vita_bt4_shim.c
-+   answers "no text"), so the window stayed empty. The costume's name in the game's own lettering instead: line
-+   `number - 1` of the character's table in section 57, which the caller made the box's text, as the movie's other
-+   names are drawn (TextBox_AttachLine reads the line's offset the same way as `name` was found). */
++   answers "no text"), so the window stayed empty. The costume in the game's own lettering instead, laid out as the PC
++   caption: "number/total" between the arrows, and the costume's name under them, centred in the window and narrowed
++   to fit it. The name is line `number - 1` of the character's table in section 57, which the caller made the box's
++   text (TextBox_AttachLine reads the line's offset the same way as `name` was found). Offsets are from the clip,
++   in the menus' 512 x 448 space: the window's middle is 23 to the right of it, the arrows' line at its height. */
++#define BT4_COSTUME_MID 23      /* x of the window's middle */
++#define BT4_COSTUME_NAME_Y 37   /* the name's line, under the arrows */
++#define BT4_COSTUME_NAME_K 0.8f /* the name's size */
++#define BT4_COSTUME_NAME_W 196  /* the widest the name gets: the window's inside, less a margin */
++extern void *Font_FindGlyph(u16 ch, void *slotOut);
++typedef struct Bt4CostumeVita {
++    const void *key;
++    TextBoxDraw count;
++    TextBoxDraw name;
++    u16 countStr[16];
++} Bt4CostumeVita;
++static Bt4CostumeVita sCostumeVita[4];
++
++/* The movie's "draw over" callback: both lines, each from a copy (TextBox_DrawClip adds the clip's position). */
++static s32 Bt4Costume_DrawVita(void *arg, TextBoxClipProp *prop) {
++    Bt4CostumeVita *c = arg;
++    TextBoxDraw d;
++    d = c->count;
++    TextBox_DrawClip(&d, prop);
++    d = c->name;
++    TextBox_DrawClip(&d, prop);
++    return 0;
++}
++
++static s32 Bt4Costume_PutNum(u16 *out, s32 n) {
++    char digits[12];
++    s32 i, len = sprintf(digits, "%d", n);
++    for (i = 0; i < len; i++) out[i] = (u16)digits[i];
++    return len;
++}
++
 +void Bt4Costume_AttachCaption(Flash *flash, FlashRef *ref, s32 number, s32 total,
 +                              const u16 *name, void *storage) {
-+    (void)total;
++    TextBoxFull *box = (TextBoxFull *)storage;
++    Bt4CostumeVita *c = &sCostumeVita[0];
++    s32 i, n;
 +    (void)name;
-+    TextBox_AttachLine(flash, ref, 0, 0, number - 1, (TextBox *)storage);
++    for (i = 0; i < 4; i++) {
++        if (sCostumeVita[i].key == storage) { c = &sCostumeVita[i]; break; }
++        if (sCostumeVita[i].key == NULL) { c = &sCostumeVita[i]; }
++    }
++    c->key = storage;
++    /* The name: centred, and narrowed when wider than the window (the box is the caller's, made with no style). */
++    box->draw.align = 1;
++    box->flags |= TEXTBOX_FLAG_MAX_W;
++    box->maxW = (s32)(BT4_COSTUME_NAME_W / BT4_COSTUME_NAME_K);
++    TextBox_AttachLine(flash, ref, BT4_COSTUME_MID, BT4_COSTUME_NAME_Y, number - 1, (TextBox *)storage);
++    if (number < 1 || ref->id < 0) return;
++    c->name = box->draw;
++    c->name.scaleX *= BT4_COSTUME_NAME_K;
++    c->name.scaleY *= BT4_COSTUME_NAME_K;
++    /* "number/total" (or the number alone, if the lettering has no slash) on the arrows' line. */
++    n = Bt4Costume_PutNum(c->countStr, number);
++    if (total > 0 && total < 100 && Font_FindGlyph('/', NULL) != NULL) {
++        c->countStr[n++] = '/';
++        n += Bt4Costume_PutNum(c->countStr + n, total);
++    }
++    c->countStr[n] = 0;
++    c->count = box->draw;
++    c->count.str = c->countStr;
++    c->count.scaleX = 1.0f;
++    c->count.scaleY = 1.0f;
++    c->count.y -= BT4_COSTUME_NAME_Y;
++    Flash_ClipSetCallbackC(flash, ref, Bt4Costume_DrawVita, c);
 +}
 +#else
  void Bt4Costume_AttachCaption(Flash *flash, FlashRef *ref, s32 number, s32 total,
                                const u16 *name, void *storage) {
      Bt4CostumeCaption *caption = NULL;
-@@ -397,3 +411,4 @@ void Bt4Costume_AttachCaption(Flash *flash, FlashRef *ref, s32 number, s32 total
+@@ -397,3 +472,4 @@ void Bt4Costume_AttachCaption(Flash *flash, FlashRef *ref, s32 number, s32 total
      Flash_ClipSetFlags(flash, ref, 0x800, 1);
      Flash_ClipSetCallbackC(flash, ref, Bt4Costume_DrawCaption, caption);
  }
