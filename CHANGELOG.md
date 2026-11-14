@@ -1,5 +1,14 @@
 # Changes (PS Vita port)
 
+## 1.2.2
+
+Fixed
+
+- **The game closing right at its start on some Vitas** (1.2 and 1.2.1: "An error has occurred", C2-12828-1, with
+  nothing in the log after its first lines): the crash report the game set up through the kubridge plugin's exception
+  handlers closed it with some versions of kubridge. The released program no longer sets it up (`crashreport=1` in
+  `ux0:data/bt3/bt3.txt` does); the console's own crash dump still says where a crash happened.
+
 ## 1.2.1
 
 Fixed
