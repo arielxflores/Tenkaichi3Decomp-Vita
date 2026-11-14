@@ -1,5 +1,19 @@
 # Changes (PS Vita port)
 
+## 1.2.1
+
+Fixed
+
+- Songs from music mods (the anime songs images, among others) played once and stopped instead of looping: their
+  loop point is kept in an older version of the ADX header, which the port did not read. They loop through the
+  fight now, as the disc's own songs do.
+- BT4's disc image (or its unpacked files) was not found unless it was in `ux0:data/bt3/bt4/`. `ux0:bt3/bt4/`,
+  `ux0:data/bt4/`, `ux0:bt4/` and BT3's own folder `ux0:data/bt3/` are looked in too now. The README notes that
+  BT4's image, about 6 GB, does not fit on a FAT32 card as one file: copy the unpacked files there instead.
+- BT4: the Outfit Select window was empty (the costume's name was drawn by the PC version's text overlay, which the
+  Vita does not have). It shows the costume's number between the arrows (1/4) and its name under them, in the
+  game's own lettering, centred in the window and narrowed to fit it.
+
 ## 1.2
 
 New
