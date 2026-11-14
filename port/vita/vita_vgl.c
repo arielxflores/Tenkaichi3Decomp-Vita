@@ -952,8 +952,7 @@ static void shader_init(void) {
     {   /* (the effects drawn at a lower resolution: kVertZ, fxlow) */
         GLuint vsz = glCreateShader(GL_CG_VERTEX_SHADER_EXT);
         src = kVertZ; len = (GLint)sizeof(kVertZ) - 1; ok = 0;
-        glShaderSource(vsz, 1, &src, &len);
-        glCompileShader(vsz);
+        sh_cached(vsz, src, len);
         glGetShaderiv(vsz, GL_COMPILE_STATUS, &ok);
         if (ok) {
             sVsZ = vsz;
