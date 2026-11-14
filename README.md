@@ -340,6 +340,12 @@ Multiplayer is new: when something goes wrong, `ux0:data/bt3/log.txt` from both 
   `ux0:data/bt3/disc/`, or `SLUS_216.78` and the `BIN` and `DATA` folders in `ux0:data/bt3/disc/` (a folder named
   `disk`, or one more folder level in between, is found too). The message lists what it found instead. An image
   of another release (PAL, Japanese) or of a modded disc is not used.
+- **"The disc image ... can only be read up to ... MB"** (or, in the start menu, "your BT4 .iso can only be read up
+  to ..."): the `.iso` on the memory card is not all there. Either its copy did not finish (its size can still look
+  right, but past that point nothing reads back: copy it again and let the copy finish), or it was cut at 4 GB by a
+  card formatted as FAT32, which cannot hold a larger file (copy `SLUS_216.78`, `BIN` and `DATA` from it instead, or
+  format the card as exFAT). Before 1.2.3 such an image was used anyway, and the game went silent or closed when a
+  fight loaded something from the missing part.
 - **The fights' picture is smaller than the menus' (it fills only part of the screen)**: the fights are drawn at
   640 x 368 (720 x 408 with `fightres=720`) and the Vita's display scales them to the screen. The Sharpscale plugin in
   a scaling mode other than Original (Integer, for one) shows them unscaled instead: set it back to Original.

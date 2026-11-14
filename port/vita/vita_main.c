@@ -1411,6 +1411,19 @@ static void find_disc(void) {
         return;
     }
 #endif
+    {   /* an image that cannot be read to its end (vita_iso.c image_end_ok): said as it is */
+        extern int Vita_IsoCut(char *path, int size, unsigned *readMb, unsigned *sizeMb);
+        unsigned readMb, sizeMb;
+        if (Vita_IsoCut(found, sizeof(found), &readMb, &sizeMb)) {
+            int fat32 = readMb >= 4000 && readMb <= 4096 && sizeMb > 4096; /* (cut at 4 GB) */
+            Vita_Fatal("The disc image\n  %s\ncan only be read up to %u MB of its %u MB:\n%s\n\n"
+                       "%s\nOr copy " VITA_PROGRAM " and the folders BIN and DATA\nfrom it instead (7-Zip opens the .iso).",
+                       found, readMb, sizeMb,
+                       fat32 ? "a memory card formatted as FAT32 cannot hold\na file over 4 GB."
+                             : "its copy did not finish (or the memory card has a fault).",
+                       fat32 ? "Format the card as exFAT and copy it again." : "Copy it again, and check that it has the same size\nas on your computer.");
+        }
+    }
     seen[0] = '\0';
     if ((d = sceIoDopen(HOME)) >= 0) {
         memset(&e, 0, sizeof(e));

@@ -152,8 +152,24 @@ static int bt4_ready(const char **why) {
             }
         }
         if (!found) {
-            *why = ES("copy your BT4 B14 Rev2 disc's .iso (or its SLUS_219.78,\n  BIN and DATA) to ux0:data/bt3/bt4/",
-                      "copia el .iso de tu disco BT4 B14 Rev2 (o su SLUS_219.78,\n  BIN y DATA) en ux0:data/bt3/bt4/");
+            extern int Vita_IsoCut(char *path, int size, unsigned *readMb, unsigned *sizeMb);
+            static char cut[200];
+            unsigned readMb, sizeMb;
+            if (Vita_IsoCut(iso, sizeof(iso), &readMb, &sizeMb)) { /* (an image there that cannot be read to its end: vita_iso.c) */
+                if (readMb >= 4000 && readMb <= 4096 && sizeMb > 4096) { /* (cut at 4 GB: a FAT32 card) */
+                    snprintf(cut, sizeof(cut), ES("your BT4 .iso stops at %u MB of its %u MB: a FAT32\n  card holds 4 GB of a file at most (see the README).",
+                                                  "tu .iso de BT4 se corta en %u MB de sus %u MB: una\n  tarjeta FAT32 guarda 4 GB por archivo (ver el README)."),
+                             readMb, sizeMb);
+                } else {
+                    snprintf(cut, sizeof(cut), ES("your BT4 .iso can only be read up to %u MB of its\n  %u MB: its copy did not finish. Copy it again.",
+                                                  "tu .iso de BT4 solo se puede leer hasta %u MB de sus\n  %u MB: su copia no termino. Copialo otra vez."), /* (the screen's font: no accents) */
+                             readMb, sizeMb);
+                }
+                *why = cut;
+            } else {
+                *why = ES("copy your BT4 B14 Rev2 disc's .iso (or its SLUS_219.78,\n  BIN and DATA) to ux0:data/bt3/bt4/",
+                          "copia el .iso de tu disco BT4 B14 Rev2 (o su SLUS_219.78,\n  BIN y DATA) en ux0:data/bt3/bt4/");
+            }
             knownWhy = *why;
             return known = 0;
         }

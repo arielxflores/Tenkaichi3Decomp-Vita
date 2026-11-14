@@ -99,6 +99,7 @@ typedef struct Scan {
     SceOff imageSize;
     IsoEntry *ent;
     int n, bad;
+    SceOff cutEnd; /* the furthest end of the files beyond the image's end (a copy cut short), else 0 */
 } Scan;
 
 static void scan_dir(Scan *s, uint32_t lba, uint32_t size, int parent, int depth) {
@@ -151,7 +152,13 @@ static void scan_dir(Scan *s, uint32_t lba, uint32_t size, int parent, int depth
         e->lba = le32(r + 2);
         e->size = le32(r + 10);
         if (!e->dir && (SceOff)e->lba * ISO_SECTOR + e->size > s->imageSize) {
-            continue; /* (beyond the image's end: a copy cut short) */
+            /* beyond the image's end: left out. A copy cut short when it is one of the game's files (image_end_ok); a
+               padding file (DUMMY...) cut off an image made smaller, or the PS2's small sound modules (.IRX, which
+               BT4's disc keeps at its very end), do not count */
+            if (e->size >= (1u << 20) && strncmp(e->name, "DUMMY", 5) != 0 && (SceOff)e->lba * ISO_SECTOR + e->size > s->cutEnd) {
+                s->cutEnd = (SceOff)e->lba * ISO_SECTOR + e->size;
+            }
+            continue;
         }
         s->n++;
     }
@@ -164,10 +171,74 @@ static void scan_dir(Scan *s, uint32_t lba, uint32_t size, int parent, int depth
     }
 }
 
-/* the image's folders, or 0 (not an ISO 9660 image) */
+/* An image that cannot be read to its end: the last one found (Vita_IsoCut) */
+static char sCutPath[256];
+static unsigned sCutMb[2]; /* read up to, of */
+
+/* sector k of the image read back whole (`size` the image's: its last sector may be short) */
+static int sector_ok(SceUID fd, uint8_t *buf, SceOff k, SceOff size) {
+    SceOff at = k * ISO_SECTOR;
+    int want = size - at < ISO_SECTOR ? (int)(size - at) : ISO_SECTOR;
+    return want > 0 && __real_sceIoPread(fd, buf, (SceSize)want, at) == want;
+}
+
+/* The end of the image's furthest file read back: 1. A copy that did not finish can have its full size while past
+   where it stopped every read comes back empty (a player's BT4 image, 1.2.1: its sounds silent, then the fighters'
+   models missing when a fight started, and the game stopped). Such an image is not taken (0): the game says so at
+   the start instead (Vita_IsoCut), with how far it can be read. */
+static int image_end_ok(Scan *s, const char *path, uint8_t *buf) {
+    SceOff end = 0, lo, hi;
+    int i;
+    for (i = 0; i < s->n; i++) {
+        SceOff e = (SceOff)s->ent[i].lba * ISO_SECTOR + s->ent[i].size;
+        if (!s->ent[i].dir && e > end) {
+            end = e;
+        }
+    }
+    if (s->cutEnd > 0) { /* files beyond its end: shorter than the disc (a FAT32 card holds 4 GB of a file at most) */
+        snprintf(sCutPath, sizeof(sCutPath), "%s", path);
+        sCutMb[0] = (unsigned)(s->imageSize >> 20);
+        sCutMb[1] = (unsigned)(s->cutEnd >> 20);
+        Vita_Log("iso: %s is %u MB, and its files reach %u MB: a copy cut short; not used\n", path, sCutMb[0], sCutMb[1]);
+        return 0;
+    }
+    if (end <= 17 * ISO_SECTOR || sector_ok(s->fd, buf, (end - 1) / ISO_SECTOR, s->imageSize)) {
+        return 1;
+    }
+    lo = 16; /* (read: the volume's descriptor) */
+    hi = (end - 1) / ISO_SECTOR;
+    while (hi - lo > 1) { /* how far it can be read (a copy stops somewhere: all before it is there) */
+        SceOff mid = lo + (hi - lo) / 2;
+        if (sector_ok(s->fd, buf, mid, s->imageSize)) {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    snprintf(sCutPath, sizeof(sCutPath), "%s", path);
+    sCutMb[0] = (unsigned)((lo + 1) * ISO_SECTOR >> 20);
+    sCutMb[1] = (unsigned)(s->imageSize >> 20);
+    Vita_Log("iso: %s can be read only up to %u MB of its %u MB: a copy that did not finish (or a fault of the memory card); "
+             "not used\n", path, sCutMb[0], sCutMb[1]);
+    return 0;
+}
+
+/* The last image that could not be read to its end: 1, its path and how far (MB, of its size) */
+int Vita_IsoCut(char *path, int size, unsigned *readMb, unsigned *sizeMb) {
+    if (sCutPath[0] == '\0') {
+        return 0;
+    }
+    snprintf(path, (size_t)size, "%s", sCutPath);
+    *readMb = sCutMb[0];
+    *sizeMb = sCutMb[1];
+    return 1;
+}
+
+/* the image's folders, or 0 (not an ISO 9660 image, or one that cannot be read to its end) */
 static int scan_image(const char *path, IsoEntry **ent) {
     uint8_t pvd[ISO_SECTOR];
     Scan s;
+    int endOk;
 
     memset(&s, 0, sizeof(s));
     *ent = NULL;
@@ -185,8 +256,9 @@ static int scan_image(const char *path, IsoEntry **ent) {
     if (s.ent != NULL) {
         scan_dir(&s, le32(pvd + 156 + 2), le32(pvd + 156 + 10), -1, 0);
     }
+    endOk = s.ent == NULL || s.bad || s.n == 0 || image_end_ok(&s, path, pvd);
     __real_sceIoClose(s.fd);
-    if (s.ent == NULL || s.bad || s.n == 0) {
+    if (s.ent == NULL || s.bad || s.n == 0 || !endOk) {
         free(s.ent);
         return 0;
     }
@@ -608,7 +680,9 @@ int Vita_IsoFind(const char *dir, const char *file, int keep, char *out, int siz
         }
         snprintf(path, sizeof(path), "%s/%s", dir, e.d_name);
         if (!Vita_IsoMount(path)) {
-            Vita_Log("iso: %s is not a disc image that can be read (ISO 9660)\n", path);
+            if (strcasecmp(sCutPath, path) != 0) { /* (one cut short: said already) */
+                Vita_Log("iso: %s is not a disc image that can be read (ISO 9660)\n", path);
+            }
             continue;
         }
         snprintf(inner, sizeof(inner), "%s/%s", path, file);

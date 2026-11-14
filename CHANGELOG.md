@@ -25,6 +25,11 @@ Fixed
 
 - BT4: the map select shows the two fighters' portraits, as on the PS2 (the PC version hides them, for its widened
   menus).
+- **A disc image that is not all there is no longer used.** An `.iso` whose copy did not finish (its size looks
+  right, but past some point its reads come back empty), or one cut at 4 GB by a FAT32 memory card, was used anyway:
+  the sounds from its missing part were silent, and a fight that needed a fighter from it closed the game (BT4, as a
+  player reported). The game now checks that an image can be read to its end and says at the start how far it can
+  be read, and what to do.
 
 ## 1.2.2
 
