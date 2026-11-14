@@ -1027,6 +1027,50 @@ index f3af031..3a64d0b 100644
      }
  }
  
+diff --git a/src/battle/view_b.c b/src/battle/view_b.c
+index 3fb6f20..1c21b2c 100644
+--- a/src/battle/view_b.c
++++ b/src/battle/view_b.c
+@@ -275,6 +275,7 @@ void TextBox_AttachString(Flash *flash, FlashRef *ref, s32 x, s32 y, u16 *str, T
+ }
+ 
+ 
++#ifndef PORT_VITA /* (the Vita: Bt4Costume_AttachCaption below, in the game's own lettering) */
+ /* A single replacement caption for BT4's costume window. It uses the port's
+    cached, antialiased TrueType line renderer, keeping the movie's fade/position. */
+ extern int PortTbo_TextId(const char *text, int kind);
+@@ -359,6 +360,7 @@ static void Bt4Costume_DrawCaption(void *arg, TextBoxClipProp *prop) {
+                     Ps_Rgba(248,255,255,255), Ps_Rgba(248,255,255,255), alpha);
+     Gfx_AddDefaultEnv();
+ }
++#endif
+ 
+ /* BT4 uses the left-pointing atlas arrow for both costume controls. Keep the
+    right control's UV mirrored, in every selector which uses that movie. */
+@@ -368,6 +370,18 @@ void Bt4Costume_FixArrows(Flash *flash) {
+     Flash_ClipSetFlags(flash, &ref, 4, 1);
+ }
+ 
++#ifdef PORT_VITA
++/* The Vita: the PC's text overlay (PortTbo_*, its TrueType line renderer) is not there (port/vita/bt4/vita_bt4_shim.c
++   answers "no text"), so the window stayed empty. The costume's name in the game's own lettering instead: line
++   `number - 1` of the character's table in section 57, which the caller made the box's text, as the movie's other
++   names are drawn (TextBox_AttachLine reads the line's offset the same way as `name` was found). */
++void Bt4Costume_AttachCaption(Flash *flash, FlashRef *ref, s32 number, s32 total,
++                              const u16 *name, void *storage) {
++    (void)total;
++    (void)name;
++    TextBox_AttachLine(flash, ref, 0, 0, number - 1, (TextBox *)storage);
++}
++#else
+ void Bt4Costume_AttachCaption(Flash *flash, FlashRef *ref, s32 number, s32 total,
+                               const u16 *name, void *storage) {
+     Bt4CostumeCaption *caption = NULL;
+@@ -397,3 +411,4 @@ void Bt4Costume_AttachCaption(Flash *flash, FlashRef *ref, s32 number, s32 total
+     Flash_ClipSetFlags(flash, ref, 0x800, 1);
+     Flash_ClipSetCallbackC(flash, ref, Bt4Costume_DrawCaption, caption);
+ }
++#endif
 diff --git a/src/menu/menu_a.c b/src/menu/menu_a.c
 index d3fcc84..793c999 100644
 --- a/src/menu/menu_a.c

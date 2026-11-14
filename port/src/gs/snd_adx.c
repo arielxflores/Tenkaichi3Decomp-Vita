@@ -162,8 +162,9 @@ static int decode(Player *p, int16_t *out, int frames) {
             }
             p->pos = p->loopStart & ~31u; /* loop starts are frame-aligned by the encoder */
 #ifdef PORT_VITA
-            p->loops++;
-            ADX_LOG("adx: player %d back to its loop's start (%.1f s), time %d (frame %u)\n", (int)(p - sPlayers), (double)p->loopStart / (double)p->rate, p->loops, gGsFrame);
+            if (++p->loops == 1) { /* (the first time a song comes round: a short ambient loop does every few seconds) */
+                ADX_LOG("adx: player %d back to its loop's start (%.1f s) (frame %u)\n", (int)(p - sPlayers), (double)p->loopStart / (double)p->rate, gGsFrame);
+            }
 #endif
             continue;
         }
