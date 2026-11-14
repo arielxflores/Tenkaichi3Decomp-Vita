@@ -1,6 +1,14 @@
 # Changes (PS Vita port)
 
-## Unreleased
+## v1.6-optimized (2026-11-14)
+
+New
+
+- **The disc image as it is** (arielxflores's reader, from his v1.2): copy your `.iso` to `ux0:data/bt3/`, under
+  any name, and the game reads its files from it; no need to unpack it with 7-Zip any more (the unpacked files still
+  work, and are used first when both are there).
+
+## v1.5-optimized (2026-11-14)
 
 Faster
 
@@ -55,9 +63,6 @@ Faster
 
 New
 
-- **The disc image as it is** (arielxflores's reader, from his v1.2): copy your `.iso` to `ux0:data/bt3/`, under
-  any name, and the game reads its files from it; no need to unpack it with 7-Zip any more (the unpacked files still
-  work, and are used first when both are there).
 - Options → Controller → Vita Settings says whether the game has the fourth CPU core (CapUnlocker on or off).
 
 ## 1.1
