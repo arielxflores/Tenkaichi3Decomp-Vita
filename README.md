@@ -215,6 +215,10 @@ ux0:data/bt3/bt4/BIN/DBZP.BIN
 ux0:data/bt3/bt4/DATA/PZS4US0.AFS     (to PZS4US3.AFS, and the other files of the DATA folder: about 5.9 GB)
 ```
 
+The image is about 6 GB, more than one file can be on a memory card or SD card formatted as FAT32: on such a card
+copy the unpacked files instead (each of them is smaller), or use a card formatted as exFAT. The image or the files
+are also found in `ux0:bt3/bt4/`, `ux0:data/bt4/`, `ux0:bt4/` or beside BT3's image in `ux0:data/bt3/`.
+
 Then choose it in the game, **Options → Vita Settings → Game → BT4** (on the third page: Down from the lower row,
 twice), or hold SELECT while the game starts and choose **Game** in the [start menu](#start-menu). The
 way back is the same plate in BT4's own Vita Settings, or the start menu. BT4 keeps its own saves,

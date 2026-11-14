@@ -17,4 +17,9 @@
 #define VITA_RELEASE_NAME "USA release (SLUS-21678)"
 #endif
 
+/* Where players put BT4's files besides ux0:data/bt3/bt4 (and its es/): beside BT3's image, or a folder of BT3's or
+   BT4's own name with "data/" left out or added. Its .iso or its unpacked files are taken from these too
+   (vita_main.c find_disc in the BT4 build, vita_start.c bt4_ready in BT3's). */
+#define VITA_BT4_ALSO {"ux0:data/bt3", "ux0:bt3/bt4", "ux0:data/bt4", "ux0:bt4"}
+
 #endif

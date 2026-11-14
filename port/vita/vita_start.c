@@ -121,8 +121,15 @@ static void release_buttons(void) {
 }
 
 #ifndef BT3_BT4
-/* BT4 in the package and its files in place: 1; else 0, and `why` says what is missing */
+/* BT4 in the package and its files in place: 1; else 0, and `why` says what is missing. Looked for once a run (the
+   images in each place are opened to look inside; the Game row's guide asks each time it shows). */
 static int bt4_ready(const char **why) {
+    static int known = -1;
+    static const char *knownWhy;
+    if (known >= 0) {
+        *why = knownWhy;
+        return known;
+    }
     if (!exists(BT4_PROGRAM)) {
         *why = ES("this package has no BT4 program", "este paquete no tiene el programa de BT4");
         return 0;
@@ -131,15 +138,28 @@ static int bt4_ready(const char **why) {
         !(exists("ux0:data/bt3/bt4/es/SLUS_219.78") && exists("ux0:data/bt3/bt4/es/BIN/DBZ4.BIN"))) { /* (es: the Spanish release) */
         extern int Vita_IsoFind(const char *dir, const char *file, int keep, char *out, int size, int *seen);
         char iso[300];
-        if (!Vita_IsoFind("ux0:data/bt3/bt4", "BIN/DBZ4.BIN", 0, iso, sizeof(iso), NULL) &&
-            !Vita_IsoFind("ux0:data/bt3/bt4/es", "BIN/DBZ4.BIN", 0, iso, sizeof(iso), NULL)) { /* (or its .iso: vita_iso.c) */
+        static const char *const kAlso[] = VITA_BT4_ALSO; /* (where players put them besides: the BT4 program looks there too) */
+        unsigned k;
+        int found = Vita_IsoFind("ux0:data/bt3/bt4", "BIN/DBZ4.BIN", 0, iso, sizeof(iso), NULL) ||
+                    Vita_IsoFind("ux0:data/bt3/bt4/es", "BIN/DBZ4.BIN", 0, iso, sizeof(iso), NULL); /* (or its .iso: vita_iso.c) */
+        for (k = 0; !found && k < sizeof(kAlso) / sizeof(kAlso[0]); k++) {
+            char slus[64], bin[64];
+            snprintf(slus, sizeof(slus), "%s/SLUS_219.78", kAlso[k]);
+            snprintf(bin, sizeof(bin), "%s/BIN/DBZ4.BIN", kAlso[k]);
+            found = (exists(slus) && exists(bin)) || Vita_IsoFind(kAlso[k], "BIN/DBZ4.BIN", 0, iso, sizeof(iso), NULL);
+            if (found) {
+                Vita_Log("vita: BT4's files are in %s (not ux0:data/bt3/bt4)\n", kAlso[k]);
+            }
+        }
+        if (!found) {
             *why = ES("copy your BT4 B14 Rev2 disc's .iso (or its SLUS_219.78,\n  BIN and DATA) to ux0:data/bt3/bt4/",
                       "copia el .iso de tu disco BT4 B14 Rev2 (o su SLUS_219.78,\n  BIN y DATA) en ux0:data/bt3/bt4/");
-            return 0;
+            knownWhy = *why;
+            return known = 0;
         }
     }
-    *why = NULL;
-    return 1;
+    *why = knownWhy = NULL;
+    return known = 1;
 }
 
 static void start_bt4(void) {

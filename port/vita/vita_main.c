@@ -1217,11 +1217,33 @@ static int bt4_es_find(char *out, size_t size, int keep) {
     return Vita_IsoFind(BT4_ES_DIR, VITA_PROGRAM, keep, out, (int)size, NULL);
 }
 
+static const char *const kBt4Also[] = VITA_BT4_ALSO;
+
+/* BT4's files in one of the other places players put them (vita_home.h VITA_BT4_ALSO): unpacked or as the .iso;
+   `keep`: the image stays mounted. 1: found, `out` where. */
+static int bt4_also_find(char *out, size_t size, int keep) {
+    extern int Vita_IsoFind(const char *dir, const char *file, int keep, char *out, int size, int *seen);
+    unsigned k;
+    for (k = 0; k < sizeof(kBt4Also) / sizeof(kBt4Also[0]); k++) {
+        if (has_slus(kBt4Also[k])) {
+            snprintf(out, size, "%s", kBt4Also[k]);
+            return 1;
+        }
+    }
+    for (k = 0; k < sizeof(kBt4Also) / sizeof(kBt4Also[0]); k++) {
+        if (Vita_IsoFind(kBt4Also[k], VITA_PROGRAM, keep, out, (int)size, NULL)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static int bt4_en_there(void) {
     extern int Vita_IsoFind(const char *dir, const char *file, int keep, char *out, int size, int *seen);
     char found[256];
     return has_slus(HOME) || find_below(HOME "/disc", 1, found, sizeof(found)) || find_below(HOME "/disk", 1, found, sizeof(found)) ||
-           find_below(HOME, 2, found, sizeof(found)) || Vita_IsoFind(HOME, VITA_PROGRAM, 0, found, sizeof(found), NULL);
+           find_below(HOME, 2, found, sizeof(found)) || Vita_IsoFind(HOME, VITA_PROGRAM, 0, found, sizeof(found), NULL) ||
+           bt4_also_find(found, sizeof(found), 0);
 }
 #endif
 
@@ -1273,6 +1295,13 @@ static void find_disc(void) {
             wrong += looked;
         }
     }
+#ifdef BT3_BT4
+    if (strcmp(gVitaDisc, VITA_DISC_DEFAULT) == 0 && bt4_also_find(found, sizeof(found), 1)) { /* (not where it goes, but there) */
+        logf_("vita: the disc's files are in %s (not %s)\n", found, gVitaDisc);
+        snprintf(gVitaDisc, sizeof(gVitaDisc), "%s", found);
+        return;
+    }
+#endif
     seen[0] = '\0';
     if ((d = sceIoDopen(HOME)) >= 0) {
         memset(&e, 0, sizeof(e));
