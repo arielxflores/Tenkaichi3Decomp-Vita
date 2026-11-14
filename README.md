@@ -234,7 +234,7 @@ to the one before.
 
 The PC version's online play, Tag Team battles and its other PC features are
 not part of the Vita's. Should BT4 crash or freeze before its first pictures, the next start says so and starts BT3
-instead (`ux0:data/bt3/bt4/log.txt` and `crash.txt` tell what happened: please attach them to a report).
+instead (`ux0:data/bt3/bt4/log.txt` tells what happened: please attach it to a report).
 
 ## Mods
 
@@ -345,8 +345,10 @@ Multiplayer is new: when something goes wrong, `ux0:data/bt3/log.txt` from both 
   a scaling mode other than Original (Integer, for one) shows them unscaled instead: set it back to Original.
 - **The game stops** (the picture freezes, the music plays on): the game writes `ux0:data/bt3/hang.txt` when its
   picture stops for a few seconds. Attaching it and `log.txt` to a bug report helps a lot.
-- **The game closes by itself**: it crashed; `ux0:data/bt3/crash.txt` says where (with the kubridge plugin
-  installed, as with most homebrew setups). Attach it and `log.txt` to the bug report.
+- **The game closes by itself**: it crashed. Attach `log.txt` and the console's crash dump (the newest
+  `ux0:data/psp2core-*-eboot.bin.psp2dmp`, which the error message names) to the bug report. With the kubridge
+  plugin, `crashreport=1` in `ux0:data/bt3/bt3.txt` also has the game write `ux0:data/bt3/crash.txt` (off by
+  default: some kubridge versions close the game at its start when it is on).
 
 ## Notes
 

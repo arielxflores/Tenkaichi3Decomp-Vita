@@ -61,6 +61,15 @@ static unsigned sBattleStartVb, sLastVb, sLastState = 0xFFFFFFFFu;
 static volatile int sEnded;
 static int sMode = -1; /* 0 the menus (play), 1 the demo fight; -1: ask */
 int gVitaReport = 1;   /* the numbers every two seconds into the log (the released program: bt3.txt report=1) */
+/* bt3.txt crashreport: a crash's report in crash.txt through kubridge's exception handlers (vita_crash.c). Off in the
+   released program: on some players' Vitas the game closed at that call, at every start (1.2 and 1.2.1: their logs
+   end at "start: crash report"; their kubridge.skprx another version than ours), and the console's own crash dump
+   (ux0:data/psp2core-*.psp2dmp) tells as much. */
+#ifdef PORT_VITA_RELEASE
+int gVitaCrashReport = 0;
+#else
+int gVitaCrashReport = 1;
+#endif
 static const int kDemoPick = -1; /* the demo's pairing (0..8), or -1: each run the next one (ux0:data/bt3/demo_next.txt) */
 /* the sweep: in the demo fight, after this many seconds of fighting the program starts itself again
    (the next pairing: demo_next.txt), so that one test run sees several pairings; 0: off (bt3.txt: sweep=<s>) */
@@ -1354,12 +1363,15 @@ static void read_settings(void) {
         /* the released program: only the player's settings. The test runs leave theirs in the same file
            (mode=demo, film=...): a game started from its bubble goes to its title screen, not into a test fight */
         if (strcmp(line, "disc") != 0 && strcmp(line, "heap") != 0 && strcmp(line, "wide") != 0 && strcmp(line, "report") != 0 &&
-            strcmp(line, "fightres") != 0 && strcmp(line, "weather") != 0 && strcmp(line, "moveblur") != 0 && strcmp(line, "netwarm") != 0 && strcmp(line, "menuauto") != 0 && strcmp(line, "shenfast") != 0) {
+            strcmp(line, "fightres") != 0 && strcmp(line, "weather") != 0 && strcmp(line, "moveblur") != 0 && strcmp(line, "netwarm") != 0 && strcmp(line, "menuauto") != 0 && strcmp(line, "shenfast") != 0 &&
+            strcmp(line, "crashreport") != 0) {
             continue;
         }
 #endif
         if (strcmp(line, "disc") == 0) {
             snprintf(gVitaDisc, sizeof(gVitaDisc), "%s", eq);
+        } else if (strcmp(line, "crashreport") == 0) { /* 1: kubridge's exception handlers write crash.txt (vita_crash.c) */
+            gVitaCrashReport = atoi(eq) != 0;
         } else if (strcmp(line, "discdir") == 0) { /* (the test runs, whose settings cannot hold a path) disc=<home>/<name> */
             snprintf(gVitaDisc, sizeof(gVitaDisc), HOME "/%s", eq);
         } else if (strcmp(line, "float") == 0) {
@@ -1985,8 +1997,12 @@ int __wrap_main(int argc, char **argv) {
     }
     {   /* a crash's report in ux0:data/bt3/crash.txt (vita_crash.c, with kubridge) */
         extern void Vita_CrashInit(const char *home);
-        start_step("crash report (kubridge)");
-        Vita_CrashInit(HOME);
+        if (gVitaCrashReport) {
+            start_step("crash report (kubridge)");
+            Vita_CrashInit(HOME);
+        } else {
+            logf_("vita: crash report off (bt3.txt crashreport=1: crash.txt through kubridge)\n");
+        }
     }
     start_screen();
     {   /* the start menu with SELECT held (vita_start.c: the game, BT3 or BT4, the language, the unlock cheat), before
