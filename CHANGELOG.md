@@ -1,5 +1,31 @@
 # Changes (PS Vita port)
 
+## 1.2.2
+
+Faster (manumastro's work, his pull request #6)
+
+- **Detailed stages stay fast.** Three causes, all in the copies of the game's model calls the port keeps: their
+  cache filled up over a session and was never emptied (a stage played after others ran without it), the kept parts'
+  places were too few and shared at random, and only the first 2 MB of a stage's vertices could be kept, so a fight
+  began fast and slowed down as more of the stage came into view. The first fight on a stage is as fast as the next
+  ones, and kept parts are no longer drawn the long way every other frame. On the Vita, in a duel at 720 x 408: stage
+  4 at 29.5 pictures a second (1.2.1: 26.2), stage 27 at 29.5 (24.8), Kame House at 29.8 (28.8), against the
+  game's 30.
+- **The first steps of a native renderer** (the "engine seam"): the game names the stage's meshes and animated
+  objects, the fighters' model parts and their textures to the renderer, which no longer has to find them again in
+  the PS2's display list every frame; the effects' particles are read as runs, and the sea's corners are worked out
+  once a frame. Room for the busy moments, and for a Vita without the fourth core.
+- **Screen-filling effects at a lower resolution** (auras, beams, flashes covering at least two screens' worth): drawn
+  at half the size each way and added to the picture, as TwinsanityEvolved does with its particles.
+- With the CapUnlocker plugin, the fourth CPU core also works out the image uploads' numbers, and vitaGL leaves out
+  graphics-chip state calls that change nothing.
+- `log.txt` is kept under 1 MB: a longer one becomes `log-prev.txt` at the next start.
+
+Fixed
+
+- BT4: the map select shows the two fighters' portraits, as on the PS2 (the PC version hides them, for its widened
+  menus).
+
 ## 1.2.1
 
 Fixed
