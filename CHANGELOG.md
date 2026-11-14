@@ -7,7 +7,9 @@ Faster
 - **arielxflores's 1.2 speed-ups**, taken into this fork (his own code, its commits cherry-picked with `-x`), all
   but the dynamic fight resolution:
   - shaders shipped ready-made (the offline shader bank of Grarak's MH3 port): every shader, the vertex and effect
-    ones too, goes through the cache, and the VPK carries them already compiled (`port/vita/shbank.bin`);
+    ones too, goes through the cache, and the VPK carries them already compiled (`port/vita/shbank.bin`, 87
+    programs, the same for BT3 and BT4, made on a Vita with `shbank=1` and checked with `shbank=2`: none missing
+    in the menus or the fights), so `libshacccg.suprx` is no longer needed;
   - the outline, the glow and the colour-table passes in half precision (`fxhalf=0` goes back);
   - songs read while they play (no stop when the music changes), and the game's no-wait reads on a reading thread;
   - the game's file unpacker 2 to 5 times faster, byte for byte the same output;
