@@ -4,6 +4,20 @@
 
 Faster
 
+- **arielxflores's 1.2 speed-ups**, taken into this fork (his own code, its commits cherry-picked with `-x`), all
+  but the dynamic fight resolution:
+  - shaders shipped ready-made (the offline shader bank of Grarak's MH3 port): every shader, the vertex and effect
+    ones too, goes through the cache, and the VPK carries them already compiled (`port/vita/shbank.bin`);
+  - the outline, the glow and the colour-table passes in half precision (`fxhalf=0` goes back);
+  - songs read while they play (no stop when the music changes), and the game's no-wait reads on a reading thread;
+  - the game's file unpacker 2 to 5 times faster, byte for byte the same output;
+  - new textures read from GS memory while the render thread draws (`texearly=0` goes back); the drawing thread's
+    texture keys and state comparisons in line; the C library's thread lookups the short way and a faster memcmp;
+  - the opening film no longer reads 2 MB it does not use, and no freeze when it ends or is skipped;
+  - palette textures' indices no longer leak in graphics memory (slowdowns after many fights); a line a minute in
+    the log with the picture rate, the memory and the texture tables;
+  - profile-guided builds (`BT3_PGO=gen` / `use`, [docs/vita/building.md](docs/vita/building.md));
+  - `fightres=720` / `960` in `bt3.txt` draws the fights at that size always (640 x 368 by default).
 - **Detailed stages stay fast**: in a survey of 25 stages (a duel on each, stages 0 to 24), the slowest went from
   16.7-18.7 pictures a second to 26-29, the average from 25.2 to 28.8, and stages at 28 or more from 7 to 21 of 25.
   Three causes, all in the copies of the game's model calls the port keeps: their cache filled up over a session and

@@ -360,6 +360,11 @@ def vpk():
     extra = []
     for f in sorted(x for x in SCE_SYS.rglob("*") if x.is_file()):
         extra += ["-a", f"{f}=sce_sys/{f.relative_to(SCE_SYS).as_posix()}"]
+    # the shader bank (vita_vgl.c sh_cached: the programs as the Vita's compiler made them, tools/shbank.py)
+    bank = ROOT / "port/vita/shbank.bin"
+    if bank.exists():
+        extra += ["-a", f"{bank}=shbank.bin"]
+        print(f"the package carries the shader bank ({bank.stat().st_size} bytes)")
     run("vita-pack-vpk", "-s", OUT / "param.sfo", "-b", OUT / "eboot.bin", *extra, OUT / VPK)
     print(f"{OUT / VPK}: {(OUT / VPK).stat().st_size} bytes")
 

@@ -19,7 +19,8 @@
  * Conventions: GS alpha 0x80 is 1.0 (vertex alpha / 128, texture alpha doubled when decoded). A vertex is given
  * to the chip in clip space with w = 1 / Q, so that texture coordinates are interpolated with perspective as the
  * GS does with S, T, Q. GS depth grows towards the viewer: depth = z / zmax with GEQUAL / GREATER.
- * The shaders are compiled at run time (libshacccg.suprx) once and kept in ux0:data/bt3/shcache.
+ * The shaders come from the bank in the VPK (app0:shbank.bin), else compiled at run time (libshacccg.suprx) once and
+ * kept in ux0:data/bt3/shcache (sh_cached).
  */
 #include <stdio.h>
 #include <stdint.h>
@@ -438,11 +439,108 @@ static const char kFragZTest[] =
     "    { float2 zn = vZ.xy / vZ.w;\n"
     "      float zs = tex2D(uDepth, float2(uZ.x + (zn.x * 0.5f + 0.5f) * uZ.y, 0.5f - zn.y * 0.5f)).x;\n"
     "      if ((vZ.z / vZ.w) * 0.5f + 0.5f - zs < uZ.z) discard; }\n";
-/* the pixel shaders compiled once and kept on the memory card (ux0:data/bt3/shcache, by a hash of their
-   source): the shader compiler takes ~0.2 s a program, 140 programs at the start; read back, a few ms */
+/* The shaders, compiled once (the shader compiler takes ~0.2 s a program, 140 programs at the start) and then read
+   back in a few ms: first from the bank shipped in the VPK (app0:shbank.bin: every program the game uses, as the
+   Vita's own compiler made them; the idea of Grarak's MH3 port, its "offline shader bank": no compiling at the
+   start, and the compiler, libshacccg.suprx, not needed for those), then from the memory card (ux0:data/bt3/shcache,
+   by a hash of their source), else compiled and kept there. The pixel shaders' variants and, since build 307, the
+   vertex shaders and the effects' too. bt3.txt shbank=1 (the bank's making): every program of the run compiled or
+   read from the card, not the bank, and written to ux0:data/bt3/shbank.bin (the BT4 port's: ux0:data/bt4/), which
+   tools/shbank.py makes into port/vita/shbank.bin. */
 extern int gVglSafe2;
 static uint32_t sShBin[4096];
-unsigned gVitaShCache[3]; /* for the log: read from the card, compiled and written, compiled (not written) */
+unsigned gVitaShCache[5]; /* for the log: read from the card, compiled and written, compiled (not written), from the bank, written to the bank's file */
+int gVitaShHarvest;       /* bt3.txt shbank=1 (the bank's making), 2 (its check: each program not in it said in the log) */
+#ifndef PORT_VITA_HOME
+#define PORT_VITA_HOME "ux0:data/bt3" /* (the BT4 port: ux0:data/bt4) */
+#endif
+typedef struct ShBankEntry { uint64_t h; uint32_t off, size; } ShBankEntry;
+static uint8_t *sBank;
+static ShBankEntry *sBankIx;
+static unsigned sBankN;
+static int sBankTried;
+static void sh_bank_load(void) {
+    SceUID fd;
+    SceOff size;
+    unsigned off, n = 0;
+    sBankTried = 1;
+    if (gVitaShHarvest == 1 || (gVglSafe2 & 32768) || (fd = sceIoOpen("app0:shbank.bin", SCE_O_RDONLY, 0)) < 0) {
+        return;
+    }
+    size = sceIoLseek(fd, 0, SCE_SEEK_END);
+    sceIoLseek(fd, 0, SCE_SEEK_SET);
+    if (size < 8 || size > 4 * 1024 * 1024 || (sBank = (uint8_t *)malloc((size_t)size)) == NULL) {
+        sceIoClose(fd);
+        return;
+    }
+    if (sceIoRead(fd, sBank, (SceSize)size) != (int)size || memcmp(sBank, "BT3SHBK1", 8) != 0) {
+        sceIoClose(fd);
+        free(sBank);
+        sBank = NULL;
+        Vita_Log("vgl: the shader bank (app0:shbank.bin) is not one: compiled as before\n");
+        return;
+    }
+    sceIoClose(fd);
+    for (off = 8; off + 12 <= (unsigned)size; n++) { /* entries: hash (8 bytes), size (4), the binary, to 4 bytes */
+        uint32_t sz;
+        memcpy(&sz, sBank + off + 8, 4);
+        if (sz == 0 || off + 12 + sz > (unsigned)size) {
+            break;
+        }
+        off += 12 + ((sz + 3u) & ~3u);
+    }
+    sBankIx = (ShBankEntry *)malloc(sizeof(ShBankEntry) * (n + 1));
+    if (sBankIx == NULL) {
+        free(sBank);
+        sBank = NULL;
+        return;
+    }
+    for (off = 8; sBankN < n; sBankN++) {
+        uint32_t sz;
+        memcpy(&sBankIx[sBankN].h, sBank + off, 8);
+        memcpy(&sz, sBank + off + 8, 4);
+        sBankIx[sBankN].off = off + 12;
+        sBankIx[sBankN].size = sz;
+        off += 12 + ((sz + 3u) & ~3u);
+    }
+    Vita_Log("vgl: the shader bank: %u programs (%u KB)\n", sBankN, (unsigned)(size / 1024));
+}
+/* (bt3.txt shbank=1) a program added to ux0:data/bt3/shbank.bin, once a run (the runs add to it: tools/shbank.py
+   keeps one of each) */
+static void sh_bank_write(uint64_t h, const void *bin, unsigned n) {
+    static uint64_t done[1024];
+    static unsigned doneN;
+    unsigned i;
+    SceUID fd;
+    SceOff at;
+    uint8_t head[12];
+    static const uint8_t kPad[4] = {0, 0, 0, 0};
+    for (i = 0; i < doneN; i++) {
+        if (done[i] == h) {
+            return;
+        }
+    }
+    fd = sceIoOpen(PORT_VITA_HOME "/shbank.bin", SCE_O_WRONLY | SCE_O_CREAT | SCE_O_APPEND, 0777);
+    if (fd < 0) {
+        return;
+    }
+    at = sceIoLseek(fd, 0, SCE_SEEK_END);
+    if (at == 0) {
+        sceIoWrite(fd, "BT3SHBK1", 8);
+    }
+    memcpy(head, &h, 8);
+    memcpy(head + 8, &n, 4);
+    sceIoWrite(fd, head, 12);
+    sceIoWrite(fd, bin, n);
+    if (n & 3u) {
+        sceIoWrite(fd, kPad, 4 - (n & 3u));
+    }
+    sceIoClose(fd);
+    if (doneN < 1024) {
+        done[doneN++] = h;
+    }
+    gVitaShCache[4]++;
+}
 static int sh_cached(GLuint sh, const char *src, GLint len) {
     char path[96];
     uint64_t h = 1469598103934665603ull;
@@ -450,6 +548,9 @@ static int sh_cached(GLuint sh, const char *src, GLint len) {
     GLsizei bl = 0;
     SceUID fd;
     int i;
+    if (len < 0) {
+        len = (GLint)strlen(src);
+    }
     for (i = 0; i < len; i++) {
         h = (h ^ (uint8_t)src[i]) * 1099511628211ull;
     }
@@ -458,12 +559,33 @@ static int sh_cached(GLuint sh, const char *src, GLint len) {
         static int first = 1;
         if (first) {
             first = 0;
-            Vita_Log("vgl: start: the first pixel shader from the card\n");
+            Vita_Log("vgl: start: the first shader from the bank or the card\n");
         }
     }
-    sceIoMkdir("ux0:data/bt3/shcache", 0777);
-    snprintf(path, sizeof(path), "ux0:data/bt3/shcache/f%08x%08x.gxp", (unsigned)(h >> 32), (unsigned)h);
-    if (!(gVglSafe2 & 32768) && (fd = sceIoOpen(path, SCE_O_RDONLY, 0)) >= 0) {
+    if (!sBankTried) {
+        sh_bank_load();
+    }
+    if (sBankN > 0) { /* (the bank: by its hashes, in the order written; a few hundred at most) */
+        unsigned k;
+        for (k = 0; k < sBankN; k++) {
+            if (sBankIx[k].h == h) {
+                glShaderBinary(1, &sh, 0, sBank + sBankIx[k].off, (GLsizei)sBankIx[k].size);
+                glGetShaderiv(sh, GL_COMPILE_STATUS, &ok);
+                if (ok) {
+                    gVitaShCache[3]++;
+                    return 1;
+                }
+                break;
+            }
+        }
+    }
+    if (gVitaShHarvest == 2) { /* (shbank=2: the bank's check: what it does not have, said; compiled, not read from the card) */
+        Vita_Log("vgl: a shader not in the bank: %08x%08x, %d bytes of source: compiled\n", (unsigned)(h >> 32), (unsigned)h, (int)len);
+        gVitaShCache[4]++;
+    }
+    sceIoMkdir(PORT_VITA_HOME "/shcache", 0777);
+    snprintf(path, sizeof(path), PORT_VITA_HOME "/shcache/f%08x%08x.gxp", (unsigned)(h >> 32), (unsigned)h);
+    if (!(gVglSafe2 & 32768) && gVitaShHarvest != 2 && (fd = sceIoOpen(path, SCE_O_RDONLY, 0)) >= 0) {
         int n = sceIoRead(fd, sShBin, sizeof(sShBin));
         sceIoClose(fd);
         if (n > 64 && n < (int)sizeof(sShBin)) {
@@ -471,6 +593,9 @@ static int sh_cached(GLuint sh, const char *src, GLint len) {
             glGetShaderiv(sh, GL_COMPILE_STATUS, &ok);
             if (ok) {
                 gVitaShCache[0]++;
+                if (gVitaShHarvest == 1) {
+                    sh_bank_write(h, sShBin, (unsigned)n);
+                }
                 return 1;
             }
         }
@@ -483,6 +608,9 @@ static int sh_cached(GLuint sh, const char *src, GLint len) {
     }
     memset(sShBin, 0, 64);
     vglGetShaderBinary(sh, (GLsizei)sizeof(sShBin), &bl, sShBin);
+    if (gVitaShHarvest == 1 && bl > 64 && bl < (GLsizei)sizeof(sShBin)) {
+        sh_bank_write(h, sShBin, (unsigned)bl);
+    }
     if (bl > 64 && bl < (GLsizei)sizeof(sShBin) && (fd = sceIoOpen(path, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0777)) >= 0) {
         int n = sceIoWrite(fd, sShBin, (SceSize)bl);
         sceIoClose(fd);
@@ -729,8 +857,7 @@ static void shader_init(void) {
 
     sNoProj = !(gVglSafe & 8388608);
     src = kVert; len = (GLint)sizeof(kVert) - 1;
-    glShaderSource(vs, 1, &src, &len);
-    glCompileShader(vs);
+    sh_cached(vs, src, len);
     glGetShaderiv(vs, GL_COMPILE_STATUS, &ok);
     if (!ok) {
         log[0] = 0; glGetShaderInfoLog(vs, sizeof(log) - 1, NULL, log); log[sizeof(log) - 1] = 0;
@@ -738,8 +865,7 @@ static void shader_init(void) {
         return;
     }
     src = kFrag; len = (GLint)sizeof(kFrag) - 1; ok = 0;
-    glShaderSource(fs, 1, &src, &len);
-    glCompileShader(fs);
+    sh_cached(fs, src, len);
     glGetShaderiv(fs, GL_COMPILE_STATUS, &ok);
     if (!ok) {
         log[0] = 0; glGetShaderInfoLog(fs, sizeof(log) - 1, NULL, log); log[sizeof(log) - 1] = 0;
@@ -765,8 +891,7 @@ static void shader_init(void) {
     if (gVglLean && !((unsigned)gVglSafe & 0x80000000u)) { /* (the lean modulate variants' vertex shader) */
         GLuint vsm = glCreateShader(GL_CG_VERTEX_SHADER_EXT);
         src = kVertM; len = (GLint)sizeof(kVertM) - 1; ok = 0;
-        glShaderSource(vsm, 1, &src, &len);
-        glCompileShader(vsm);
+        sh_cached(vsm, src, len);
         glGetShaderiv(vsm, GL_COMPILE_STATUS, &ok);
         if (ok) {
             sVsM = vsm;
@@ -778,8 +903,7 @@ static void shader_init(void) {
     if (sNoProj && !(gVglSafe & 1073741824)) { /* (the colour straight across the screen: kVertNP) */
         GLuint vsn = glCreateShader(GL_CG_VERTEX_SHADER_EXT);
         src = kVertNP; len = (GLint)sizeof(kVertNP) - 1; ok = 0;
-        glShaderSource(vsn, 1, &src, &len);
-        glCompileShader(vsn);
+        sh_cached(vsn, src, len);
         glGetShaderiv(vsn, GL_COMPILE_STATUS, &ok);
         if (ok) {
             sVsNP = vsn;
@@ -792,8 +916,7 @@ static void shader_init(void) {
     {   /* (the effects drawn at a lower resolution: kVertZ, fxlow) */
         GLuint vsz = glCreateShader(GL_CG_VERTEX_SHADER_EXT);
         src = kVertZ; len = (GLint)sizeof(kVertZ) - 1; ok = 0;
-        glShaderSource(vsz, 1, &src, &len);
-        glCompileShader(vsz);
+        sh_cached(vsz, src, len);
         glGetShaderiv(vsz, GL_COMPILE_STATUS, &ok);
         if (ok) {
             sVsZ = vsz;
@@ -818,9 +941,8 @@ static void shader_init(void) {
         int k, good = 1;
         char *zc = zclamp_src(kVertStage, "    vPos = sv * uK1 + sv.w * uK2;\n", ZCLAMP_V, &len);
         src = zc != NULL ? zc : kVertStage; ok = 0;
-        glShaderSource(vs2, 1, &src, &len);
+        sh_cached(vs2, src, len);
         free(zc);
-        glCompileShader(vs2);
         glGetShaderiv(vs2, GL_COMPILE_STATUS, &ok);
         if (!ok) {
             log[0] = 0; glGetShaderInfoLog(vs2, sizeof(log) - 1, NULL, log); log[sizeof(log) - 1] = 0;
@@ -858,9 +980,8 @@ static void shader_init(void) {
         int k, good = 1;
         char *zc = zclamp_src(kVertFt, "    vPos = sv * uF[16] + sv.w * uF[17];\n", ZCLAMP_V, &len);
         src = zc != NULL ? zc : kVertFt; ok = 0;
-        glShaderSource(vs3, 1, &src, &len);
+        sh_cached(vs3, src, len);
         free(zc);
-        glCompileShader(vs3);
         glGetShaderiv(vs3, GL_COMPILE_STATUS, &ok);
         if (!ok) {
             log[0] = 0; glGetShaderInfoLog(vs3, sizeof(log) - 1, NULL, log); log[sizeof(log) - 1] = 0;
@@ -910,8 +1031,7 @@ static void shader_init(void) {
             src = zc != NULL ? zc : srcs[k]; ok = 0;
             (void)lens;
             Vita_Log("vgl: start: the direct %s vertex shader\n", k == 0 ? "fighter" : "stage");
-            glShaderSource(vsd, 1, &src, &len);
-            glCompileShader(vsd);
+            sh_cached(vsd, src, len);
             glGetShaderiv(vsd, GL_COMPILE_STATUS, &ok);
             if (!ok) {
                 log[0] = 0; glGetShaderInfoLog(vsd, sizeof(log) - 1, NULL, log); log[sizeof(log) - 1] = 0;
@@ -931,8 +1051,8 @@ static void shader_init(void) {
                 }
             }
         }
-        Vita_Log("vgl: %d shader variants built (textures read %s); pixel shaders: %u from the card, %u compiled and kept, %u compiled\n", built,
-                 sNoProj ? "straight from the coordinates" : "divided by Q", gVitaShCache[0], gVitaShCache[1], gVitaShCache[2]);
+        Vita_Log("vgl: %d shader variants built (textures read %s); shaders so far: %u from the bank, %u from the card, %u compiled and kept, %u compiled\n", built,
+                 sNoProj ? "straight from the coordinates" : "divided by Q", gVitaShCache[3], gVitaShCache[0], gVitaShCache[1], gVitaShCache[2]);
         dp_init();
         ol_init();
         fx_init();
@@ -1052,10 +1172,9 @@ static void vu_shader_init(void) {
     {
         char *zc = zclamp_src(kVertVu, "    float z = 2.0f * s.z / uC[17].z - s.w;\n", "    if (s.w > 0.0f) { z = clamp(z, -s.w, s.w); }\n", &len);
         src = zc != NULL ? zc : kVertVu;
-        glShaderSource(vs, 1, &src, &len);
+        sh_cached(vs, src, len);
         free(zc);
     }
-    glCompileShader(vs);
     glGetShaderiv(vs, GL_COMPILE_STATUS, &ok);
     if (!ok) {
         log[0] = 0; glGetShaderInfoLog(vs, sizeof(log) - 1, NULL, log); log[sizeof(log) - 1] = 0;
@@ -1063,8 +1182,7 @@ static void vu_shader_init(void) {
         return;
     }
     src = kFrag; len = (GLint)sizeof(kFrag) - 1; ok = 0;
-    glShaderSource(fs, 1, &src, &len);
-    glCompileShader(fs);
+    sh_cached(fs, src, len);
     glGetShaderiv(fs, GL_COMPILE_STATUS, &ok);
     if (!ok) {
         return;
@@ -1645,7 +1763,8 @@ int GsGpu_Init(void) {
         gVitaLazyUnpack = 1;
     }
     rt_start(); /* (last, vitaGL is set up) */
-    Vita_Log("vita: vitaGL back end started\n");
+    Vita_Log("vita: vitaGL back end started (shaders: %u from the bank, %u from the card, %u compiled and kept, %u compiled%s)\n",
+             gVitaShCache[3], gVitaShCache[0], gVitaShCache[1], gVitaShCache[2], gVitaShHarvest == 1 ? "; shbank=1: written to " PORT_VITA_HOME "/shbank.bin" : gVitaShHarvest == 2 ? "; shbank=2: the bank checked" : "");
     return 1;
 }
 
@@ -5574,6 +5693,30 @@ static const char kFragOl[] =
     "    float e = (h > r || h > l || h > d || h > u) ? uP.x : 0.0f;\n"
     "    return float4(e, e, e, 0.0f);\n"
     "}\n";
+/* The full-screen passes' arithmetic in half precision (the chip's pixel units do twice the work in it, as the
+   game's own pixel shaders here; the GITS port's shaders gained about a quarter of their time so): the outline, the
+   table passes from the ids and from the fog byte, the glow's three. Their values are the GS's bytes (up to 255:
+   exact in half precision) and colours; the texture coordinates stay in full precision, and the passes that work
+   on the depth (up to 65535) stay in it all. A half one that does not compile: the full one. bt3.txt fxhalf=0: all
+   in full precision. */
+int gVitaFxHalf = 1;
+static const char kFragOlH[] =
+    "uniform sampler2D uTex;\n"
+    "uniform float4 uP;\n"
+    "half tb(half a) {\n"
+    "    half g = floor(a * 128.0 + 0.5);\n"
+    "    half c = frac(g * 0.03125) * 256.0;\n"
+    "    return a > 0.998 ? 0.0 : (c < 0.5 ? 128.0 : c);\n"
+    "}\n"
+    "half4 main(float2 t0 : TEXCOORD0, float2 t1 : TEXCOORD1, float2 t2 : TEXCOORD2, float2 t3 : TEXCOORD3, float2 t4 : TEXCOORD4) : COLOR {\n"
+    "    half h = tb((half)tex2D(uTex, t0).a);\n"
+    "    half r = tb((half)tex2D(uTex, t1).a);\n"
+    "    half l = tb((half)tex2D(uTex, t2).a);\n"
+    "    half d = tb((half)tex2D(uTex, t3).a);\n"
+    "    half u = tb((half)tex2D(uTex, t4).a);\n"
+    "    half e = (h > r || h > l || h > d || h > u) ? (half)uP.x : 0.0;\n"
+    "    return half4(e, e, e, 0.0);\n"
+    "}\n";
 int gVitaFilm;              /* bt3.txt film=<n> */
 static GLuint sOlProg, sOlTex[3];
 static GLint sOlU[3];        /* uV, uP, uTex */
@@ -5592,8 +5735,7 @@ static void ol_init(void) {
     }
     vs = glCreateShader(GL_CG_VERTEX_SHADER_EXT);
     src = kVertOl; len = (GLint)sizeof(kVertOl) - 1;
-    glShaderSource(vs, 1, &src, &len);
-    glCompileShader(vs);
+    sh_cached(vs, src, len);
     glGetShaderiv(vs, GL_COMPILE_STATUS, &ok);
     if (!ok) {
         log[0] = 0; glGetShaderInfoLog(vs, sizeof(log) - 1, NULL, log); log[sizeof(log) - 1] = 0;
@@ -5601,10 +5743,23 @@ static void ol_init(void) {
         return;
     }
     fs = glCreateShader(GL_CG_FRAGMENT_SHADER_EXT);
-    src = kFragOl; len = (GLint)sizeof(kFragOl) - 1; ok = 0;
-    glShaderSource(fs, 1, &src, &len);
-    glCompileShader(fs);
-    glGetShaderiv(fs, GL_COMPILE_STATUS, &ok);
+    ok = 0;
+    if (gVitaFxHalf) {
+        src = kFragOlH; len = (GLint)sizeof(kFragOlH) - 1;
+        sh_cached(fs, src, len);
+        glGetShaderiv(fs, GL_COMPILE_STATUS, &ok);
+        if (!ok) {
+            log[0] = 0; glGetShaderInfoLog(fs, sizeof(log) - 1, NULL, log); log[sizeof(log) - 1] = 0;
+            Vita_Log("vgl: outline pixel shader in half precision not compiled (%s): in full\n", log);
+            glDeleteShader(fs);
+            fs = glCreateShader(GL_CG_FRAGMENT_SHADER_EXT);
+        }
+    }
+    if (!ok) {
+        src = kFragOl; len = (GLint)sizeof(kFragOl) - 1;
+        sh_cached(fs, src, len);
+        glGetShaderiv(fs, GL_COMPILE_STATUS, &ok);
+    }
     if (!ok) {
         log[0] = 0; glGetShaderInfoLog(fs, sizeof(log) - 1, NULL, log); log[sizeof(log) - 1] = 0;
         Vita_Log("vgl: outline pixel shader not compiled: %s\n", log);
@@ -5788,6 +5943,16 @@ static const char kFragTblIds[] =
     "    float4 c = tex2D(uClut, float2((idx + 0.5f) * (1.0f / 256.0f), 0.5f));\n"
     "    return float4(c.rgb, saturate(c.a * (255.0f / 128.0f)));\n"
     "}\n";
+static const char kFragTblIdsH[] =
+    "uniform sampler2D uSrc;\n"
+    "uniform sampler2D uClut;\n"
+    "half4 main(float2 t0 : TEXCOORD0) : COLOR {\n"
+    "    half a = (half)tex2D(uSrc, t0).a;\n"
+    "    half s = floor(a * 255.0 + 0.5);\n"
+    "    half idx = (s > 233.5 && fmod(s, 2.0) < 0.5) ? (s + 254.0) * 0.5 : a > 0.998 ? 255.0 : floor(a * 128.0 + 0.5);\n"
+    "    half4 c = (half4)tex2D(uClut, float2(((float)idx + 0.5f) * (1.0f / 256.0f), 0.5f));\n"
+    "    return half4(c.rgb, saturate(c.a * (255.0 / 128.0)));\n"
+    "}\n";
 static const char kFragTblFog[] =
     "uniform sampler2D uSrc;\n"
     "uniform sampler2D uClut;\n"
@@ -5820,6 +5985,14 @@ static const char kFragTblByte[] = /* a table pass from that byte */
     "    float4 c = tex2D(uClut, float2((idx + 0.5f) * (1.0f / 256.0f), 0.5f));\n"
     "    return float4(c.rgb, saturate(c.a * (255.0f / 128.0f)));\n"
     "}\n";
+static const char kFragTblByteH[] =
+    "uniform sampler2D uSrc;\n"
+    "uniform sampler2D uClut;\n"
+    "half4 main(float2 t0 : TEXCOORD0) : COLOR {\n"
+    "    half idx = floor((half)tex2D(uSrc, t0).r * 255.0 + 0.5);\n"
+    "    half4 c = (half4)tex2D(uClut, float2(((float)idx + 0.5f) * (1.0f / 256.0f), 0.5f));\n"
+    "    return half4(c.rgb, saturate(c.a * (255.0 / 128.0)));\n"
+    "}\n";
 static GLuint sDepthTex, sFxProg[5]; /* copy, table from the ids, table from the fog, (163) fog byte, table from it */
 static GLint sFxU[5][4];                      /* uV, uSrc, uClut, uP */
 static int sDepthByteIsFog;    /* the drawing thread: what the depth page's top byte holds now */
@@ -5829,6 +6002,18 @@ static struct { uint32_t hash; unsigned last; int used; } sClut[16]; /* (the dra
 static uint32_t sClutPx[16][256]; /* (the slots' entries: a table is reused only when every entry is the same) */
 static GLuint sClutTex[16];                                           /* (the thread that draws: the slots' textures) */
 typedef struct TblOp { State d; int src, slot, upload; float zmax; uint32_t cbp; uint32_t px[256]; } TblOp;
+static GLuint fx_prog(const char *frag, int len, const char *what);
+/* the pass in half precision when it compiles (gVitaFxHalf), else in full */
+static GLuint fx_prog_h(const char *half, int hlen, const char *frag, int len, const char *what) {
+    GLuint p = 0;
+    if (gVitaFxHalf && half != NULL) {
+        p = fx_prog(half, hlen, what);
+        if (p == 0) {
+            Vita_Log("vgl: %s in half precision not made: in full\n", what);
+        }
+    }
+    return p != 0 ? p : fx_prog(frag, len, what);
+}
 static GLuint fx_prog(const char *frag, int len, const char *what) {
     static GLuint vs;
     GLuint fs, prog;
@@ -5838,8 +6023,7 @@ static GLuint fx_prog(const char *frag, int len, const char *what) {
     if (vs == 0) {
         vs = glCreateShader(GL_CG_VERTEX_SHADER_EXT);
         src = kVertFx; l = (GLint)sizeof(kVertFx) - 1;
-        glShaderSource(vs, 1, &src, &l);
-        glCompileShader(vs);
+        sh_cached(vs, src, l);
         glGetShaderiv(vs, GL_COMPILE_STATUS, &ok);
         if (!ok) {
             log[0] = 0; glGetShaderInfoLog(vs, sizeof(log) - 1, NULL, log); log[sizeof(log) - 1] = 0;
@@ -5850,8 +6034,7 @@ static GLuint fx_prog(const char *frag, int len, const char *what) {
     }
     fs = glCreateShader(GL_CG_FRAGMENT_SHADER_EXT);
     src = frag; ok = 0;
-    glShaderSource(fs, 1, &src, &len);
-    glCompileShader(fs);
+    sh_cached(fs, src, len);
     glGetShaderiv(fs, GL_COMPILE_STATUS, &ok);
     if (!ok) {
         log[0] = 0; glGetShaderInfoLog(fs, sizeof(log) - 1, NULL, log); log[sizeof(log) - 1] = 0;
@@ -5921,10 +6104,10 @@ static void fx_init(void) {
         return;
     }
     sFxProg[0] = fx_prog(kFragCopy, (int)sizeof(kFragCopy) - 1, "copy");
-    sFxProg[1] = fx_prog(kFragTblIds, (int)sizeof(kFragTblIds) - 1, "table (ids)");
+    sFxProg[1] = fx_prog_h(kFragTblIdsH, (int)sizeof(kFragTblIdsH) - 1, kFragTblIds, (int)sizeof(kFragTblIds) - 1, "table (ids)");
     sFxProg[2] = fx_prog(kFragTblFog, (int)sizeof(kFragTblFog) - 1, "table (fog)");
     sFxProg[3] = fx_prog(kFragFogCopy, (int)sizeof(kFragFogCopy) - 1, "fog byte");
-    sFxProg[4] = fx_prog(kFragTblByte, (int)sizeof(kFragTblByte) - 1, "table (fog byte)");
+    sFxProg[4] = fx_prog_h(kFragTblByteH, (int)sizeof(kFragTblByteH) - 1, kFragTblByte, (int)sizeof(kFragTblByte) - 1, "table (fog byte)");
     for (k = 0; k < 5; k++) {
         sFxU[k][0] = sFxProg[k] ? glGetUniformLocation(sFxProg[k], "uV") : -1;
         sFxU[k][1] = sFxProg[k] ? glGetUniformLocation(sFxProg[k], "uSrc") : -1;
@@ -6487,6 +6670,39 @@ static const char kFragGlowAdd[] =
     "float4 main(float2 t0 : TEXCOORD0) : COLOR {\n"
     "    return float4(tex2D(uSrc, t0).rgb * uC.rgb, 0.0f);\n"
     "}\n";
+static const char kFragGlowDownH[] =
+    "uniform sampler2D uSrc;\n"
+    "uniform float4 uP;\n"
+    "uniform float4 uC;\n"
+    "half4 main(float2 t0 : TEXCOORD0) : COLOR {\n"
+    "    half3 s = half3(0.0, 0.0, 0.0);\n"
+    "    half4 c;\n"
+    "    c = (half4)tex2D(uSrc, t0 + float2(-3.75f, -1.4f) * uP.xy); s += c.rgb * c.a;\n"
+    "    c = (half4)tex2D(uSrc, t0 + float2(-1.25f, -1.4f) * uP.xy); s += c.rgb * c.a;\n"
+    "    c = (half4)tex2D(uSrc, t0 + float2( 1.25f, -1.4f) * uP.xy); s += c.rgb * c.a;\n"
+    "    c = (half4)tex2D(uSrc, t0 + float2( 3.75f, -1.4f) * uP.xy); s += c.rgb * c.a;\n"
+    "    c = (half4)tex2D(uSrc, t0 + float2(-3.75f,  1.4f) * uP.xy); s += c.rgb * c.a;\n"
+    "    c = (half4)tex2D(uSrc, t0 + float2(-1.25f,  1.4f) * uP.xy); s += c.rgb * c.a;\n"
+    "    c = (half4)tex2D(uSrc, t0 + float2( 1.25f,  1.4f) * uP.xy); s += c.rgb * c.a;\n"
+    "    c = (half4)tex2D(uSrc, t0 + float2( 3.75f,  1.4f) * uP.xy); s += c.rgb * c.a;\n"
+    "    return half4(s * 0.125 * (half3)uC.rgb, 1.0);\n"
+    "}\n";
+static const char kFragGlowBlurH[] =
+    "uniform sampler2D uSrc;\n"
+    "uniform float4 uP;\n"
+    "half4 main(float2 t0 : TEXCOORD0) : COLOR {\n"
+    "    half3 s = (half3)tex2D(uSrc, t0).rgb * 0.2432;\n"
+    "    s += ((half3)tex2D(uSrc, t0 + uP.xy).rgb + (half3)tex2D(uSrc, t0 - uP.xy).rgb) * 0.2048;\n"
+    "    s += ((half3)tex2D(uSrc, t0 + 2.0f * uP.xy).rgb + (half3)tex2D(uSrc, t0 - 2.0f * uP.xy).rgb) * 0.1221;\n"
+    "    s += ((half3)tex2D(uSrc, t0 + 3.0f * uP.xy).rgb + (half3)tex2D(uSrc, t0 - 3.0f * uP.xy).rgb) * 0.0516;\n"
+    "    return half4(s, 1.0);\n"
+    "}\n";
+static const char kFragGlowAddH[] =
+    "uniform sampler2D uSrc;\n"
+    "uniform float4 uC;\n"
+    "half4 main(float2 t0 : TEXCOORD0) : COLOR {\n"
+    "    return half4((half3)tex2D(uSrc, t0).rgb * (half3)uC.rgb, 0.0);\n"
+    "}\n";
 static GLuint sGlowProg[3];
 static GLint sGlowU[3][4]; /* uV, uSrc, uP, uC */
 static int sGlowOn;
@@ -6498,9 +6714,9 @@ static void glow_init(void) {
         Vita_Log("vgl: native glow off (safe2=1024)\n");
         return;
     }
-    sGlowProg[0] = fx_prog(kFragGlowDown, (int)sizeof(kFragGlowDown) - 1, "glow (down)");
-    sGlowProg[1] = fx_prog(kFragGlowBlur, (int)sizeof(kFragGlowBlur) - 1, "glow (blur)");
-    sGlowProg[2] = fx_prog(kFragGlowAdd, (int)sizeof(kFragGlowAdd) - 1, "glow (add)");
+    sGlowProg[0] = fx_prog_h(kFragGlowDownH, (int)sizeof(kFragGlowDownH) - 1, kFragGlowDown, (int)sizeof(kFragGlowDown) - 1, "glow (down)");
+    sGlowProg[1] = fx_prog_h(kFragGlowBlurH, (int)sizeof(kFragGlowBlurH) - 1, kFragGlowBlur, (int)sizeof(kFragGlowBlur) - 1, "glow (blur)");
+    sGlowProg[2] = fx_prog_h(kFragGlowAddH, (int)sizeof(kFragGlowAddH) - 1, kFragGlowAdd, (int)sizeof(kFragGlowAdd) - 1, "glow (add)");
     for (k = 0; k < 3; k++) {
         sGlowU[k][0] = sGlowProg[k] ? glGetUniformLocation(sGlowProg[k], "uV") : -1;
         sGlowU[k][1] = sGlowProg[k] ? glGetUniformLocation(sGlowProg[k], "uSrc") : -1;

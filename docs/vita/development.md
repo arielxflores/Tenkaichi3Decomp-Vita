@@ -29,6 +29,13 @@ all of them. The full list, each with a comment, is `read_settings` in `port/vit
 | `logsplit=<KB>` | The log in parts of that size (`log-part2-vgl.txt`, ...) |
 | `wide=0` | The PS2's 4:3 picture (also in the release) |
 | `msaa=0/2/4` | The GPU's multisampling |
+| `fightres=640/720/960` | The fights always at that size (default 640 x 368; also in the release). Taken from arielxflores's 1.2 without its dynamic choice of size |
+| `fxhalf=0` | The full-screen passes (the outline, the table passes, the glow) in full precision, not half (from arielxflores's 1.2) |
+| `shbank=1` | Every shader the run compiles or reads from the card added to `ux0:data/bt3/shbank.bin`; `port/vita/tools/shbank.py` makes them into `port/vita/shbank.bin`, the bank the VPK carries (`app0:shbank.bin`: the shaders read from it, not compiled; from arielxflores's 1.2) |
+| `shbank=2` | The bank checked: each shader it does not have named in the log (`vgl: a shader not in the bank`) and compiled |
+| `texearly=0` | A new texture waits for the render thread before its pixels are read from GS memory, as before (from arielxflores's 1.2) |
+| `asyncread=0`, `vufquick=0` | The game's no-wait reads on the caller's thread, not the reading thread; the vector stand-ins' full check (from arielxflores's 1.2) |
+| `pgoname=<name>`, `pgodump=<s>` | A `BT3_PGO=gen` build: its counts' file name and how often they are written ([building.md](building.md)) |
 | `touchlr=rear/front/off`, `touchlog=1` | Where L2, R2, L3 and R3 are touched, all four (over the player's Vita Settings → Touch); the touches in the log |
 | `soak=1` | With `mode=demo`: duels and three-against-three team battles one after another without end (`port/src/headless.c`), to find what goes wrong after a long time. The sweep is off in a soak unless `sweep=` is given |
 | `soakstages=<ids>`, `soakduel=1` | The soak's stages in turn (ids and ranges: `0-34`, `1,6,0x10`) instead of the demo's, and only duels: a survey of the stages' speed, summed up by `port/vita/tools/perfsum.py log-vgl.txt` |

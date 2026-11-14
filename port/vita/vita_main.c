@@ -1340,6 +1340,12 @@ static void read_settings(void) {
         } else if (strcmp(line, "texearly") == 0) { /* 0: a new texture waits for the render thread before its pixels are read (vita_vgl.c) */
             extern int gVitaTexEarly;
             gVitaTexEarly = atoi(eq);
+        } else if (strcmp(line, "fxhalf") == 0) { /* 0: the full-screen passes in full precision (vita_vgl.c) */
+            extern int gVitaFxHalf;
+            gVitaFxHalf = atoi(eq) != 0;
+        } else if (strcmp(line, "shbank") == 0) { /* 1: the run's shaders written to ux0:data/bt3/shbank.bin, the bank's making (vita_vgl.c) */
+            extern int gVitaShHarvest;
+            gVitaShHarvest = atoi(eq); /* (2: the bank checked, each program not in it said in the log) */
         } else if (strcmp(line, "fightres") == 0) { /* the fights drawn at 640 x 368 (default), 720 x 408 or 960 x 544 (vita_vgl.c) */
             extern int gVitaFightW;
             gVitaFightW = atoi(eq);
