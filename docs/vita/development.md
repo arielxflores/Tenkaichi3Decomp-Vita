@@ -87,6 +87,7 @@ the texture count.
 | `port/vita/vita_touch.c` | The touch panels: L2 / R2 / L3 / R3 and the menus |
 | `port/vita/vita_audio.c`, `sdlshim/` | Sound output, under the PC port's sound code (`port/src/gs/snd_adx.c`, `snd_se.c`) |
 | `port/vita/vita_file.c`, `vita_mem.c` | The disc's archives, the mods folder, memory and the game's data tables |
+| `port/vita/vita_iso.c` | The disc's files read from its `.iso` as it is (arielxflores's, from his v1.2): the file calls linked with `--wrap`, a path inside the image read from its place in it |
 | `port/vita/vita_float.c`, `vita_vu0_inline.h` | The PS2 vector unit's arithmetic |
 | `port/vita/srcfix.py` | Rewrites of the game's text at build time: the PS2's rule for shift counts, and its float division by zero (`__port_fdiv` in `port/include/port_compat.h`: no infinity or NaN where the PS2 gives its largest number) |
 | `port/vita/vita_text.c`, `vita_optart.c` | What the game's text and the menus' art say of the PS2, said of the Vita (the options' controller page and its Vita Settings, the Versus Menu's "Multiplayer", the L3 / R3 icons) |

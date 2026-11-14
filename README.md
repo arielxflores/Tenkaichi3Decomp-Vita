@@ -45,19 +45,28 @@ Requirements:
 - A PS Vita running HENkaku / Ensō
 - Recommended: the [CapUnlocker](https://github.com/GrapheneCt/CapUnlocker) kernel plugin, which lets the game use
   the Vita's fourth CPU core. Without it the game runs, but heavy scenes are slower.
-- About 3 GB free on `ux0:` for the game files
+- Free space on `ux0:` for the game files: about 3 GB unpacked, or the size of your `.iso` copied as it is
 
 Steps:
 
 1. Install `Tenkaichi3Decomp-Vita.vpk` from the [releases page](https://github.com/arielxflores/Tenkaichi3Decomp-Vita/releases)
    with VitaShell.
-2. Copy the game files to `ux0:data/bt3/disc/` as described below.
+2. Copy your disc image (`.iso`) to `ux0:data/bt3/`, or the files unpacked from it, as described below.
 3. Start **Dragon Ball Z: BT3** from the LiveArea.
 
 ## Game files
 
 You need a disc image (`.iso`) of your own copy of the USA release, SLUS-21678. Other releases (PAL, Japanese) are
-not supported. From the image, copy `SLUS_216.78` and the `BIN` and `DATA` folders, so that the memory card has:
+not supported. Copy the image as it is to `ux0:data/bt3/` with VitaShell (USB or FTP), under any name ending in
+`.iso`:
+
+```
+ux0:data/bt3/Dragon Ball Z Budokai Tenkaichi 3.iso
+```
+
+The game reads its files from the image (arielxflores's reader, from his v1.2). Or copy only `SLUS_216.78` and the
+`BIN` and `DATA` folders from the image (the rest of the disc is not needed, about 3 GB in all), so that the memory
+card has:
 
 ```
 ux0:data/bt3/disc/SLUS_216.78
@@ -72,8 +81,9 @@ ux0:data/bt3/disc/DATA/ZS3USOP.PSS        (and the other files of the DATA folde
   extract them into a folder named `disc`.
 - **Linux / macOS:** `7z x -odisc your-image.iso SLUS_216.78 BIN DATA`
 
-Then copy the `disc` folder to `ux0:data/bt3/` with VitaShell (USB or FTP). The game checks at start that the
-files are the unmodified USA release and tells you if they are not.
+Then copy the `disc` folder to `ux0:data/bt3/` with VitaShell (USB or FTP). Unpacked files are used first when
+both are there. Either way, the game checks at start that the files are the unmodified USA release and tells you if
+they are not.
 
 ## Controls
 
@@ -139,14 +149,16 @@ Mods** shows what is in use and turns it all off without deleting anything (from
 Mods that change only the disc's data files work. Mods that change the game's program, like Team BT4's
 Budokai Tenkaichi 4, cannot: the program is compiled into the port from the unmodified USA release, and those
 mods' data files are made for their own program. A pack holding a changed `SLUS_216.78` or `BIN/DBZP.BIN` is left
-out, with a message when the game starts. A disc image (`.iso`) is not read: copy a modded disc's files into a
-pack instead.
+out, with a message when the game starts. A disc image (`.iso`) is not read as a pack: copy a modded disc's files
+into a pack instead.
 
 ## Troubleshooting
 
-- **"The game's files were not found"**: `SLUS_216.78` and the `BIN` and `DATA` folders must be in
-  `ux0:data/bt3/disc/` (a folder named `disk`, or one more folder level in between, is found too). An `.iso` cannot
-  be read as it is: extract those three items from it with 7-Zip.
+- **"The game's files were not found"**: the disc image (`.iso`) must be in `ux0:data/bt3/` (or its `disc` or
+  `disk` folder), or `SLUS_216.78` and the `BIN` and `DATA` folders in `ux0:data/bt3/disc/` (a folder named `disk`,
+  or one more folder level in between, is found too). The message lists what it found instead. An image of another
+  release (PAL, Japanese) or one that is not a plain ISO 9660 copy of the disc is not used; earlier versions said
+  "An .iso can't be read as it is": update the game, or extract the three items with 7-Zip.
 - **The picture fills only part of the screen**: the Sharpscale plugin is set to a resolution other than
   "Original"; set it back to Original.
 - **The game stops** (the picture freezes, the music plays on): the game writes `ux0:data/bt3/hang.txt` when its
