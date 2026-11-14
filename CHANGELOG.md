@@ -14,6 +14,12 @@ Fixed
   Vita does not have). It shows the costume's number between the arrows (1/4) and its name under them, in the
   game's own lettering, centred in the window and narrowed to fit it.
 
+For crash reports
+
+- The log (`ux0:data/bt3/log.txt`) now names each step of the start and lists the plugins in taiHEN's `config.txt`,
+  and until the game starts it is written line by line, so a start that crashes leaves a log that ends at the step
+  it crashed in (some players' Vitas close 1.2 right at the start, with nothing in the log to say why).
+
 ## 1.2
 
 New

@@ -1868,8 +1868,57 @@ static int game_thread(SceSize args, void *argp) {
     return 0;
 }
 
+/* The start's steps, in the log (the released program's too): a start that ends early ends the log at the step
+   it was in. Until the game's thread starts the log is written line by line (the log thread's tenth of a second could
+   lose the last lines before a crash). */
+static void start_step(const char *what) {
+    logf_("vita: start: %s\n", what);
+}
+
+/* The plugins taiHEN loads (their file names, from ur0:tai and ux0:tai config.txt), in the log: a start that fails
+   on some Vitas only is often a plugin's doing. */
+static void log_plugins(void) {
+    static const char *const kConfig[2] = {"ur0:tai/config.txt", "ux0:tai/config.txt"};
+    char line[256], out[700];
+    size_t n = 0;
+    int k;
+    out[0] = '\0';
+#define PLUG_PUT(...) do { if (n < sizeof(out) - 1) { int w = snprintf(out + n, sizeof(out) - n, __VA_ARGS__); \
+                              n = w < 0 ? n : (n + (size_t)w < sizeof(out) - 1 ? n + (size_t)w : sizeof(out) - 1); } } while (0)
+    for (k = 0; k < 2; k++) {
+        FILE *f = fopen(kConfig[k], "r");
+        if (f == NULL) {
+            continue;
+        }
+        PLUG_PUT("%s%s:", n ? "; " : "", kConfig[k]);
+        while (fgets(line, sizeof(line), f) != NULL) {
+            char *p = line, *e, *name;
+            while (*p == ' ' || *p == '\t') {
+                p++;
+            }
+            if (*p == '#' || (*p != '*' && strstr(p, ".skprx") == NULL && strstr(p, ".suprx") == NULL)) {
+                continue;
+            }
+            for (e = p; *e != '\0' && *e != '\r' && *e != '\n' && *e != ' '; e++) {
+            }
+            *e = '\0';
+            if (*p == '*') { /* (the section: *KERNEL, *main, *ALL, a title's id) */
+                PLUG_PUT(" [%s]", p);
+                continue;
+            }
+            name = strrchr(p, '/');
+            name = name != NULL ? name + 1 : p;
+            PLUG_PUT(" %s", name);
+        }
+        fclose(f);
+    }
+#undef PLUG_PUT
+    logf_("vita: plugins: %s\n", out[0] ? out : "(no taiHEN config.txt readable)");
+}
+
 int __wrap_main(int argc, char **argv) {
     SceUID th;
+    int logThread = 0;
 
     (void)argc;
     (void)argv;
@@ -1904,7 +1953,7 @@ int __wrap_main(int argc, char **argv) {
     {
         SceUID lt = Vita_ThreadOnCore3("bt3_log", log_thread, 180, 0x4000, 0x00020000 /* else the second core */);
         if (lt >= 0 && sceKernelStartThread(lt, 0, NULL) >= 0) {
-            sLogThreaded = 1;
+            logThread = 1; /* (the log goes through it from the game's start on) */
             Vita_WatchThread(6, lt, "log");
         }
     }
@@ -1927,6 +1976,8 @@ int __wrap_main(int argc, char **argv) {
 #ifndef PORT_VITA_RELEASE
     setenv("BT3_TRACE", "600", 1); /* the fight's state every 600 blanks into out.txt: comparable with a PC run */
 #endif
+    log_plugins();
+    start_step("settings");
     read_settings();
     {   /* (a BT3_PGO=gen build: where its counts go, vita_pgo.c) */
         extern void Vita_PgoInit(void);
@@ -1934,6 +1985,7 @@ int __wrap_main(int argc, char **argv) {
     }
     {   /* a crash's report in ux0:data/bt3/crash.txt (vita_crash.c, with kubridge) */
         extern void Vita_CrashInit(const char *home);
+        start_step("crash report (kubridge)");
         Vita_CrashInit(HOME);
     }
     start_screen();
@@ -1942,24 +1994,31 @@ int __wrap_main(int argc, char **argv) {
            shows by itself at the first start that finds their archive */
         extern void VitaEu_Init(const char *home);
         extern void Vita_StartMenu(void);
+        start_step("the European disc's languages");
         VitaEu_Init(HOME);
+        start_step("start menu (BT4, SELECT)");
         Vita_StartMenu();
     }
 #ifndef PORT_VITA_RELEASE /* (the released program shows nothing until the game's first picture; an error still shows) */
     psvDebugScreenPrintf("Reading the game's data tables from %s ...\n", gVitaDisc);
 #endif
+    start_step("the disc's files");
     find_disc();
+    start_step("the game's data tables");
     Vita_LoadGameData(gVitaDisc);
 #ifdef PORT_VITA /* (BT3 and BT4) */
     {   /* multiplayer (the start menu's choice, vita_net.c): the other Vita found and the match set up, before anything
            of the game is read that the match has as the game's own (no mods, the USA disc's text) */
         extern void Vita_NetConnect(void);
+        start_step("multiplayer");
         Vita_NetConnect();
     }
 #endif
     {   /* mods (vita_file.c): the packs left out are told of before the game starts */
         extern const char *Vita_ModsStart(void);
-        const char *note = Vita_ModsStart();
+        const char *note;
+        start_step("mods");
+        note = Vita_ModsStart();
         if (note != NULL) {
             logf_("vita: mods notice shown\n");
             psvDebugScreenPrintf("\n\e[33m%s\e[39m\n\nPress CROSS to go on.\n", note);
@@ -1970,9 +2029,11 @@ int __wrap_main(int argc, char **argv) {
 #ifndef BT3_BT4
     {   /* stages and songs added from outside the disc (vita_extras.c: ux0:data/bt3/stages, ux0:data/bt3/songs) */
         extern void Vita_ExtrasInit(void);
+        start_step("stages and songs from outside the disc");
         Vita_ExtrasInit();
     }
 #endif
+    start_step("memory");
     Vita_MapMemory(sHeapCdram);
     logf_("vita: %s floats, game heap at 0x%08X, disc folder %s, %s\n", gPortFastFloat ? "hardware" : "exact", (unsigned)gVitaHeapBase, gVitaDisc,
           getenv("BT3_REPLAY") != NULL ? getenv("BT3_REPLAY") : "attract-demo fight");
@@ -1986,6 +2047,7 @@ int __wrap_main(int argc, char **argv) {
 #endif
         logf_(r == 1 ? "vita: processor counters on (libperf)\n" : "vita: processor counters off (libperf kernel plugin not loaded: %08x)\n", r);
     }
+    sLogThreaded = logThread;
     th = sceKernelCreateThread("bt3_game", game_thread, 0x10000100, GAME_STACK, 0, 0x00010000 /* the first core, to itself */, NULL);
     Vita_WatchThread(0, th, "game");
     if (th < 0 || sceKernelStartThread(th, 0, NULL) < 0) {
