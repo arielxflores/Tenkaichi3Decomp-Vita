@@ -4419,7 +4419,7 @@ index dd0bafa..f04b340 100644
          Gfx_AddDefaultEnv();
          Dma_AddData(tint->tex.upload, 0x10);
 diff --git a/src/sys/gfxm_c.c b/src/sys/gfxm_c.c
-index c5f153f..6793247 100644
+index c5f153f..455d85e 100644
 --- a/src/sys/gfxm_c.c
 +++ b/src/sys/gfxm_c.c
 @@ -697,6 +697,12 @@ void FlashSlot_Draw(FlashSlot *slot, FlashProp *parent, Flash *flash) {
@@ -4445,7 +4445,22 @@ index c5f153f..6793247 100644
  #ifdef PORT
              if (part >= 0) {
                  Port_MenuPart(prev);
-@@ -920,6 +929,9 @@ void FlashDraw_Quad(FlashTex *tex, FlashQuad *q) {
+@@ -875,6 +884,14 @@ void FlashDraw_MaskQuad(FlashQuad *q, u64 tex0, s32 set) {
+     } else {
+         p[0] = 0x503CD;
+     }
++#ifdef PORT_VITA
++    /* Its depth test "always": on the PS2 the test there (Z 0, the flash's own, against what the menu drew at Z 0)
++       let every pixel through, and the map select shows the fighters' portraits through their mask; on the Vita the
++       same test threw those away (build 328's tests: with the depth test off they show, faded toward the middle as
++       the mask makes them; with only the alpha test off they stay hidden). The other masked pictures (the character
++       select's chip bar) look the same either way. */
++    p[0] = (p[0] & ~(u64)0x60000) | 0x20000;
++#endif
+     p[1] = 0x47;
+     p += 2;
+     if (q->flags & FLASH_QUAD_ADD) {
+@@ -920,6 +937,9 @@ void FlashDraw_Quad(FlashTex *tex, FlashQuad *q) {
          }
          return;
      }
@@ -4455,7 +4470,7 @@ index c5f153f..6793247 100644
  #endif
      if (tex != NULL) {
          tex0 = FlashDraw_UploadTex(tex, q->uv.tex, 0x3000);
-@@ -1125,6 +1137,9 @@ void Flash_Create(Flash *flash, u8 *file, FlashTex **tex) {
+@@ -1125,6 +1145,9 @@ void Flash_Create(Flash *flash, u8 *file, FlashTex **tex) {
  
  /* Frees everything Flash_Create allocated. */
  void Flash_Destroy(Flash *flash) {

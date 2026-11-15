@@ -23,8 +23,8 @@ Faster (manumastro's work, his pull request #6)
 
 Fixed
 
-- BT4: the map select shows the two fighters' portraits, as on the PS2 (the PC version hides them, for its widened
-  menus).
+- BT4: the map select shows the two fighters' portraits, faded toward the middle as on the PS2 (the PC version hides
+  them, for its widened menus; on the Vita a depth test threw them away).
 - **A disc image that is not all there is no longer used.** An `.iso` whose copy did not finish (its size looks
   right, but past some point its reads come back empty), or one cut at 4 GB by a FAT32 memory card, was used anyway:
   the sounds from its missing part were silent, and a fight that needed a fighter from it closed the game (BT4, as a
