@@ -34,6 +34,8 @@ all of them. The full list, each with a comment, is `read_settings` in `port/vit
 | `fxhalf=0` | The full-screen passes (the outline, the table passes, the glow) in full precision, not half |
 | `shbank=2` | The bank checked: each shader it does not have named in the log (`vgl: a shader not in the bank`) and compiled |
 | `shbank=1` | Every shader the run compiles or reads from the card added to `ux0:data/bt3/shbank.bin` (BT4's program: `shbank-bt4.bin`); `port/vita/tools/shbank.py` makes them into `port/vita/shbank.bin`, the bank the VPK carries (`app0:shbank.bin`: the shaders read from it, not compiled) |
+| `tiledrt=1` | The effects' work targets in tiled storage (vitaGL's `vglUseTiledRenderTargets`, this port's patch): the passes that read them many times read them with better cache locality. Off by default until measured on the console |
+| `exitafter=<s>` | The program ends itself that many seconds after its start, after its next picture with the graphics chip idle (the test runs: `bt3run.sh` sets it and waits; closed from the PC over Wi-Fi in the middle of the chip's work, the Vita took no more files until it was restarted) |
 | `texearly=0` | A new texture waits for the render thread before its pixels are read from GS memory, as before |
 | `asyncread=0`, `vufquick=0` | The game's no-wait reads on the caller's thread, not the reading thread; the vector stand-ins' full check |
 | `pgoname=<name>`, `pgodump=<s>` | A `BT3_PGO=gen` build: its counts' file name and how often they are written ([building.md](building.md)) |

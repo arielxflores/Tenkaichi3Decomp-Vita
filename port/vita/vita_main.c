@@ -58,6 +58,7 @@ static FILE *sLog;
 static int sHeapCdram, sFloatChoice = -1; /* -1: ask */
 static unsigned long long sStart, sBattleStart, sLastDraw;
 static int gVitaExitAfter; /* bt3.txt exitafter=<s> (development build): the program ends itself after that many seconds */
+volatile int gVitaQuitAsked; /* (exitafter) asked: the drawing thread ends the program after its next picture */
 static unsigned sBattleStartVb, sLastVb, sLastState = 0xFFFFFFFFu;
 static volatile int sEnded;
 static int sMode = -1; /* 0 the menus (play), 1 the demo fight; -1: ask */
@@ -382,6 +383,12 @@ static void quit(void) {
     }
 }
 
+/* (vita_vgl.c wt_swap) a test run's end asked for (exitafter): the picture just shown, the chip idle */
+void Vita_QuitNow(unsigned picture) {
+    logf_("vita: exitafter: the graphics chip idle after picture %u: the program ends\n", picture);
+    quit();
+}
+
 /* A message the program cannot go on after: red on the screen, in the log, then START ends the program. */
 void Vita_Fatal(const char *fmt, ...) {
     char msg[600];
@@ -659,9 +666,19 @@ void Vita_VBlank(unsigned vblanks) {
 #ifndef PORT_VITA_RELEASE
     if (gVitaExitAfter > 0 && t - sStart >= (unsigned long long)gVitaExitAfter * 1000000ull) {
         /* a test run's end from inside (bt3.txt exitafter=<s>): its log written whole, and a line the runners wait for
-           (port/vita/tools: vita_agent_run.sh's completion) */
-        logf_("vita: exitafter: the test run ends after %d s\n", gVitaExitAfter);
-        quit();
+           (port/vita/tools: vita_agent_run.sh's completion). The drawing thread ends the program after its next picture
+           with the graphics chip idle (vita_vgl.c wt_swap, Vita_QuitNow): the Burst Limit port found that a program
+           closed in the middle of the chip's work (from the PC, over Wi-Fi) left the Vita taking no more files until it
+           was restarted, as this port's tests saw too. Here only when no picture has come in 4 s. */
+        static unsigned long long askedT;
+        if (!gVitaQuitAsked) {
+            logf_("vita: exitafter: the test run ends after %d s (after the next picture, the graphics chip idle)\n", gVitaExitAfter);
+            askedT = t;
+            gVitaQuitAsked = 1;
+        } else if (t - askedT > 4000000ull) {
+            logf_("vita: exitafter: no picture in 4 s: the program ends here\n");
+            quit();
+        }
     }
 #endif
     sceKernelPowerTick(SCE_KERNEL_POWER_TICK_DISABLE_AUTO_SUSPEND);
@@ -1522,6 +1539,9 @@ static void read_settings(void) {
             gVitaGameFxOff = (gVitaGameFxOff & ~(64 | 128)) | (strcmp(eq, "off") == 0 ? 64 : strcmp(eq, "light") == 0 ? 128 : 0);
         } else if (strcmp(line, "moveblur") == 0) { /* the scenery's blur while the view turns or moves fast: 0 off */
             gVitaGameFxOff = (gVitaGameFxOff & ~32) | (atoi(eq) == 0 ? 32 : 0);
+        } else if (strcmp(line, "tiledrt") == 0) { /* 1: the effects' work targets in tiled storage (vita_vgl.c; an A/B for the chip's time) */
+            extern int gVitaTiledRt;
+            gVitaTiledRt = atoi(eq) != 0;
         } else if (strcmp(line, "fxhalf") == 0) { /* 0: the full-screen passes in full precision (vita_vgl.c) */
             extern int gVitaFxHalf;
             gVitaFxHalf = atoi(eq) != 0;

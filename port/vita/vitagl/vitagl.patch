@@ -429,6 +429,23 @@ index e9e6c8c..c15b2ff 100644
  		} else if (type == GL_UNSIGNED_INT) {
  			setup_elements_indices(uint32_t);
  			sceGxmDraw(gxm_context, gxm_p, SCE_GXM_INDEX_FORMAT_U32, ptr, count);
+diff --git a/source/framebuffers.c b/source/framebuffers.c
+index e7a4f2f..45dd323 100644
+--- a/source/framebuffers.c
++++ b/source/framebuffers.c
+@@ -931,6 +931,12 @@ void glBlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint
+ 
+ /* vgl* */
+ 
++GLboolean vgl_tiled_rts = GL_FALSE;
++
++void vglUseTiledRenderTargets(GLboolean enable) {
++	vgl_tiled_rts = enable;
++}
++
+ void vglTexImageDepthBuffer(GLenum target) {
+ 	THREAD_SAFE()
+ 
 diff --git a/source/gxm.c b/source/gxm.c
 index ffa0279..5fb1d77 100644
 --- a/source/gxm.c
@@ -746,6 +763,143 @@ index ffa0279..5fb1d77 100644
  		vector4f_convert_to_local_space(clear_vertices, 0, 0, DISPLAY_WIDTH, DISPLAY_HEIGHT);
  		update_scissor_test_uniforms();
  		create_display_render_target();
+diff --git a/source/shared.h b/source/shared.h
+index 07d8f47..c16f4ee 100644
+--- a/source/shared.h
++++ b/source/shared.h
+@@ -297,6 +297,20 @@ extern int NEW_DISPLAY_HEIGHT; // Requested new display height in pixels
+ 
+ #include "texture_callbacks.h"
+ 
++/* bt3 port: the GXM state calls a draw makes, left out when they set what is set already (the same program, the
++   same texture words, the same stream); everything is set again after a scene begins. vgl_bt3_gxm_cache 0: off. */
++extern int vgl_bt3_gxm_cache;
++extern unsigned vgl_bt3_gxm_skipped[2]; /* calls left out, calls made */
++void vglbt3_SetVertexProgram(SceGxmContext *c, const SceGxmVertexProgram *p);
++void vglbt3_SetFragmentProgram(SceGxmContext *c, const SceGxmFragmentProgram *p);
++int vglbt3_SetFragmentTexture(SceGxmContext *c, unsigned int i, const SceGxmTexture *t);
++int vglbt3_SetVertexStream(SceGxmContext *c, unsigned int i, const void *p);
++void vglbt3_GxmDirty(void);
++#define sceGxmSetVertexProgram(c, p) vglbt3_SetVertexProgram(c, p)
++#define sceGxmSetFragmentProgram(c, p) vglbt3_SetFragmentProgram(c, p)
++#define sceGxmSetFragmentTexture(c, i, t) vglbt3_SetFragmentTexture(c, i, t)
++#define sceGxmSetVertexStream(c, i, p) vglbt3_SetVertexStream(c, i, p)
++
+ // Fixed-function pipeline shader cache settings
+ #define FFP_SHADER_CACHE_MAGIC 31 // This must be increased whenever ffp shader sources or shader mask/combiner mask changes
+ 
+@@ -1343,16 +1357,52 @@ static inline __attribute__((always_inline)) uint32_t get_color_from_texture(Sce
+ 	}
+ }
+ 
++extern GLboolean vgl_tiled_rts; // bt3 port: colour attachments get tiled storage (vglUseTiledRenderTargets)
++
++// bt3 port (from the Burst Limit port's vitaGL): a linear, single level RGBA8 / RGBA16F texture given tiled storage
++// (32 x 32 pixel tiles), so that the chip reads it with better cache locality (the effect passes read their targets
++// many times). Its contents are dropped: done when it is first attached, before anything is drawn into it.
++static inline __attribute__((always_inline)) void vgl_make_tiled(texture *tex) {
++	if (sceGxmTextureGetType(&tex->gxm_tex) != SCE_GXM_TEXTURE_LINEAR || tex->mip_count > 1 || !tex->data)
++		return;
++	SceGxmTextureFormat fmt = vglGetTexFormat(&tex->gxm_tex);
++	if (fmt != SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR && fmt != SCE_GXM_TEXTURE_FORMAT_F16F16F16F16_RGBA)
++		return;
++	uint32_t w, h;
++	vglGetTexSizes(&tex->gxm_tex, &w, &h);
++	const uint32_t size = VGL_ALIGN(w, 32) * VGL_ALIGN(h, 32) * tex_format_to_bytespp(fmt);
++	void *data = gpu_alloc_mapped_aligned_for_gpu(4096, size);
++	if (!data)
++		return;
++	vgl_memset(data, 0, size);
++	gpu_free_texture_data(tex);
++	sceGxmTextureInitTiled(&tex->gxm_tex, data, fmt, w, h, 0);
++	vglSetTexMinFilter(&tex->gxm_tex, tex->min_filter);
++	vglSetTexMagFilter(&tex->gxm_tex, tex->mag_filter);
++	vglSetTexMipFilter(&tex->gxm_tex, tex->mip_filter);
++	vglSetTexUMode(&tex->gxm_tex, tex->u_mode);
++	vglSetTexVMode(&tex->gxm_tex, tex->v_mode);
++	vglSetTexLodBias(&tex->gxm_tex, tex->lod_bias);
++	tex->mip_count = 1;
++	tex->palette_data = NULL;
++	tex->data = data;
++	tex->status = TEX_VALID;
++}
++
+ static inline __attribute__((always_inline)) void _glFramebufferTexture2D(framebuffer *fb, GLenum attachment, texture *tex, GLuint tex_id) {
+ 	// Extracting texture data
+ 	int old_w = fb->width, old_h = fb->height;
+ 	SceGxmTextureFormat fmt = vglGetTexFormat(&tex->gxm_tex);
++	GLboolean tiled = GL_FALSE;
+ 
+ 	// Detecting requested attachment
+ 	switch (attachment) {
+ 	case GL_COLOR_ATTACHMENT0:
++		if (vgl_tiled_rts && tex_id != 0)
++			vgl_make_tiled(tex);
++		tiled = sceGxmTextureGetType(&tex->gxm_tex) == SCE_GXM_TEXTURE_TILED;
+ 		vglGetTexSizes(&tex->gxm_tex, &fb->width, &fb->height);
+-		fb->stride = VGL_ALIGN(fb->width, 8) * tex_format_to_bytespp(fmt);
++		fb->stride = VGL_ALIGN(fb->width, tiled ? 32 : 8) * tex_format_to_bytespp(fmt);
+ 		fb->data = vglGetTexData(&tex->gxm_tex);
+ 		fb->format = tex->format;
+ 
+@@ -1394,10 +1444,10 @@ static inline __attribute__((always_inline)) void _glFramebufferTexture2D(frameb
+ 		fb->is_float = tex->format == SCE_GXM_TEXTURE_FORMAT_F16F16F16F16_RGBA;
+ 
+ 		// Allocating colorbuffer
+-		sceGxmColorSurfaceInit(&fb->colorbuffer, get_color_from_texture(fmt), SCE_GXM_COLOR_SURFACE_LINEAR,
++		sceGxmColorSurfaceInit(&fb->colorbuffer, get_color_from_texture(fmt), tiled ? SCE_GXM_COLOR_SURFACE_TILED : SCE_GXM_COLOR_SURFACE_LINEAR,
+ 			msaa_mode == SCE_GXM_MULTISAMPLE_NONE ? SCE_GXM_COLOR_SURFACE_SCALE_NONE : SCE_GXM_COLOR_SURFACE_SCALE_MSAA_DOWNSCALE,
+ 			fb->is_float ? SCE_GXM_OUTPUT_REGISTER_SIZE_64BIT : SCE_GXM_OUTPUT_REGISTER_SIZE_32BIT,
+-			fb->width, fb->height, VGL_ALIGN(fb->width, 8), fb->data);
++			fb->width, fb->height, VGL_ALIGN(fb->width, tiled ? 32 : 8), fb->data);
+ 		
+ 		// Invalidating current framebuffer if we update its bound texture to force a scene reset
+ 		if (in_use_framebuffer == active_write_fb) {
+diff --git a/source/utils/gpu_utils.c b/source/utils/gpu_utils.c
+index 4464db5..001fa60 100644
+--- a/source/utils/gpu_utils.c
++++ b/source/utils/gpu_utils.c
+@@ -153,6 +153,24 @@ static inline __attribute__((always_inline)) uint32_t vgl_cache_old_textures(siz
+ #endif
+ 
+ int unsafe_allocator_counter = 0;
++/* bt3 port (from the Burst Limit port's vitaGL): vglGetAllocStats: allocations that failed and forced a collection
++   (glFinish or sceGxmFinish, then a second's wait per collection cycle), the cycles, those that failed anyway, the
++   largest that failed */
++static uint32_t vgl_alloc_stats[4] = {0};
++void vglGetAllocStats(uint32_t stats[4]) {
++	int i;
++	for (i = 0; i < 4; i++)
++		stats[i] = vgl_alloc_stats[i];
++}
++static inline __attribute__((always_inline)) void vgl_note_forced_alloc(void *res, size_t size) {
++	vgl_alloc_stats[0]++;
++	vgl_alloc_stats[1] += unsafe_allocator_counter;
++	if (!res) {
++		vgl_alloc_stats[2]++;
++		if (size > vgl_alloc_stats[3])
++			vgl_alloc_stats[3] = size;
++	}
++}
+ void *gpu_alloc_mapped_aligned_unsafe_for_cpu(size_t alignment, size_t size) {
+ 	// Performing a garbage collection cycle prior to attempting to allocate the memory again
+ 	unsafe_allocator_counter++;
+@@ -221,6 +239,7 @@ void *gpu_alloc_mapped_aligned_for_cpu(size_t alignment, size_t size) {
+ #endif
+ 	unsafe_allocator_counter = 0;
+ 	res = gpu_alloc_mapped_aligned_unsafe_for_cpu(alignment, size);
++	vgl_note_forced_alloc(res, size);
+ 
+ #ifdef LOG_ERRORS
+ 	if (!res) {
+@@ -250,6 +269,7 @@ void *gpu_alloc_mapped_aligned_for_gpu(size_t alignment, size_t size) {
+ #endif
+ 	unsafe_allocator_counter = 0;
+ 	res = gpu_alloc_mapped_aligned_unsafe_for_gpu(alignment, size);
++	vgl_note_forced_alloc(res, size);
+ 
+ #ifdef LOG_ERRORS
+ 	if (!res) {
 diff --git a/source/utils/gxm_utils.h b/source/utils/gxm_utils.h
 index e297278..4edef8c 100644
 --- a/source/utils/gxm_utils.h
@@ -794,31 +948,6 @@ index e297278..4edef8c 100644
  	SceGxmTextureInternal *tex = (SceGxmTextureInternal *)texture;
  	tex->control_words[0] = tex->control_words[0] & 0xFFE1FFFF | (((count - 1) & 0xF) << 17);
  }
-diff --git a/source/shared.h b/source/shared.h
-index 07d8f47..6cb347d 100644
---- a/source/shared.h
-+++ b/source/shared.h
-@@ -297,6 +297,20 @@ extern int NEW_DISPLAY_HEIGHT; // Requested new display height in pixels
- 
- #include "texture_callbacks.h"
- 
-+/* bt3 port: the GXM state calls a draw makes, left out when they set what is set already (the same program, the
-+   same texture words, the same stream); everything is set again after a scene begins. vgl_bt3_gxm_cache 0: off. */
-+extern int vgl_bt3_gxm_cache;
-+extern unsigned vgl_bt3_gxm_skipped[2]; /* calls left out, calls made */
-+void vglbt3_SetVertexProgram(SceGxmContext *c, const SceGxmVertexProgram *p);
-+void vglbt3_SetFragmentProgram(SceGxmContext *c, const SceGxmFragmentProgram *p);
-+int vglbt3_SetFragmentTexture(SceGxmContext *c, unsigned int i, const SceGxmTexture *t);
-+int vglbt3_SetVertexStream(SceGxmContext *c, unsigned int i, const void *p);
-+void vglbt3_GxmDirty(void);
-+#define sceGxmSetVertexProgram(c, p) vglbt3_SetVertexProgram(c, p)
-+#define sceGxmSetFragmentProgram(c, p) vglbt3_SetFragmentProgram(c, p)
-+#define sceGxmSetFragmentTexture(c, i, t) vglbt3_SetFragmentTexture(c, i, t)
-+#define sceGxmSetVertexStream(c, i, p) vglbt3_SetVertexStream(c, i, p)
-+
- // Fixed-function pipeline shader cache settings
- #define FFP_SHADER_CACHE_MAGIC 31 // This must be increased whenever ffp shader sources or shader mask/combiner mask changes
- 
 diff --git a/source/vgl.c b/source/vgl.c
 index bf5e4d4..a09b42f 100644
 --- a/source/vgl.c
@@ -831,10 +960,19 @@ index bf5e4d4..a09b42f 100644
 +	(void)path; /* (not in this SDK's vitashark) */
  }
 diff --git a/source/vitaGL.h b/source/vitaGL.h
-index 336bc14..8296874 100644
+index 336bc14..4479cdd 100644
 --- a/source/vitaGL.h
 +++ b/source/vitaGL.h
-@@ -1319,6 +1319,15 @@ void vglUseVramForUSSE(GLboolean usage);
+@@ -1282,6 +1282,8 @@ void vglSetupGarbageCollector(int priority, int affinity);
+ 
+ // Change the scenes per frame value to use for the display and fbos rendertargets. Default value: 1, 1.
+ void vglSetupRenderTargetScenesNum(uint8_t display_size, uint8_t fbo_size);
++void vglUseTiledRenderTargets(GLboolean enable); // bt3 port: colour attachments get tiled storage from their first attachment on (default: linear)
++void vglGetAllocStats(uint32_t stats[4]); // bt3 port: allocations that forced a collection, its cycles, those that failed anyway, the largest failed
+ 
+ // Change what kind of vertex buffer objects are considered eligible for scratch memory usage in order to reduce allocation costs. Requires USE_SCRATCH_MEMORY.
+ void vglSetupScratchMemory(GLboolean scratch_for_dynamic, GLboolean scratch_for_stream);
+@@ -1319,6 +1321,15 @@ void vglUseVramForUSSE(GLboolean usage);
  // Allows vitaGL to use newlib memory once all internal mempools are exhausted. Default value: GL_TRUE.
  void vglUseExtraMem(GLboolean usage);
  

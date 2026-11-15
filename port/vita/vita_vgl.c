@@ -28,6 +28,7 @@
 #include <malloc.h>
 #include <string.h>
 #include <psp2/display.h>
+#include <psp2/gxm.h>
 #include <psp2/io/fcntl.h>
 #include <psp2/io/stat.h>
 #include <psp2/kernel/threadmgr.h>
@@ -35,6 +36,7 @@
 #include <zlib.h>
 #include <math.h>
 #include "../src/gs/gs_internal.h"
+int gVitaTiledRt; /* (bt3.txt tiledrt=1) the work targets in tiled storage (vita_main.c read_settings) */
 
 extern int gGsMainFbp;  /* gs_sony.c: the buffer this frame is drawn into */
 #include <psp2/perf.h>
@@ -1744,6 +1746,11 @@ int GsGpu_Init(void) {
         extern void vglSetupRenderTargetScenesNum(uint8_t size_main, uint8_t size_fbos);
         vglSetupRenderTargetScenesNum(8, 8);
     }
+    if (gVitaTiledRt) { /* (bt3.txt tiledrt=1) the work targets in tiled storage: the effect passes read them with better cache
+                           locality (the Burst Limit port's vitaGL change; to be measured on the console) */
+        vglUseTiledRenderTargets(GL_TRUE);
+        Vita_Log("vgl: the work targets in tiled storage (tiledrt=1)\n");
+    }
     /* (bt3.txt msaa=2 or 4) the chip's multisampling: polygon edges smoothed (the picture is 640 x 368,
        stretched to the screen: edges crawl as the camera moves). The depth the fog reads is then 2 x 2 (or 1 x 2)
        samples a pixel: fx_init. */
@@ -2559,9 +2566,17 @@ int Vita_VglTables(char *out, int size) {
     for (k = 0; k < PAL_MAX; k++) {
         pal += sPalT[k].data != NULL;
     }
-    return snprintf(out, (size_t)size, "textures %d of %d (index sets %d of %d, palettes %d of %d, %u let go), video memory free %u KB, main %u KB",
-                    sTexCount, MAX_TEX, idx, IDX_MAX, pal, PAL_MAX, gVitaPalDrop, sMemVramK, sMemRamK);
+    {   /* vitaGL's allocations that found no room: each one waited for the chip and then a second per collection
+           cycle (a stop in the game: the Burst Limit port's vitaGL counters) */
+        uint32_t st[4];
+        vglGetAllocStats(st);
+        return snprintf(out, (size_t)size, "textures %d of %d (index sets %d of %d, palettes %d of %d, %u let go), video memory free %u KB, main %u KB; "
+                        "vitaGL out of room %u times (%u s waited, %u failed, largest %u KB)",
+                        sTexCount, MAX_TEX, idx, IDX_MAX, pal, PAL_MAX, gVitaPalDrop, sMemVramK, sMemRamK, (unsigned)st[0], (unsigned)st[1],
+                        (unsigned)st[2], (unsigned)(st[3] >> 10));
+    }
 }
+extern volatile int gVitaQuitAsked;
 static inline void wt_swap(void) {
     unsigned long long t0 = sceKernelGetProcessTimeWide();
     rt_sync();
@@ -2569,6 +2584,12 @@ static inline void wt_swap(void) {
     pace_swap(0);
     vglSwapBuffers(gVitaDialogOn ? GL_TRUE : GL_FALSE); /* (a dialog of the system's is drawn over the picture: vita_net.c) */
     pace_swap(1);
+    if (VITA_RARE(gVitaQuitAsked)) { /* (a test run's end, vita_main.c exitafter: the chip's work finished first) */
+        extern void Vita_QuitNow(unsigned picture);
+        glFinish();
+        sceGxmDisplayQueueFinish();
+        Vita_QuitNow(gGsFrame);
+    }
     gVitaDrawWhere = 0;
     gVitaWall[0] += sceKernelGetProcessTimeWide() - t0;
     if (++sMemSeen % 60 == 0) {
