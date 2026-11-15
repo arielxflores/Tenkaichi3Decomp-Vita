@@ -401,7 +401,7 @@ changes the Vita needed in the shared code, most of them inside `#ifdef PORT_VIT
 - [Matteo Santoro](https://github.com/Matt-code-d) for the European languages and the Dragon World Tour fix
   (Yamcha's invitation), and [limeking614-dev](https://github.com/limeking614-dev) for the PS TV controller
   support, from their forks
-- [manumastro](https://github.com/manumastro) for the speed work of 1.2.2 (detailed stages that stay fast, the effects
+- [manumastro](https://github.com/manumastro) for the speed work of 1.2.3 (detailed stages that stay fast, the effects
   at a lower resolution, the first steps of a native renderer, the fourth core's share of the uploads), from his
   fork's pull request
 - Spike, the developer of Dragon Ball Z: Budokai Tenkaichi 3
