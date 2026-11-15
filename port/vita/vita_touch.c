@@ -714,7 +714,7 @@ static struct {
 } sG;
 static int sCornerId[8], sCornerN; /* the contacts that began on a corner (front L2 / R2 / L3 / R3) */
 static unsigned long long sCornerT[8]; /* (when each began: L3 / R3 a quick press, as on the rear pad) */
-#define L3R3_PRESS_US 150000ull /* a touch of L3 / R3 is the button pressed this long, then let go */
+#define L3R3_PRESS_US 1000000ull /* a touch of L3 / R3 is the button pressed this long, then let go */
 static unsigned sCornerBtn[8];
 
 static void tap(float sx, float sy) {
