@@ -715,7 +715,29 @@ static struct {
 static int sCornerId[8], sCornerN; /* the contacts that began on a corner (front L2 / R2 / L3 / R3) */
 static unsigned long long sCornerT[8]; /* (when each began: L3 / R3 a quick press, as on the rear pad) */
 #define L3R3_PRESS_US 150000ull /* a touch of L3 / R3 is the button pressed this long, then let go */
+#define L3R3_HOLD_US 1500000ull /* ...or held, with a direction, this long at most (fusion: l3r3_kept) */
 static unsigned sCornerBtn[8];
+static uint8_t sCornerAim[8], sCornerHold[8];
+
+/* (1.2.4) R3 from a touch past its quick press: kept down while a direction is held that was held during the
+   quick press, at most L3R3_HOLD_US (L3 stays a quick press). The game's fusion is R3 held 12 frames with left / up / right (src/battle/
+   btl_act_j.c BtlAct_CheckFusionInput): with the quick press alone it could not be done from a touch, as 1.1's
+   held R3 could. A finger resting there, with no direction as it landed, still lets go after the quick press (R3
+   held stops the fighter moving: the reason for the quick press). `aimed`: a direction was held during the quick
+   press; `hold`: 0 not decided yet, 1 kept, 2 let go for this touch. 1: still down. */
+static int l3r3_kept(unsigned long long age, int aim, uint8_t *aimed, uint8_t *hold) {
+    if (age <= L3R3_PRESS_US) {
+        *aimed |= aim != 0;
+        return 1;
+    }
+    if (*hold == 0) {
+        *hold = *aimed ? 1 : 2;
+    }
+    if (*hold == 1 && (!aim || age > L3R3_HOLD_US)) {
+        *hold = 2;
+    }
+    return *hold == 1;
+}
 
 static void tap(float sx, float sy) {
     float fx, fy;
@@ -754,7 +776,7 @@ static void tap(float sx, float sy) {
     }
 }
 
-unsigned Vita_TouchPad(void) {
+unsigned Vita_TouchPad(int aim) { /* aim: left / up / right held (d-pad or left stick): l3r3_kept */
     SceTouchData front, back;
     unsigned btn = 0, r;
     unsigned rear_btns = 0, front_btns = 0; /* the buttons on the rear pad, and on the front corners */
@@ -780,9 +802,10 @@ unsigned Vita_TouchPad(void) {
         /* A touch of the lower half (L3 / R3) is a quick press (L3R3_PRESS_US), however long the finger stays: the
            game takes R3 for a transformation only when it is let go within about a fifth of a second (13 of its
            frames), and R3 held stops the fighter from moving and dashing (BtlInput_TestAction 1 and 3), which players
-           took for a dead stick; the hands holding the Vita rest there too. L2 / R2 (charging, dashing) are held as
-           long as the finger is there. A touch counts again once it is lifted. */
-        static struct { uint8_t id, used; unsigned long long t; } held[SCE_TOUCH_MAX_REPORT];
+           took for a dead stick; the hands holding the Vita rest there too. (1.2.4) Unless a direction was held as it
+           was touched: then R3 is held while the direction is, for fusion (l3r3_kept). L2 / R2 (charging, dashing) are
+           held as long as the finger is there. A touch counts again once it is lifted. */
+        static struct { uint8_t id, used, aimed, hold; unsigned long long t; } held[SCE_TOUCH_MAX_REPORT];
         unsigned long long now = sceKernelGetProcessTimeWide();
         int k;
         sceTouchPeek(SCE_TOUCH_PORT_BACK, &back, 1);
@@ -811,9 +834,10 @@ unsigned Vita_TouchPad(void) {
                     held[k].used = 1;
                     held[k].id = back.report[i].id;
                     held[k].t = now;
+                    held[k].aimed = held[k].hold = 0;
                 }
             }
-            if (!upper && now - since > L3R3_PRESS_US) {
+            if (!upper && (!left && k < SCE_TOUCH_MAX_REPORT ? !l3r3_kept(now - since, aim, &held[k].aimed, &held[k].hold) : now - since > L3R3_PRESS_US)) {
                 continue; /* (pressed and let go) */
             }
             btn |= (upper ? (left ? B_L2 : B_R2) : (left ? B_L3 : B_R3)) & rear_btns;
@@ -838,13 +862,22 @@ unsigned Vita_TouchPad(void) {
             to_screen(t, &sx, &sy);
             if (known >= 0) {
                 still[known] = 1;
-                btn |= sCornerBtn[known] & (sceKernelGetProcessTimeWide() - sCornerT[known] > L3R3_PRESS_US ? ~(unsigned)(B_L3 | B_R3) : ~0u);
+                {
+                    unsigned long long age = sceKernelGetProcessTimeWide() - sCornerT[known];
+                    unsigned quick = age > L3R3_PRESS_US ? (unsigned)(B_L3 | B_R3) : 0u; /* (let go after the quick press) */
+                    if ((sCornerBtn[known] & B_R3) && l3r3_kept(age, aim, &sCornerAim[known], &sCornerHold[known])) {
+                        quick &= ~(unsigned)B_R3;
+                    }
+                    btn |= sCornerBtn[known] & ~quick;
+                }
                 continue;
             }
             if (front_btns != 0 && !(sG.active && sG.id == t->id) && sCornerN < 8 && ((cb = corner_btn(sx, sy)) & front_btns) != 0) {
                 sCornerId[sCornerN] = t->id;
                 sCornerBtn[sCornerN] = cb;
                 sCornerT[sCornerN] = sceKernelGetProcessTimeWide();
+                sCornerAim[sCornerN] = aim != 0;
+                sCornerHold[sCornerN] = 0;
                 still[sCornerN++] = 1;
                 btn |= cb;
                 continue;
@@ -861,6 +894,8 @@ unsigned Vita_TouchPad(void) {
                 sCornerId[k] = sCornerId[sCornerN - 1];
                 sCornerBtn[k] = sCornerBtn[sCornerN - 1];
                 sCornerT[k] = sCornerT[sCornerN - 1];
+                sCornerAim[k] = sCornerAim[sCornerN - 1];
+                sCornerHold[k] = sCornerHold[sCornerN - 1];
                 still[k] = still[sCornerN - 1];
                 sCornerN--;
                 k--;
@@ -958,8 +993,9 @@ unsigned Vita_TouchPad(void) {
         static unsigned sLogged;
         unsigned lr = btn & (B_L2 | B_R2 | B_L3 | B_R3);
         if (lr != sLogged) {
-            Vita_Log("touch: L2 %s, R2 %s, L3 %s, R3 %s (%s)\n", lr & B_L2 ? "down" : "up", lr & B_R2 ? "down" : "up", lr & B_L3 ? "down" : "up",
-                     lr & B_R3 ? "down" : "up", rear_btns ? (front_btns ? "rear pad and front corners" : "rear pad") : front_btns ? "front corners" : "no touch");
+            Vita_Log("touch: L2 %s, R2 %s, L3 %s, R3 %s (%s) at %u ms\n", lr & B_L2 ? "down" : "up", lr & B_R2 ? "down" : "up", lr & B_L3 ? "down" : "up",
+                     lr & B_R3 ? "down" : "up", rear_btns ? (front_btns ? "rear pad and front corners" : "rear pad") : front_btns ? "front corners" : "no touch",
+                     (unsigned)(sceKernelGetProcessTimeWide() / 1000));
             sLogged = lr;
         }
         static unsigned sPrevR;

@@ -284,8 +284,9 @@ int Port_PadRead(int socket, unsigned char *data) {
         if (pad.buttons & SCE_CTRL_RTRIGGER) { btn |= B_R1; }
     }
     if (socket == 0) { /* the touch panels: L2 / R2 on the rear pad or the front corners, the menus on the screen (vita_touch.c) */
-        extern unsigned Vita_TouchPad(void);
-        btn |= Vita_TouchPad();
+        extern unsigned Vita_TouchPad(int aim);
+        /* (L3 / R3 touched with a direction are held for fusion: the d-pad's or the left stick's left / up / right) */
+        btn |= Vita_TouchPad((btn & (B_LEFT | B_UP | B_RIGHT)) != 0 || pad.lx < 64 || pad.lx > 192 || pad.ly < 64);
     }
     clash_square(socket, &btn, &pad.lx, &pad.ly);
     memset(data, 0, 18);

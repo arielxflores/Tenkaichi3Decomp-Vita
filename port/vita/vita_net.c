@@ -1960,9 +1960,14 @@ void Vita_NetEnter(void *progress, void *save) {
     if (!sOn || progress == NULL || save == NULL) {
         return;
     }
-    *(int *)((char *)progress + 0x18) = 39;  /* mode: the character select */
+    {   /* (1.2.4) the host's kind of battle, carried as 100 + the kind in gVitaNetRules[5] (vita_start.c net_menu): the
+           versus mode's character select (39) or its team select (40, battle type 1: up to five each, switching and
+           fusion), as its own menu (src/menu/menu_g_b.c, mode 38) goes on to them */
+        int team = gVitaNetRules[5] == 101;
+        *(int *)((char *)progress + 0x18) = team ? 40 : 39; /* mode: the character select, or the team select */
+        *(int *)((char *)progress + 0x624) = team;          /* a single battle, or a team battle */
+    }
     *(int *)((char *)progress + 0x620) = 1;  /* 1P vs 2P */
-    *(int *)((char *)progress + 0x624) = 0;  /* a single battle */
     *(int *)((char *)progress + 0x630) = 0;
     Save_UnlockAll(save);
     for (k = 0; k < 6; k++) { /* (the host's battle settings: rule[k] of the save) */
@@ -1975,7 +1980,8 @@ void Vita_NetEnter(void *progress, void *save) {
         key[k] = (unsigned)Port_Rand();
     }
     Rand_SeedByArray(key, 4);
-    Vita_Log("net: the match begins: player %d, seed %08x, input delay %d, battle settings %d %d %d %d %d %d\n", sMe + 1, sSeed, sDelay,
+    Vita_Log("net: the match begins (%s): player %d, seed %08x, input delay %d, battle settings %d %d %d %d %d %d\n",
+             gVitaNetRules[5] == 101 ? "teams" : "one fighter each", sMe + 1, sSeed, sDelay,
              gVitaNetRules[0], gVitaNetRules[1], gVitaNetRules[2], gVitaNetRules[3], gVitaNetRules[4], gVitaNetRules[5]);
 }
 

@@ -1311,6 +1311,9 @@ static int find_below(const char *dir, int depth, char *out, size_t size) {
             strcasecmp(e.d_name, "shcache") == 0 || strcasecmp(e.d_name, "mods") == 0 || strcasecmp(e.d_name, "dump") == 0
 #ifdef BT3_BT4
             || strcasecmp(e.d_name, "es") == 0 /* (BT4's Spanish release: find_disc) */
+#else
+            || strcasecmp(e.d_name, "bt4") == 0 /* (1.2.4) BT4's folder: files there with BT3's program, an older BT4
+                                                   built on BT3's, were taken for BT3's disc and crashed it */
 #endif
             ) {
             continue;
@@ -1434,6 +1437,24 @@ static void find_disc(void) {
             wrong += looked;
         }
     }
+#ifndef BT3_BT4
+    if (strcmp(gVitaDisc, VITA_DISC_DEFAULT) == 0) { /* (1.2.4) the same places on uma0 (an SD2Vita mounted there, the
+                                                        memory card as ux0): the saves and settings stay on ux0 */
+        static const char *const kUma[] = {"uma0:data/bt3/disc", "uma0:data/bt3/disk", "uma0:data/bt3"};
+        for (k = 0; k < 3; k++) {
+            if (find_below(kUma[k], k < 2 ? 1 : 2, found, sizeof(found))) {
+                logf_("vita: the disc's files are in %s (uma0)\n", found);
+                snprintf(gVitaDisc, sizeof(gVitaDisc), "%s", found);
+                return;
+            }
+            if (Vita_IsoFind(kUma[k], VITA_PROGRAM, 1, found, sizeof(found), NULL)) {
+                logf_("vita: the disc's files are read from its image %s (uma0)\n", found);
+                snprintf(gVitaDisc, sizeof(gVitaDisc), "%s", found);
+                return;
+            }
+        }
+    }
+#endif
 #ifdef BT3_BT4
     if (strcmp(gVitaDisc, VITA_DISC_DEFAULT) == 0 && bt4_also_find(found, sizeof(found), 1)) { /* (not where it goes, but there) */
         logf_("vita: the disc's files are in %s (not %s)\n", found, gVitaDisc);
@@ -1473,15 +1494,77 @@ static void find_disc(void) {
     Vita_Fatal("The game's files were not found. Copy your own disc of the\n"
                VITA_RELEASE_NAME " into\n  %s/\n"
                "as its .iso (a 1:1 image of the disc), or " VITA_PROGRAM "\n"
-               "and the folders BIN and DATA from it.\n\n%s%s%s%s",
+               "and the folders BIN and DATA from it.\n\n%s%s%s%s%s",
                gVitaDisc, n ? "In " HOME " there is:\n" : "", seen,
                wrong ? "\nThe .iso found is not of " VITA_RELEASE_NAME "\n(it has no " VITA_PROGRAM "), or it could not be read." : "",
 #ifndef BT3_BT4
+               /* (1.2.4) BT3's program in the BT4 folder: BT3's own files put there, or an older BT4 built on BT3's */
+               has_slus(HOME "/bt4") ? "\n\n" HOME "/bt4/ has BT3's program (" VITA_PROGRAM "):\n"
+                                       "BT3's own files go in " HOME "/disc/. Budokai Tenkaichi 4\n"
+                                       "is Team BT4's B14 Rev2 (its program is SLUS_219.78), not\n"
+                                       "an older BT4 release made on BT3's files." : "",
                sceIoGetstat("app0:bt4.bin", &e.d_stat) >= 0 ? "\n\nFor Budokai Tenkaichi 4: hold SELECT while the game starts." : ""
 #else
-               ""
+               "", ""
 #endif
                );
+}
+
+/* (1.2.4) The disc's archives unpacked from it (DATA/*.AFS) against their own index: one shorter than the end of the
+   last file in it was not copied whole (a copy or an unpacking cut short). The game read past its end and asked for
+   impossible amounts of memory ("out of memory (4294947232 bytes)" at its first picture); said here as it is. An
+   .iso is checked at its end (vita_iso.c); BT4's archives are not AFS (PZS4US.DIR is their index): not looked at. */
+static void check_archives(const char *disc) {
+    char dir[300], path[400];
+    SceUID d, fd;
+    SceIoDirent e;
+    int n = 0;
+    size_t len = strlen(disc);
+
+    if (len > 4 && strcasecmp(disc + len - 4, ".iso") == 0) {
+        return;
+    }
+    snprintf(dir, sizeof(dir), "%s/DATA", disc);
+    if ((d = sceIoDopen(dir)) < 0) {
+        return;
+    }
+    memset(&e, 0, sizeof(e));
+    while (sceIoDread(d, &e) > 0) {
+        size_t l = strlen(e.d_name);
+        uint32_t head[2], *tab, i;
+        uint64_t need = 0;
+        SceOff size;
+        if (SCE_S_ISDIR(e.d_stat.st_mode) || l < 5 || strcasecmp(e.d_name + l - 4, ".afs") != 0) {
+            continue;
+        }
+        snprintf(path, sizeof(path), "%s/%s", dir, e.d_name);
+        if ((fd = sceIoOpen(path, SCE_O_RDONLY, 0)) < 0) {
+            continue;
+        }
+        size = sceIoLseek(fd, 0, SCE_SEEK_END);
+        if (sceIoPread(fd, head, 8, 0) == 8 && head[0] == 0x00534641u /* "AFS\0" */ && head[1] > 0 && head[1] < 200000 &&
+            (tab = malloc((size_t)head[1] * 8)) != NULL) {
+            if (sceIoPread(fd, tab, (SceSize)head[1] * 8, 8) == (int)(head[1] * 8)) {
+                for (i = 0; i < head[1]; i++) { /* (each file's offset and size) */
+                    uint64_t end = (uint64_t)tab[2 * i] + tab[2 * i + 1];
+                    need = end > need ? end : need;
+                }
+                n++;
+            }
+            free(tab);
+        }
+        sceIoClose(fd);
+        if (size >= 0 && need > (uint64_t)size) {
+            sceIoDclose(d);
+            logf_("vita: %s is %u MB, its index needs %u MB: cut short\n", path, (unsigned)(size >> 20), (unsigned)(need >> 20));
+            Vita_Fatal("The disc's file\n  %s\nis %u MB, but its own index needs %u MB: its copy\n"
+                       "did not finish (or it was unpacked from the .iso with\nan error).\n\n"
+                       "Copy it again, and check that it has the same size as\non your computer. Or copy the .iso itself.",
+                       path, (unsigned)(size >> 20), (unsigned)((need + (1u << 20) - 1) >> 20));
+        }
+    }
+    sceIoDclose(d);
+    logf_("vita: the disc's archives: %d checked against their index, all whole\n", n);
 }
 
 static void read_settings(void) {
@@ -2279,6 +2362,7 @@ int __wrap_main(int argc, char **argv) {
 #endif
     start_step("the disc's files");
     find_disc();
+    check_archives(gVitaDisc);
     start_step("the game's data tables");
     Vita_LoadGameData(gVitaDisc);
 #ifdef PORT_VITA /* (BT3 and BT4) */
@@ -2302,6 +2386,31 @@ int __wrap_main(int argc, char **argv) {
         }
     }
 #ifndef BT3_BT4
+    {   /* (1.2.4) BT4 found: the first start that finds it says where it is chosen (players put the .iso in place and
+           looked for BT4 in the game). Once: ux0:data/bt3/bt4/found.txt. */
+        extern int Vita_GameSwitchCheck(void);
+        SceIoStat st;
+        if (sMode != 1 && sceIoGetstat(HOME "/bt4/found.txt", &st) < 0 && Vita_GameSwitchCheck() == 0) { /* (not in a test's demo) */
+            extern int VitaEu_Lang(void);
+            SceUID fd;
+            logf_("vita: BT4 found notice shown\n");
+            psvDebugScreenPrintf(VitaEu_Lang() == 1
+                ? "\n\e[32mSe encontro Budokai Tenkaichi 4 (ux0:data/bt3/bt4/).\e[39m\n\n"
+                  "Este juego es BT3. Para jugar BT4: Opciones > Vita Settings >\n"
+                  "Juego, elige BT4 y pulsa X dos veces. O manten SELECT mientras\n"
+                  "el juego arranca. (Este aviso sale una sola vez.)\n\nPulsa X para seguir.\n"
+                : "\n\e[32mBudokai Tenkaichi 4 was found (ux0:data/bt3/bt4/).\e[39m\n\n"
+                  "This is BT3. To play BT4: Options > Vita Settings > Game,\n"
+                  "choose BT4 and press CROSS twice. Or hold SELECT while the\n"
+                  "game starts. (This shows only once.)\n\nPress CROSS to go on.\n");
+            wait_buttons(SCE_CTRL_CROSS);
+            psvDebugScreenPrintf("\e[H\e[2J");
+            if ((fd = sceIoOpen(HOME "/bt4/found.txt", SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666)) >= 0) {
+                sceIoWrite(fd, "1\n", 2);
+                sceIoClose(fd);
+            }
+        }
+    }
     {   /* stages and songs added from outside the disc (vita_extras.c: ux0:data/bt3/stages, ux0:data/bt3/songs) */
         extern void Vita_ExtrasInit(void);
         start_step("stages and songs from outside the disc");

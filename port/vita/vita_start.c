@@ -363,26 +363,32 @@ static int net_menu(void) {
     static const char *const kTimeEn[6] = {"the game's (240 s)", "60 seconds", "90 seconds", "180 seconds", "240 seconds", "none"};
     static const char *const kTimeEs[6] = {"el del juego (240 s)", "60 segundos", "90 segundos", "180 segundos", "240 segundos", "sin limite"};
     const char *const *kTime = sEs ? kTimeEs : kTimeEn;
-    int sel = 0, time = gVitaNetRules[0] + 1;
+    /* (1.2.4) the battle when hosting: single fighters or teams (the versus mode's two kinds; gVitaNetRules[5] carries
+       it to the other Vita as 100 + the kind, a value the save's rules never take: vita_net.c Vita_NetEnter) */
+    static const char *const kKindEn[2] = {"one fighter each", "teams (up to 5 each, switching, fusion)"};
+    static const char *const kKindEs[2] = {"un luchador cada uno", "equipos (hasta 5, cambios, fusion)"};
+    const char *const *kKind = sEs ? kKindEs : kKindEn;
+    int sel = 0, time = gVitaNetRules[0] + 1, team = gVitaNetRules[5] == 101;
     unsigned p;
 
     for (;;) {
-        static const char *const kItemEn[6] = {"Host a match (ad hoc)", "Join a match (ad hoc)", "Host a match (Wi-Fi, the same network)",
-                                               "Join a match (Wi-Fi, the same network)", "Time limit when hosting: ", "Back"};
-        static const char *const kItemEs[6] = {"Crear una partida (ad hoc)", "Unirse a una partida (ad hoc)", "Crear una partida (Wi-Fi, la misma red)",
-                                               "Unirse a una partida (Wi-Fi, la misma red)", "Tiempo limite al crearla: ", "Volver"};
+        static const char *const kItemEn[7] = {"Host a match (ad hoc)", "Join a match (ad hoc)", "Host a match (Wi-Fi, the same network)",
+                                               "Join a match (Wi-Fi, the same network)", "Time limit when hosting: ", "Battle when hosting: ", "Back"};
+        static const char *const kItemEs[7] = {"Crear una partida (ad hoc)", "Unirse a una partida (ad hoc)", "Crear una partida (Wi-Fi, la misma red)",
+                                               "Unirse a una partida (Wi-Fi, la misma red)", "Tiempo limite al crearla: ", "Combate al crearla: ", "Volver"};
         const char *const *kItem = sEs ? kItemEs : kItemEn;
         int i;
         psvDebugScreenPrintf(ES("\e[H\e[2J\n  Multiplayer: a match against another Vita\n\n", "\e[H\e[2J\n  Multijugador: una partida contra otra Vita\n\n"));
-        for (i = 0; i < 6; i++) {
-            psvDebugScreenPrintf("  %s %s%s\e[39m\n", i == sel ? "\e[33m>" : " ", kItem[i], i == 4 ? kTime[time] : "");
+        for (i = 0; i < 7; i++) {
+            psvDebugScreenPrintf("  %s %s%s\e[39m\n", i == sel ? "\e[33m>" : " ", kItem[i], i == 4 ? kTime[time] : i == 5 ? kKind[team] : "");
         }
         psvDebugScreenPrintf(ES("\n  Both Vitas need this same version of the game and the\n"
                                 "  same disc files. Ad hoc: the two Vitas near each other,\n"
                                 "  no router (the system asks to connect). Wi-Fi: both\n"
                                 "  connected to the same network (Settings > Network).\n\n"
                                 "  The match is the versus mode, player 1 (the host)\n"
-                                "  against player 2, everything unlocked, with a save of\n"
+                                "  against player 2 (one fighter each, or teams: the host\n"
+                                "  chooses), everything unlocked, with a save of\n"
                                 "  its own; your save is not touched. It ends at the\n"
                                 "  main menu; then the game starts again as usual.\n\n"
                                 "  Up / down, CROSS to choose; CIRCLE: back.\n",
@@ -391,7 +397,8 @@ static int net_menu(void) {
                                 "  cerca, sin router (el sistema pide conectar). Wi-Fi:\n"
                                 "  las dos en la misma red (Ajustes > Red).\n\n"
                                 "  La partida es el modo versus, jugador 1 (quien la crea)\n"
-                                "  contra jugador 2, todo desbloqueado, con una partida\n"
+                                "  contra jugador 2 (un luchador cada uno, o equipos:\n"
+                                "  elige quien la crea), todo desbloqueado, con una partida\n"
                                 "  guardada propia; la tuya no se toca. Termina en el\n"
                                 "  menu principal; luego el juego empieza como siempre.\n\n"
                                 "  Arriba / abajo, X para elegir; CIRCULO: volver.\n"));
@@ -400,19 +407,22 @@ static int net_menu(void) {
             return 0;
         }
         if (p & SCE_CTRL_UP) {
-            sel = (sel + 5) % 6;
+            sel = (sel + 6) % 7;
         } else if (p & SCE_CTRL_DOWN) {
-            sel = (sel + 1) % 6;
+            sel = (sel + 1) % 7;
         } else if (sel == 4 && (p & (SCE_CTRL_CROSS | SCE_CTRL_RIGHT))) {
             time = (time + 1) % 6;
         } else if (sel == 4 && (p & SCE_CTRL_LEFT)) {
             time = (time + 5) % 6;
-        } else if ((p & SCE_CTRL_CROSS) && sel == 5) {
+        } else if (sel == 5 && (p & (SCE_CTRL_CROSS | SCE_CTRL_RIGHT | SCE_CTRL_LEFT))) {
+            team ^= 1;
+        } else if ((p & SCE_CTRL_CROSS) && sel == 6) {
             return 0;
         } else if ((p & SCE_CTRL_CROSS) && sel < 4) {
             gVitaNetRole = (sel & 1) ? 2 : 1;
             gVitaNetLink = sel < 2 ? 1 : 2;
             gVitaNetRules[0] = time - 1;
+            gVitaNetRules[5] = 100 + team; /* (the host's choice; the one who joins gets the host's) */
             Vita_Log("vita: start menu: multiplayer, %s, %s\n", gVitaNetRole == 1 ? "host" : "join", gVitaNetLink == 1 ? "ad hoc" : "Wi-Fi");
             return 1;
         }
