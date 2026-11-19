@@ -366,6 +366,11 @@ Multiplayer is new: when something goes wrong, `ux0:data/bt3/log.txt` from both 
 - **The fights' picture is smaller than the menus' (it fills only part of the screen)**: the fights are drawn at
   640 x 368 (720 x 408 with `fightres=720`) and the Vita's display scales them to the screen. The Sharpscale plugin in
   a scaling mode other than Original (Integer, for one) shows them unscaled instead: set it back to Original.
+- **The picture breaks up, flickers or freezes with plugins installed** (PSVshell, vitacheat and other plugins
+  that hook the display or the game): start the game once with them turned off in `ur0:tai/config.txt` (or with
+  a plugin manager), then turn them back on one at a time to find the one at fault. Since 1.2.5 the game draws the
+  fights at 720 x 408 always when PSVshell is installed, which avoids the trouble seen with it so far. The game
+  needs no overclocking plugin (see the notes below).
 - **The game stops** (the picture freezes, the music plays on): the game writes `ux0:data/bt3/hang.txt` when its
   picture stops for a few seconds. Attaching it and `log.txt` to a bug report helps a lot.
 - **The game closes by itself**: it crashed. Attach `log.txt` and the console's crash dump (the newest
@@ -383,7 +388,7 @@ Multiplayer is new: when something goes wrong, `ux0:data/bt3/log.txt` from both 
 - Optional settings go in `ux0:data/bt3/bt3.txt`, one per line: `wide=0` shows the PS2's original 4:3 picture,
   `disc=<folder>` reads the game files from another folder, `fightres=640` or `fightres=720` draws the fights always
   at 640 x 368 or 720 x 408 instead of choosing between the two as they go (`fightres=960`, the screen's own
-  resolution, is slower), `lang=0` to
+  resolution, is slower; `fightres=auto` chooses as they go even with PSVshell installed), `lang=0` to
   `4` sets the language (English, Spanish, German, French, Italian), `asyncread=0` reads the game's files on its
   own thread as before. `weather=light` or `weather=off` thins out or leaves out the haze some stages have drifting
   over them (Desert and Rocky Area at noon, Rocky Area in the evening, Kami's Lookout; a little on Glacier, Muscle

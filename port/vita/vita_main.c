@@ -1633,8 +1633,9 @@ static void read_settings(void) {
             gVitaShHarvest = atoi(eq); /* (2: the bank checked, each program not in it said in the log) */
         } else if (strcmp(line, "fightres") == 0) { /* the fights drawn at 720 x 408 or 640 x 368 by the chip's time (auto,
                                                      the default), or always at 640 x 368, 720 x 408 or 960 x 544 (vita_vgl.c) */
-            extern int gVitaFightW;
+            extern int gVitaFightW, gVitaFightResSet;
             gVitaFightW = strcmp(eq, "auto") == 0 ? 0 : atoi(eq);
+            gVitaFightResSet = 1;
         } else if (strcmp(line, "wide") == 0) {
             extern int gVitaWide;
             gVitaWide = atoi(eq) != 0; /* wide=0: the console's 4:3 picture with bars at the sides */
@@ -2253,6 +2254,10 @@ static void log_plugins(void) {
             name = strrchr(p, '/');
             name = name != NULL ? name + 1 : p;
             PLUG_PUT(" %s", name);
+            if (strcasecmp(name, "psvshell.skprx") == 0) { /* (1.2.5: vita_vgl.c, the fights' size) */
+                extern int gVitaPsvshell;
+                gVitaPsvshell = 1;
+            }
         }
         fclose(f);
     }

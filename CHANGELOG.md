@@ -10,6 +10,10 @@ Fixed
   "press SELECT a few times as the game starts".
 - **"out of memory (4294947232 bytes)"** now says what it means: one of the disc's files is damaged (its copy differs
   from the disc, though its size may not), and to copy the game's files again or try another memory card.
+- **With the PSVshell plugin installed** the fights are drawn at 720 x 408 always. PSVshell's hook of the display
+  held back the moment the game reads the graphics chip's time from, so the game took the chip for much slower than
+  it was and changed the fights' size again and again (hundreds of times an hour): a PS TV's picture broke up, and a
+  Vita froze after an hour of play. `fightres=auto` in `bt3.txt` has the sizes chosen as they go again.
 
 New
 

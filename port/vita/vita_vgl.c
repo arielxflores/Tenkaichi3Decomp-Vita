@@ -77,6 +77,8 @@ int gVitaPbufMb;  /* bt3.txt pbuf=<MB>: the parameter buffer, 0 vitaGL's default
    times as many). The effects that sample neighbouring pixels (the outline, the glow's first pass) keep their width
    on the screen. */
 int gVitaFightW; /* (bt3.txt fightres=<size>; 0: auto) */
+int gVitaFightResSet; /* (fightres= given, auto included) */
+int gVitaPsvshell;    /* (PSVshell installed: vita_main.c log_plugins) */
 static int sFightH = 368;
 /* The fights' size chosen as they go (bt3.txt fightres=auto, the default; Killzone: Mercenary's dynamic resolution,
    Digital Foundry's "Inside Killzone: Mercenary"): 720 x 408 while the chip has the time for it, 640 x 368 while it
@@ -1758,6 +1760,14 @@ int GsGpu_Init(void) {
         gVitaMenuHi = 0; /* (the menus' size only without multisampling) */
     }
     /* (the display takes only its own sizes: 640 x 368, 720 x 408 and 960 x 544 here) */
+    if (gVitaPsvshell && !gVitaFightResSet) {
+        /* (1.2.5) PSVshell installed: its hook of the display, drawing its overlay, holds back the picture's callback,
+           and the chip's time read from it (pace_cb) came out at 30-40 ms where the chip took 5-9: on two players'
+           Vitas the fights changed size hundreds of times an hour (a PS TV's picture broke up, a Vita froze after an
+           hour). The fights at 720 x 408 always there; bt3.txt fightres=auto has the sizes by the chip's time again. */
+        gVitaFightW = 720;
+        Vita_Log("vgl: PSVshell is installed: the fights at 720 x 408 always (fightres=auto: by the chip's time)\n");
+    }
     if (gVitaFightW != 0) { /* (bt3.txt fightres=<size>: that size always) */
         gVitaFightAuto = 0;
     } else {
