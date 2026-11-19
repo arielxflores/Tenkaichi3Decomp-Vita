@@ -978,6 +978,13 @@ static int join_wait(void) {
                     list[at].fits = fits;
                     list[at].seen = t;
                     name_get(list[at].name, in + 28);
+                    if (sLink == LINK_NET && from.ip == sNetTarget.ip && from.port != sNetTarget.port) {
+                        /* (the host's offer came from another port than the one typed: its router or the computer's
+                           in between changes it. Asked there from now on: what gets through) */
+                        Vita_Log("net: internet: the host answers from port %u, not %u: asked there\n", (unsigned)sceNetNtohs(from.port),
+                                 (unsigned)sceNetNtohs(sNetTarget.port));
+                        sNetTarget.port = from.port;
+                    }
                     if (sLink == LINK_NET && from.ip == sNetTarget.ip && n >= 12 + 16 + NAME_LEN + 8) { /* (the answer to a probe) */
                         uint64_t sent = get64(in + 28 + NAME_LEN);
                         if (sent != 0 && sent <= t && t - sent < 5000000) {
