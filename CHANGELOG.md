@@ -5,8 +5,10 @@
 New
 
 - **Multiplayer over the internet** (experimental): two Vitas play the versus mode from anywhere, by the host's
-  address. Start menu (SELECT a few times as the game starts) → Multiplayer → **Host a match (internet)** shows the
-  host's internet address; the other player chooses **Join a match (internet)** and types it. The game asks the
+  address. Versus → Multiplayer now offers **Two Controllers**, **Ad Hoc** and **Online**; Online has **Online: Host**,
+  which shows the host's internet address in the message window, and **Online: Join**, where the other player types
+  it with the system's keyboard (the last address is offered again). All of it in the menu, as ad hoc is; the start
+  menu (SELECT a few times as the game starts) → Multiplayer → Host / Join a match (internet) too. The game asks the
   host's router to let the match in (UPnP), finds the host's address as the internet sees it (STUN), says when the
   router cannot be passed (a second router, the provider's own) and what to do, and sets the input delay from the
   measured time there and back. No server and no account. See the README's Multiplayer → Over the internet.

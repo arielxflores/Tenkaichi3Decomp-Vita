@@ -15,9 +15,10 @@
  *     line 18 (of the voices) what Language does.
  * The versus menu (src/menu/menu_g_c.c DuelMenu_Init):
  *   - section 8, textures 0 and 1 (the plates' lettering, plain and highlighted): "1P VS 2P" becomes "Multiplayer";
- *   - section 8, textures 2 and 3 (the battle types' lettering): while Multiplayer's choice is open, "Two Controllers",
- *     "Ad Hoc: Host" and "Ad Hoc: Join" (Vita_VersusNetPlates), and the message window's lines 5 to 7 (section 21)
- *     say what each does.
+ *   - section 8, textures 2 and 3 (the battle types' lettering): while Multiplayer's choice is open, on its three
+ *     levels (1.2.6), "Two Controllers" / "Ad Hoc" / "Online", "Ad Hoc: Host" / "Ad Hoc: Join" / "Back" and "Online:
+ *     Host" / "Online: Join" / "Back" (Vita_VersusNetPlates, vita_vsnet*.h made by tools/gen_vsnet.py), and the
+ *     message window's lines 5 to 7 (section 21) say what each does.
  * The button icons of the game's text (the boot file's member 8, src/battle/col_c_b.c FontIcon_Init), seen in the
  * skill list, the hints and the tutorials:
  *   - textures 16 and 19, L3 and R3: the PS2's sticks become black plates like L1 and R2, reading L3 and R3;
@@ -27,14 +28,19 @@
  * disc (FNV-1a of them); otherwise it stays as it is and the log says so.
  */
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 #ifdef BT3_BT4
 #include "vita_optart_bt4.h"   /* (the BT4 B14 Rev2 disc's lettering is the mod's own: patches made from it) */
 #include "vita_optart_bt4es.h" /* (and those of its Spanish release, in Spanish) */
+#include "vita_vsnet_bt4.h"    /* (the versus menu's Multiplayer plates: tools/gen_vsnet.py) */
+#include "vita_vsnet_bt4es.h"
 #define VITA_ART_ES
 #else
 #include "vita_optart.h"    /* (the USA disc's) */
 #include "vita_optart_es.h" /* (the European disc's Spanish menus: the options screen in Spanish, vita_eu.c) */
+#include "vita_vsnet.h"     /* (the versus menu's Multiplayer plates: tools/gen_vsnet.py) */
+#include "vita_vsnet_es.h"
 #define VITA_ART_ES
 #endif
 
@@ -122,15 +128,17 @@ typedef struct ArtSet {
     unsigned vsN;
     const uint32_t (*vsRuns)[3];
     const uint8_t *vsBytes;
-    const uint32_t (*netRuns)[2];
+    const uint32_t (*netRuns)[2]; /* (the Multiplayer plates: the runs any of the three sets changes) */
     unsigned netCount;
-    const uint8_t *netT, *netOn;
+    uint32_t netHash;             /* (the FNV-1a of the disc's bytes there) */
+    unsigned netBytes;
+    const uint8_t *netSet[3];     /* (A: Two Controllers / Ad Hoc / Online; B: Ad Hoc: Host / Join / Back; C: Online:) */
 } ArtSet;
 #define COUNT(a) (sizeof(a) / sizeof((a)[0]))
 #define ART_SET(S) {(const ArtSection *)kOptArtSections##S, COUNT(kOptArtSections##S), kOptArtRuns##S, kOptArtBytes##S, kOptCapRuns##S, \
                     COUNT(kOptCapRuns##S), {kOptCapT##S, kOptCapV##S, kOptCapL##S, kOptCapX##S, kOptCapY##S, kOptCapG##S, kOptCapH##S}, \
                     (const ArtSection *)kVsArtSections##S, COUNT(kVsArtSections##S), kVsArtRuns##S, kVsArtBytes##S, kVsNetRuns##S, \
-                    COUNT(kVsNetRuns##S), kVsNetT##S, kVsNetN##S}
+                    COUNT(kVsNetRuns##S), VSNET_HASH##S, VSNET_BYTES##S, {kVsNetA##S, kVsNetB##S, kVsNetC##S}}
 static const ArtSet kArtSets[] = {
     ART_SET(),
 #ifdef VITA_ART_ES
@@ -249,22 +257,24 @@ void Vita_OptionArt(void *res) {
 }
 
 /* the versus menu as unpacked: its section 8 when the battle types' lettering is the disc's (NULL: not, or not up), its
-   message window's text, and the lines 5 to 7 kept while Multiplayer's choice writes over them */
+   message window's text, and the lines 5 to 7 kept while Multiplayer's choice writes over them; the plates' level shown
+   (0: the disc's battle types; 1, 2, 3: the sets A, B, C) and the disc's bytes under them, kept to put back */
 static uint8_t *sVsSec8, *sVsText;
 static int sVsNetOn;
 static uint8_t sVsLines[3][256];
+static uint8_t *sVsOrig;
 
-/* 1: section 8 of the versus menu has the battle types' lettering as the set has it */
+/* 1: section 8 of the versus menu has the battle types' lettering as the set has it (its FNV-1a) */
 static int vs_net_there(uint8_t *sec, const ArtSet *set) {
-    const uint8_t *b = set->netT;
+    uint32_t h = 2166136261u, i;
     unsigned k;
     for (k = 0; k < set->netCount; k++) {
-        if (memcmp(sec + set->netRuns[k][0], b, set->netRuns[k][1]) != 0) {
-            return 0;
+        const uint8_t *p = sec + set->netRuns[k][0];
+        for (i = 0; i < set->netRuns[k][1]; i++) {
+            h = (h ^ p[i]) * 16777619u;
         }
-        b += set->netRuns[k][1];
     }
-    return 1;
+    return h == set->netHash;
 }
 
 void Vita_VersusArt(void *res) {
@@ -297,40 +307,60 @@ int Vita_VersusNetReady(void) {
     return sVsSec8 != NULL;
 }
 
-/* (src/menu/menu_g_c.c) Multiplayer's choice opens (1: the battle types' plates read Two Controllers, Ad Hoc: Host and Ad
-   Hoc: Join, and the message window's lines 5 to 7 say what they do) or closes (0: as the disc has them again). 0 when
-   the screen's art is not the disc's: the choice is then not offered. The menus draw from the unpacked pack every
-   frame, so the change shows at once. */
-static const char *const kVsNetLine[3] = {"Two players on this Vita,\nwith a second controller.",
-                                          "Host a match for a Vita nearby\n(ad hoc: no router needed).",
-                                          "Join a match that a Vita nearby\nhosts (ad hoc)."};
+/* (src/menu/menu_g_c.c) Multiplayer's choice (1.2.6: three levels) opens, changes level or closes: `level` 1 (the plates
+   read Two Controllers, Ad Hoc and Online), 2 (Ad Hoc: Host, Ad Hoc: Join, Back), 3 (Online: Host, Online: Join, Back),
+   0 (the battle types as the disc has them again); the message window's lines 5 to 7 say what the plates do. 0 when the
+   screen's art is not the disc's: the choice is then not offered. The menus draw from the unpacked pack every frame, so
+   the change shows at once. */
+static const char *const kVsNetLine[3][3] = {
+    {"Two players on this Vita,\nwith a second controller.", "Play a Vita nearby (ad hoc:\nno router needed).",
+     "Play over the internet: the\nhost's address is all it takes."},
+    {"", "Join a match that a Vita nearby\nhosts (ad hoc).", "Back to Two Controllers,\nAd Hoc and Online."},
+    {"", "Join online: type the host's\naddress (kept for next time).", "Back to Two Controllers,\nAd Hoc and Online."}};
 /* (1.2.5) the Host plate's line: the kind of battle hosted, L / R changing it (src/menu/menu_g_c.c) */
-static const char *const kVsHostKind[2] = {"Host a match (ad hoc): one\nfighter each. L / R: teams.",
-                                           "Host a match (ad hoc): teams\n(up to five). L / R: one each."};
+static const char *const kVsHostKind[2][2] = {
+    {"Host a match (ad hoc): one\nfighter each. L / R: teams.", "Host a match (ad hoc): teams\n(up to five). L / R: one each."},
+    {"Host online: one fighter\neach. L / R: teams.", "Host online: teams (up to\nfive). L / R: one each."}};
 static int sVsTeam;
 static const char *vs_net_line(unsigned k) {
-    return Vita_Tr(k == 1 ? kVsHostKind[sVsTeam] : kVsNetLine[k]);
+    int level = sVsNetOn >= 1 && sVsNetOn <= 3 ? sVsNetOn : 1;
+    if (level >= 2 && k == 0) {
+        return Vita_Tr(kVsHostKind[level - 2][sVsTeam]);
+    }
+    return Vita_Tr(kVsNetLine[level - 1][k]);
 }
 
 void Vita_VersusNetHostKind(int team) {
     sVsTeam = team != 0;
     Vita_Log("vita: versus menu: hosting %s\n", sVsTeam ? "a team battle" : "one fighter each");
-    if (sVsText != NULL && sVsNetOn) {
-        write_slot(slot_of(sVsText, 7), vs_net_line(1));
+    if (sVsText != NULL && sVsNetOn >= 2) {
+        write_slot(slot_of(sVsText, 6), vs_net_line(0));
     }
 }
 
-int Vita_VersusNetPlates(int on) {
+int Vita_VersusNetPlates(int level) {
     const uint8_t *b;
     unsigned k;
     if (sVsSec8 == NULL) {
         return 0;
     }
-    on = on != 0;
-    if (on == sVsNetOn) {
+    level = level < 0 || level > 3 ? 0 : level;
+    if (level == sVsNetOn) {
         return 1;
     }
-    b = on ? sVs->netOn : sVs->netT;
+    if (sVsNetOn == 0) { /* (the disc's bytes kept, to put back) */
+        if (sVsOrig == NULL) {
+            sVsOrig = malloc(sVs->netBytes);
+            if (sVsOrig == NULL) {
+                return 0;
+            }
+        }
+        for (k = 0, b = sVsOrig; k < sVs->netCount; k++) {
+            memcpy((uint8_t *)b, sVsSec8 + sVs->netRuns[k][0], sVs->netRuns[k][1]);
+            b += sVs->netRuns[k][1];
+        }
+    }
+    b = level == 0 ? sVsOrig : sVs->netSet[level - 1];
     for (k = 0; k < sVs->netCount; k++) {
         memcpy(sVsSec8 + sVs->netRuns[k][0], b, sVs->netRuns[k][1]);
         b += sVs->netRuns[k][1];
@@ -340,14 +370,19 @@ int Vita_VersusNetPlates(int on) {
         if (sl.p == NULL || sl.size > sizeof(sVsLines[k])) {
             continue;
         }
-        if (on) {
+        if (sVsNetOn == 0) {
             memcpy(sVsLines[k], sl.p, sl.size);
-            write_slot(sl, vs_net_line(k));
-        } else {
+        }
+        if (level == 0) {
             memcpy(sl.p, sVsLines[k], sl.size);
         }
     }
-    sVsNetOn = on;
+    sVsNetOn = level;
+    if (level != 0) {
+        for (k = 0; k < 3; k++) {
+            write_slot(slot_of(sVsText, (int)k + 6), vs_net_line(k));
+        }
+    }
     return 1;
 }
 

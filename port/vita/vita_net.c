@@ -644,20 +644,26 @@ static int cancel_pressed(void) {
 }
 
 /* The host: tells the network a few times a second, takes the first Vita that asks and fits. 1: a player joined. */
-/* (internet, the host) the router asked to let the match in, and this Vita's address as the internet sees it; then the
-   host's screen: the address to tell the other player, and what to do when they cannot reach it. */
-static void host_reach(void) {
-    char ext[20] = "", why[160] = "", pub[20] = "";
+/* (internet, the host) the router asked to let the match in (UPnP), and this Vita's address as the internet sees it
+   (STUN, from the match's own socket): what the host's screen, or the versus menu's message window, says. Takes a few
+   seconds (the versus menu: in a thread of its own, the socket left to it meanwhile). */
+typedef struct {
+    int upnp, shared;          /* the router opened the port; this network shares one address with others */
+    char why[160];             /* (not opened: why, in words) */
+    char ext[20], pub[20];     /* the router's own address (UPnP), the one seen from the internet (STUN): "" not known */
+} Reach;
+static Reach sReach;
+
+static void reach_work(Reach *r) {
     uint8_t req[20], in[PKT_MAX];
     uint32_t sip[3], pubIp = 0, extIp = 0;
     uint16_t sport[3], pubPort = 0;
     uint64_t t0, last = 0;
-    int upnp, ns, k, n;
+    int ns, k, n;
     NetAddr from, to;
 
-    psvDebugScreenPrintf("\e[H\e[2J\n  Multiplayer: hosting a match (internet)\n\n  Asking your router to let the other player in (UPnP) ...\n");
-    upnp = Reach_UpnpOpen(sMyIp, NET_PORT, ext, sizeof(ext), why, sizeof(why));
-    psvDebugScreenPrintf("  Finding this Vita's internet address ...\n");
+    memset(r, 0, sizeof(*r));
+    r->upnp = Reach_UpnpOpen(sMyIp, NET_PORT, r->ext, sizeof(r->ext), r->why, sizeof(r->why));
     ns = Reach_StunServers(sip, sport, 3);
     Reach_StunRequest(req);
     for (t0 = now_us(); ns > 0 && pubIp == 0 && now_us() - t0 < 2000000;) {
@@ -678,41 +684,50 @@ static void host_reach(void) {
         sceKernelDelayThread(10000);
     }
     if (pubIp != 0) {
-        sceNetInetNtop(SCE_NET_AF_INET, &pubIp, pub, sizeof(pub));
+        sceNetInetNtop(SCE_NET_AF_INET, &pubIp, r->pub, sizeof(r->pub));
     }
-    if (ext[0] != '\0') {
-        sceNetInetPton(SCE_NET_AF_INET, ext, &extIp);
+    if (r->ext[0] != '\0') {
+        sceNetInetPton(SCE_NET_AF_INET, r->ext, &extIp);
     }
-    Vita_Log("net: internet host: UPnP %s%s, the router's address %s, seen from the internet as %s:%u (STUN, %d servers)\n",
-             upnp ? "opened the port" : "no: ", upnp ? "" : why, ext[0] ? ext : "-", pub[0] ? pub : "-", (unsigned)sceNetNtohs(pubPort), ns);
-    psvDebugScreenPrintf("\e[H\e[2J\n  Multiplayer: hosting a match (internet)\n\n");
-    if (pub[0] != '\0') {
-        psvDebugScreenPrintf("  Tell the other player this address:  \e[33m%s\e[39m\n", pub);
-    } else {
-        psvDebugScreenPrintf("  \e[33mThis Vita's internet address could not be found\e[39m\n  (is the network connected to the internet?).\n");
-    }
-    psvDebugScreenPrintf("  On their Vita: press SELECT a few times as the game\n  starts, Multiplayer > Join a match (internet), and\n"
-                         "  type it. (On this same network: %s.)\n\n", sMyIp);
-    if (upnp) {
-        psvDebugScreenPrintf("  Your router lets the match in (UPnP: UDP port %d\n  goes to this Vita while you host).\n", NET_PORT);
-    } else {
-        psvDebugScreenPrintf("  Your router: %s.\n  If the other player cannot join: in your router's\n"
-                             "  settings, forward UDP port %d to this Vita (%s),\n  or let the other player host.\n",
-                             why, NET_PORT, sMyIp);
-    }
-    if ((extIp != 0 && pubIp != 0 && extIp != pubIp) || (extIp != 0 && Reach_IsPrivate(extIp))) {
-        psvDebugScreenPrintf("\n  \e[33mThis network shares one internet address with others\n  (a second router, or your provider's): the other player\n"
-                             "  most likely cannot reach you. Let them host instead.\e[39m\n");
-        Vita_Log("net: internet host: behind a second router or the provider's (router %s, internet %s)\n", ext, pub);
-    }
+    r->shared = (extIp != 0 && pubIp != 0 && extIp != pubIp) || (extIp != 0 && Reach_IsPrivate(extIp));
+    Vita_Log("net: internet host: UPnP %s%s, the router's address %s, seen from the internet as %s:%u (STUN, %d servers)%s\n",
+             r->upnp ? "opened the port" : "no: ", r->upnp ? "" : r->why, r->ext[0] ? r->ext : "-", r->pub[0] ? r->pub : "-",
+             (unsigned)sceNetNtohs(pubPort), ns, r->shared ? "; behind a second router or the provider's" : "");
     { /* (what was found, for the tests that play the other side from a computer: net_host.txt) */
         SceUID fd = sceIoOpen(HOME "/net_host.txt", SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
         if (fd >= 0) {
             char t[160];
-            int l = snprintf(t, sizeof(t), "%s %s %d %s\n", sMyIp, pub[0] ? pub : "-", upnp, ext[0] ? ext : "-");
+            int l = snprintf(t, sizeof(t), "%s %s %d %s\n", sMyIp, r->pub[0] ? r->pub : "-", r->upnp, r->ext[0] ? r->ext : "-");
             sceIoWrite(fd, t, (SceSize)l);
             sceIoClose(fd);
         }
+    }
+}
+
+/* the start menu's way: the host's text screen */
+static void host_reach(void) {
+    Reach *r = &sReach;
+    psvDebugScreenPrintf("\e[H\e[2J\n  Multiplayer: hosting a match (internet)\n\n  Asking your router to let the other player in (UPnP)\n"
+                         "  and finding this Vita's internet address ...\n");
+    reach_work(r);
+    psvDebugScreenPrintf("\e[H\e[2J\n  Multiplayer: hosting a match (internet)\n\n");
+    if (r->pub[0] != '\0') {
+        psvDebugScreenPrintf("  Tell the other player this address:  \e[33m%s\e[39m\n", r->pub);
+    } else {
+        psvDebugScreenPrintf("  \e[33mThis Vita's internet address could not be found\e[39m\n  (is the network connected to the internet?).\n");
+    }
+    psvDebugScreenPrintf("  On their Vita: Versus > Multiplayer > Online >\n  Online: Join, and type it. (On this same network:\n"
+                         "  %s.)\n\n", sMyIp);
+    if (r->upnp) {
+        psvDebugScreenPrintf("  Your router lets the match in (UPnP: UDP port %d\n  goes to this Vita while you host).\n", NET_PORT);
+    } else {
+        psvDebugScreenPrintf("  Your router: %s.\n  If the other player cannot join: in your router's\n"
+                             "  settings, forward UDP port %d to this Vita (%s),\n  or let the other player host.\n",
+                             r->why, NET_PORT, sMyIp);
+    }
+    if (r->shared) {
+        psvDebugScreenPrintf("\n  \e[33mThis network shares one internet address with others\n  (a second router, or your provider's): the other player\n"
+                             "  most likely cannot reach you. Let them host instead.\e[39m\n");
     }
 }
 
@@ -1122,7 +1137,7 @@ int Vita_NetStartFile(void) {
     sceIoClose(fd);
     sceIoRemove(NET_START);
     n = sscanf(text, "net %d %d %d %d %d %d %d %d", &role, &link, &r[0], &r[1], &r[2], &r[3], &r[4], &r[5]);
-    if (n < 2 || (role != 1 && role != 2) || (link != LINK_ADHOC && link != LINK_WIFI)) {
+    if (n < 2 || (role != 1 && role != 2) || (link != LINK_ADHOC && link != LINK_WIFI && link != LINK_NET)) {
         Vita_Log("net: %s is not a match's start (%s), left alone\n", NET_START, text);
         return 0;
     }
@@ -1194,38 +1209,80 @@ static void match_undo(void) {
    kept in net_address.txt), then found: sNetTarget. 1: there is one. */
 #define NET_ADDR_FILE HOME "/net_address.txt"
 
-static int net_target(void);
+static int net_target(int quiet);
 
-static int ask_address(void) {
-    static SceWChar16 title[64], init[64], buf[64];
-    static const char kTitle[] = "The host's internet address (on the host's screen)";
-    SceDisplayFrameBuf text;
-    SceImeDialogParam p;
-    SceImeDialogResult res;
-    char last[64] = "";
-    int back = 0, front = 1, r, i, ok = 0;
-    SceUID fd;
+/* The system's keyboard for the host's address (the start menu's way over a screen of its own, the versus menu's over
+   the menu): its title in the game's language, the last address typed offered again. */
+static SceWChar16 sImeTitle[96], sImeInit[64], sImeBuf[64];
 
-    if (gVitaNetAddr[0] != '\0') { /* (the development build's bt3.txt netjoin=<address>: no keyboard) */
-        return net_target();
+static void utf8_to16(SceWChar16 *out, int max, const char *in) {
+    int n = 0;
+    const unsigned char *s = (const unsigned char *)in;
+    while (*s != 0 && n < max - 1) {
+        unsigned c = *s++;
+        if (c >= 0xC0 && (*s & 0xC0) == 0x80) { /* (two bytes: the Spanish letters) */
+            c = ((c & 0x1F) << 6) | (*s++ & 0x3F);
+        }
+        out[n++] = (SceWChar16)c;
     }
-    fd = sceIoOpen(NET_ADDR_FILE, SCE_O_RDONLY, 0);
+    out[n] = 0;
+}
 
+static int ime_open(void) {
+    extern const char *Vita_Tr(const char *english);
+    SceImeDialogParam p;
+    char last[64] = "";
+    int r;
+    SceUID fd = sceIoOpen(NET_ADDR_FILE, SCE_O_RDONLY, 0);
     if (fd >= 0) {
         int n = sceIoRead(fd, last, sizeof(last) - 1);
         sceIoClose(fd);
         last[n > 0 ? n : 0] = '\0';
         last[strcspn(last, "\r\n")] = '\0';
     }
-    for (i = 0; i < 63 && kTitle[i] != '\0'; i++) {
-        title[i] = (SceWChar16)kTitle[i];
+    utf8_to16(sImeTitle, 96, Vita_Tr("The host's internet address (the host's screen shows it)"));
+    utf8_to16(sImeInit, 64, last);
+    memset(sImeBuf, 0, sizeof(sImeBuf));
+    sceImeDialogParamInit(&p);
+    p.supportedLanguages = SCE_IME_LANGUAGE_ENGLISH;
+    p.languagesForced = SCE_TRUE;
+    p.type = SCE_IME_TYPE_URL;
+    p.option = SCE_IME_OPTION_NO_AUTO_CAPITALIZATION;
+    p.textBoxMode = SCE_IME_DIALOG_TEXTBOX_MODE_WITH_CLEAR;
+    p.title = sImeTitle;
+    p.maxTextLength = 63;
+    p.initialText = sImeInit;
+    p.inputTextBuffer = sImeBuf;
+    r = sceImeDialogInit(&p);
+    Vita_Log("net: the keyboard for the host's address: %08x\n", (unsigned)r);
+    return r;
+}
+
+/* the keyboard's text into gVitaNetAddr: letters, digits and . - : only (spaces and a typed "http://" left out).
+   1: there is one */
+static int ime_take(void) {
+    int i, r;
+    for (i = 0, r = 0; sImeBuf[i] != 0 && r < (int)sizeof(gVitaNetAddr) - 1; i++) {
+        SceWChar16 ch = sImeBuf[i];
+        if ((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch == '.' || ch == '-' || ch == ':') {
+            gVitaNetAddr[r++] = (char)ch;
+        }
     }
-    title[i] = 0;
-    for (i = 0; i < 63 && last[i] != '\0'; i++) {
-        init[i] = (SceWChar16)(unsigned char)last[i];
+    gVitaNetAddr[r] = '\0';
+    if (strncasecmp(gVitaNetAddr, "http:", 5) == 0) {
+        memmove(gVitaNetAddr, gVitaNetAddr + 5, strlen(gVitaNetAddr + 5) + 1);
     }
-    init[i] = 0;
-    memset(buf, 0, sizeof(buf));
+    return gVitaNetAddr[0] != '\0';
+}
+
+static int ask_address(void) {
+    SceDisplayFrameBuf text;
+    SceImeDialogResult res;
+    int back = 0, front = 1, r, ok = 0;
+
+    if (gVitaNetAddr[0] != '\0') { /* (the development build's bt3.txt netjoin=<address>: no keyboard) */
+        return net_target(0);
+    }
     app_util();
     memset(&text, 0, sizeof(text));
     text.size = sizeof(text);
@@ -1235,18 +1292,7 @@ static int ask_address(void) {
         sceDisplaySetFrameBuf(&text, SCE_DISPLAY_SETBUF_NEXTFRAME);
         return 0;
     }
-    sceImeDialogParamInit(&p);
-    p.supportedLanguages = SCE_IME_LANGUAGE_ENGLISH;
-    p.languagesForced = SCE_TRUE;
-    p.type = SCE_IME_TYPE_URL;
-    p.option = SCE_IME_OPTION_NO_AUTO_CAPITALIZATION;
-    p.textBoxMode = SCE_IME_DIALOG_TEXTBOX_MODE_WITH_CLEAR;
-    p.title = title;
-    p.maxTextLength = 63;
-    p.initialText = init;
-    p.inputTextBuffer = buf;
-    r = sceImeDialogInit(&p);
-    Vita_Log("net: the keyboard for the host's address: %08x\n", (unsigned)r);
+    r = ime_open();
     if (r < 0) {
         snprintf(sErr, sizeof(sErr), "the system's keyboard did not open (%08x)", (unsigned)r);
     } else {
@@ -1285,26 +1331,15 @@ static int ask_address(void) {
     if (!ok) {
         return 0;
     }
-    /* the text: letters, digits and . - : only (spaces and a typed "http://" left out) */
-    for (i = 0, r = 0; buf[i] != 0 && r < (int)sizeof(gVitaNetAddr) - 1; i++) {
-        SceWChar16 ch = buf[i];
-        if ((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch == '.' || ch == '-' || ch == ':') {
-            gVitaNetAddr[r++] = (char)ch;
-        }
-    }
-    gVitaNetAddr[r] = '\0';
-    if (strncasecmp(gVitaNetAddr, "http:", 5) == 0) {
-        memmove(gVitaNetAddr, gVitaNetAddr + 5, strlen(gVitaNetAddr + 5) + 1);
-    }
-    if (gVitaNetAddr[0] == '\0') {
+    if (!ime_take()) {
         snprintf(sErr, sizeof(sErr), "no address was typed");
         return 0;
     }
-    return net_target();
+    return net_target(0);
 }
 
 /* gVitaNetAddr kept for next time, and found: sNetTarget. 1: found. */
-static int net_target(void) {
+static int net_target(int quiet) {
     char host[64], *c;
     int port = NET_PORT;
     uint32_t ip;
@@ -1323,7 +1358,9 @@ static int net_target(void) {
             port = NET_PORT;
         }
     }
-    psvDebugScreenPrintf("\e[H\e[2J\n  Multiplayer: joining a match (internet)\n\n  Looking up %s ...\n", host);
+    if (!quiet) {
+        psvDebugScreenPrintf("\e[H\e[2J\n  Multiplayer: joining a match (internet)\n\n  Looking up %s ...\n", host);
+    }
     if (!Reach_Resolve(host, &ip)) {
         snprintf(sErr, sizeof(sErr), "the address \"%s\" was not found (check it on the host's screen)", gVitaNetAddr);
         return 0;
@@ -1392,16 +1429,53 @@ void Vita_NetConnect(void) {
    versus menu while its Multiplayer choice waits (src/menu/menu_g_c.c), which shows `line` in its message window. The
    system's ad hoc dialog is drawn over the menu's picture by the drawing thread (vita_vgl.c gVitaDialogOn). The one
    who joins takes the first host heard that fits (two Vitas next to each other: there is one). */
-enum { PAIR_OFF, PAIR_DIALOG, PAIR_DIALOG_END, PAIR_HOST, PAIR_SEEK, PAIR_ASK, PAIR_DONE, PAIR_FAIL };
+enum { PAIR_OFF, PAIR_DIALOG, PAIR_DIALOG_END, PAIR_HOST, PAIR_SEEK, PAIR_ASK, PAIR_DONE, PAIR_FAIL,
+       PAIR_REACH /* (online, the host: the router and the address, a thread's work) */, PAIR_IME, PAIR_IME_END /* (online, the
+       one who joins: the keyboard for the host's address over the menu) */, PAIR_RESOLVE /* (that address looked up) */ };
 static struct {
-    int state, role, count, joined;
+    int state, role, count, joined, link;
     uint64_t lastSend, since;
     uint32_t nonce, hostSession, refused;
     NetAddr host;
     char hostName[NAME_LEN];
     char line[80];
     unsigned lineGen;
+    /* (online) */
+    uint64_t lastProbe, firstOffer, msgAt;
+    uint32_t rtts[8];
+    int nRtt, msgTurn, resolved;
 } sPair;
+
+/* (online) the slow steps, in a thread of their own while the menu goes on: 1 the router and the address (reach_work),
+   2 the host's address looked up (net_target) */
+static volatile int sJobDone = 1;
+
+static int pair_job(SceSize args, void *argp) {
+    int what = args >= sizeof(int) ? *(const int *)argp : 0;
+    if (what == 1) {
+        reach_work(&sReach);
+    } else if (what == 2) {
+        sPair.resolved = net_target(1);
+    }
+    sJobDone = 1;
+    return sceKernelExitDeleteThread(0);
+}
+
+static void job_start(int what) {
+    SceUID th = sceKernelCreateThread("bt3_reach", pair_job, 0x10000100, 0x10000, 0, 0, NULL);
+    sJobDone = 0;
+    if (th < 0 || sceKernelStartThread(th, sizeof(what), &what) < 0) {
+        Vita_Log("net: versus menu: no thread for the slow steps (%08x): done here\n", (unsigned)th);
+        pair_job(sizeof(what), &what);
+    }
+}
+
+static void job_wait(void) { /* (the thread's work over before the socket is closed: at most 10 s) */
+    int i;
+    for (i = 0; i < 1000 && !sJobDone; i++) {
+        sceKernelDelayThread(10000);
+    }
+}
 extern volatile int gVitaDialogOn;
 extern int Vita_DialogCan(void);
 
@@ -1441,7 +1515,7 @@ int Vita_NetPairCan(void) {
 
 /* role 1 host (with the battle settings `rules`, the save's six), 2 join. 1: begun (Vita_NetPairPoll from now on);
    0: it cannot be done from the running game (the caller starts the program again for it, as before). */
-int Vita_NetPairBegin(int role, const int *rules) {
+int Vita_NetPairBegin(int role, int link, const int *rules) {
     extern int gPortFastFloat;
     SceNetCheckDialogParam p;
     static SceNetAdhocctlGroupName group;
@@ -1452,6 +1526,7 @@ int Vita_NetPairBegin(int role, const int *rules) {
     }
     memset(&sPair, 0, sizeof(sPair));
     sPair.role = role;
+    sPair.link = link == LINK_NET ? LINK_NET : LINK_ADHOC;
     sErr[0] = '\0';
     sLink = LINK_ADHOC;
     gPortFastFloat = gPortFastFloat != 0;
@@ -1461,6 +1536,38 @@ int Vita_NetPairBegin(int role, const int *rules) {
     }
     for (k = 0; k < 6; k++) {
         gVitaNetRules[k] = role == 1 && rules != NULL ? rules[k] : -1;
+    }
+    if (sPair.link == LINK_NET) { /* (1.2.6) online: no ad hoc dialog. Its failures show in the message window */
+        if (!net_base() || !link_open(LINK_NET)) {
+            Vita_Log("net: versus menu: online: %s\n", sErr);
+            sPair.state = PAIR_FAIL;
+            pair_say("No internet: connect the Vita\nto Wi-Fi (Settings > Network).");
+            link_close();
+            return 1;
+        }
+        app_util();
+        my_name();
+        if (role == 1) {
+            sSession = (uint32_t)(now_us() ^ (now_us() >> 21)) | 1u;
+            sSeed = (unsigned)(now_us() * 2654435761u) | 1u;
+            sDelay = gVitaNetDelay >= 1 && gVitaNetDelay <= DELAY_MAX ? gVitaNetDelay : 3;
+            sPair.state = PAIR_REACH;
+            pair_say("Opening the way in (UPnP) and\nfinding your address ...");
+            job_start(1);
+        } else {
+            r = ime_open();
+            if (r < 0) {
+                sPair.state = PAIR_FAIL;
+                pair_say("The keyboard did not open.");
+                link_close();
+                return 1;
+            }
+            gVitaDialogOn = 1;
+            sPair.state = PAIR_IME;
+            pair_say("Type the host's address ...");
+        }
+        Vita_Log("net: versus menu: online, %s\n", role == 1 ? "host" : "join");
+        return 1;
     }
     if (!net_base() || !adhoc_up()) {
         Vita_Log("net: versus menu: %s\n", sErr);
@@ -1533,7 +1640,85 @@ int Vita_NetPairPoll(const char **line, unsigned *gen) {
             }
         }
         break;
+    case PAIR_REACH:
+        if (sJobDone) {
+            Reach *rc = &sReach;
+            sPair.state = PAIR_HOST;
+            sPair.msgAt = 0;
+            sPair.msgTurn = 0;
+            Vita_Log("net: versus menu: online host: %s, %s\n", rc->pub[0] ? rc->pub : "no address", rc->upnp ? "the router lets it in" : rc->why);
+        }
+        break;
+    case PAIR_IME:
+        if (sceImeDialogGetStatus() == SCE_COMMON_DIALOG_STATUS_FINISHED) {
+            gVitaDialogOn = 0;
+            sPair.count = 4;
+            sPair.state = PAIR_IME_END;
+        }
+        break;
+    case PAIR_IME_END:
+        if (--sPair.count <= 0) {
+            SceImeDialogResult res;
+            memset(&res, 0, sizeof(res));
+            sceImeDialogGetResult(&res);
+            sceImeDialogTerm();
+            if (res.button != SCE_IME_DIALOG_BUTTON_ENTER) {
+                pair_fail("Cancelled.");
+            } else if (!ime_take()) {
+                pair_fail("No address was typed.");
+            } else {
+                sPair.state = PAIR_RESOLVE;
+                pair_say("Looking up %.30s ...", gVitaNetAddr);
+                job_start(2);
+            }
+        }
+        break;
+    case PAIR_RESOLVE:
+        if (sJobDone) {
+            if (!sPair.resolved) {
+                pair_fail("%.30s was not found:\ncheck the address.", gVitaNetAddr);
+            } else {
+                sPair.nonce = (uint32_t)now_us() | 1u;
+                sPair.since = t;
+                sPair.state = PAIR_SEEK;
+                pair_say("Asking %.21s ...\n(Triangle: cancel)", gVitaNetAddr);
+            }
+        }
+        break;
     case PAIR_HOST:
+        if (sPair.link == LINK_NET && !sPair.joined && t - sPair.msgAt > 4000000) { /* (online: what to tell, in turn) */
+            Reach *rc = &sReach;
+            int shown = 0;
+            while (!shown) {
+                switch (sPair.msgTurn++ % 4) {
+                case 0:
+                    if (rc->pub[0] != '\0') {
+                        pair_say("Your address: %s\nTell it to the other player.", rc->pub);
+                    } else {
+                        pair_say("Your internet address could\nnot be found (no internet?).");
+                    }
+                    shown = 1;
+                    break;
+                case 1:
+                    if (!rc->upnp) {
+                        pair_say("Router: forward UDP 18630 to\n%s (or let them host).", sMyIp);
+                        shown = 1;
+                    }
+                    break;
+                case 2:
+                    if (rc->shared) {
+                        pair_say("This network shares its address:\nlet the other player host.");
+                        shown = 1;
+                    }
+                    break;
+                default:
+                    pair_say("Waiting for a player to join ...\n(Triangle: cancel)");
+                    shown = 1;
+                    break;
+                }
+            }
+            sPair.msgAt = t;
+        }
         if (!sPair.joined && t - sPair.lastSend > 250000) {
             k = head(pkt, T_OFFER);
             put64(pkt + k, sMyBuild);
@@ -1565,6 +1750,15 @@ int Vita_NetPairPoll(const char **line, unsigned *gen) {
                 continue;
             }
             type = in[4];
+            if (type == T_PROBE && !sPair.joined && n >= 20) { /* (online: asked at this address; its clock sent back) */
+                k = head(pkt, T_OFFER);
+                put64(pkt + k, sMyBuild);
+                put64(pkt + k + 8, sMyData);
+                name_put(pkt + k + 16, sMyName);
+                memcpy(pkt + k + 16 + NAME_LEN, in + 12, 8);
+                link_send(&from, pkt, k + 16 + NAME_LEN + 8);
+                continue;
+            }
             if (type == T_JOIN && n >= 12 + 16 + NAME_LEN + 4 && get32(in + 8) == sSession) {
                 uint32_t why = 0;
                 char name[NAME_LEN];
@@ -1588,19 +1782,23 @@ int Vita_NetPairPoll(const char **line, unsigned *gen) {
                     continue;
                 }
                 if (!sPair.joined) {
+                    uint32_t rtt = n >= 12 + 16 + NAME_LEN + 8 ? get32(in + 28 + NAME_LEN + 4) : 0;
                     sPeer = from;
                     sPair.nonce = get32(in + 28 + NAME_LEN);
                     snprintf(sTheirName, sizeof(sTheirName), "%s", name);
                     sPair.joined = 1;
                     sPair.since = t;
                     sPair.lastSend = 0;
-                    Vita_Log("net: versus menu: %s asks to join\n", name);
+                    if (sPair.link == LINK_NET && !(gVitaNetDelay >= 1 && gVitaNetDelay <= DELAY_MAX)) {
+                        sDelay = net_delay(rtt);
+                    }
+                    Vita_Log("net: versus menu: %s asks to join (time there and back %u ms: input delay %d)\n", name, (unsigned)rtt, sDelay);
                     pair_say("%.23s is joining ...", name);
                 }
             } else if (type == T_READY && sPair.joined && same_addr(&from, &sPeer) && get32(in + 8) == sSession && n >= 16 && get32(in + 12) == sPair.nonce) {
                 Vita_Log("net: versus menu: %s joined: match %08x, seed %08x, input delay %d\n", sTheirName, (unsigned)sSession, sSeed, sDelay);
                 gVitaNetRole = 1;
-                gVitaNetLink = LINK_ADHOC;
+                gVitaNetLink = sPair.link;
                 sPair.state = PAIR_DONE;
                 pair_say("%.23s joined.\nThe match begins ...", sTheirName);
                 break;
@@ -1609,6 +1807,31 @@ int Vita_NetPairPoll(const char **line, unsigned *gen) {
         break;
     case PAIR_SEEK:
     case PAIR_ASK:
+        if (sPair.link == LINK_NET && t - sPair.lastProbe > 250000) { /* (online: the host's address asked, with the clock) */
+            k = head(pkt, T_PROBE);
+            put64(pkt + k, t);
+            put64(pkt + k + 8, sMyBuild);
+            put64(pkt + k + 16, sMyData);
+            link_send(&sNetTarget, pkt, k + 24);
+            sPair.lastProbe = t;
+            if (sPair.state == PAIR_SEEK && sPair.firstOffer == 0 && t - sPair.since > 6000000 && sPair.msgTurn == 0) {
+                sPair.msgTurn = 1;
+                pair_say("No answer from %.21s.\nCheck it, or host instead.", gVitaNetAddr);
+            }
+        }
+        if (sPair.link == LINK_NET && sPair.state == PAIR_SEEK && sPair.firstOffer != 0 && sPair.host.ip != 0 &&
+            (sPair.nRtt >= 4 || t - sPair.firstOffer > 2000000)) { /* (the host answered a few times: joined at once) */
+            uint32_t m = 0;
+            int j;
+            for (j = 0; j < (sPair.nRtt < 8 ? sPair.nRtt : 8); j++) {
+                m = sPair.rtts[j] > m ? sPair.rtts[j] : m;
+            }
+            sJoinRtt = m;
+            sPair.since = t;
+            sPair.lastSend = 0;
+            sPair.state = PAIR_ASK;
+            pair_say("Joining %.23s\n(ping %u ms) ...", sPair.hostName, (unsigned)m);
+        }
         if (sPair.state == PAIR_ASK && t - sPair.lastSend > 200000) {
             sSession = sPair.hostSession;
             k = head(pkt, T_JOIN);
@@ -1616,11 +1839,14 @@ int Vita_NetPairPoll(const char **line, unsigned *gen) {
             put64(pkt + k + 8, sMyData);
             name_put(pkt + k + 16, sMyName);
             put32(pkt + k + 16 + NAME_LEN, sPair.nonce);
-            link_send(&sPair.host, pkt, k + 16 + NAME_LEN + 4);
+            put32(pkt + k + 16 + NAME_LEN + 4, sPair.link == LINK_NET ? sJoinRtt : 0);
+            link_send(&sPair.host, pkt, k + 16 + NAME_LEN + 8);
             sPair.lastSend = t;
             if (t - sPair.since > 10000000) {
                 pair_say("%.23s did not answer.\nLooking again ...", sPair.hostName);
                 sPair.state = PAIR_SEEK;
+                sPair.firstOffer = 0;
+                sPair.nRtt = 0;
             }
         }
         while ((n = link_recv(in, sizeof(in), &from)) > 0) {
@@ -1629,7 +1855,37 @@ int Vita_NetPairPoll(const char **line, unsigned *gen) {
                 continue;
             }
             type = in[4];
-            if (type == T_OFFER && n >= 12 + 16 + NAME_LEN && sPair.state == PAIR_SEEK) {
+            if (type == T_OFFER && n >= 12 + 16 + NAME_LEN && sPair.state == PAIR_SEEK && sPair.link == LINK_NET) {
+                /* (online: only the address typed; the port it answers from followed; the time there and back) */
+                char name[NAME_LEN];
+                if (from.ip != sNetTarget.ip) {
+                    continue;
+                }
+                if (from.port != sNetTarget.port) {
+                    Vita_Log("net: versus menu: the host answers from port %u: asked there\n", (unsigned)sceNetNtohs(from.port));
+                    sNetTarget.port = from.port;
+                }
+                name_get(name, in + 28);
+                if (!(in[5] == NET_VERSION && get64(in + 12) == sMyBuild)) {
+                    pair_say("%.23s has another version\nof the game: cannot join.", name);
+                } else if (get64(in + 20) != sMyData) {
+                    pair_say("%.23s has other disc files:\ncannot join.", name);
+                } else if (get32(in + 8) != sPair.refused) {
+                    if (n >= 12 + 16 + NAME_LEN + 8) {
+                        uint64_t sent = get64(in + 28 + NAME_LEN);
+                        if (sent != 0 && sent <= t && t - sent < 5000000) {
+                            sPair.rtts[sPair.nRtt++ % 8] = (uint32_t)((t - sent) / 1000);
+                        }
+                    }
+                    if (sPair.firstOffer == 0) {
+                        sPair.firstOffer = t;
+                        Vita_Log("net: versus menu: %s answered at %s\n", name, gVitaNetAddr);
+                    }
+                    sPair.host = from;
+                    sPair.hostSession = get32(in + 8);
+                    snprintf(sPair.hostName, sizeof(sPair.hostName), "%s", name);
+                }
+            } else if (type == T_OFFER && n >= 12 + 16 + NAME_LEN && sPair.state == PAIR_SEEK) {
                 char name[NAME_LEN];
                 name_get(name, in + 28);
                 if (!(in[5] == NET_VERSION && get64(in + 12) == sMyBuild)) {
@@ -1652,6 +1908,7 @@ int Vita_NetPairPoll(const char **line, unsigned *gen) {
                     Vita_Log("net: versus menu: %s: %s\n", sPair.hostName, refusal(why));
                     sPair.refused = sPair.hostSession; /* (not asked again) */
                     sPair.state = PAIR_SEEK;
+                    sPair.firstOffer = 0;
                     pair_say(why == WHY_BUSY ? "%.23s is already playing\nwith someone." : why == WHY_DATA ? "%.23s has other disc files:\ncannot join." :
                              "%.23s has another version\nof the game: cannot join.", sPair.hostName);
                 } else if (type == T_WELCOME && n >= 12 + 20 + NAME_LEN) {
@@ -1668,7 +1925,7 @@ int Vita_NetPairPoll(const char **line, unsigned *gen) {
                     link_send(&sPeer, pkt, k + 4);
                     sJoinNonce = sPair.nonce;
                     gVitaNetRole = 2;
-                    gVitaNetLink = LINK_ADHOC;
+                    gVitaNetLink = sPair.link;
                     Vita_Log("net: versus menu: joined %s: match %08x, seed %08x, input delay %d, battle settings %d %d %d %d %d %d\n", sTheirName,
                              (unsigned)sSession, sSeed, sDelay, gVitaNetRules[0], gVitaNetRules[1], gVitaNetRules[2], gVitaNetRules[3], gVitaNetRules[4],
                              gVitaNetRules[5]);
@@ -1689,7 +1946,7 @@ int Vita_NetPairPoll(const char **line, unsigned *gen) {
 
 /* 1 while the system's dialog is up (the menu takes no buttons then: they are the dialog's) */
 int Vita_NetPairDialog(void) {
-    return sPair.state == PAIR_DIALOG || sPair.state == PAIR_DIALOG_END;
+    return sPair.state == PAIR_DIALOG || sPair.state == PAIR_DIALOG_END || sPair.state == PAIR_IME || sPair.state == PAIR_IME_END;
 }
 
 /* Given up by the player (or the menu is left): the line closed. Not while the system's dialog is up. */
@@ -1699,6 +1956,7 @@ void Vita_NetPairCancel(void) {
     }
     if (sPair.state != PAIR_FAIL) {
         Vita_Log("net: versus menu: given up\n");
+        job_wait(); /* (the router's or the address's thread done with the socket first) */
         link_close();
         adhoc_down();
     }
@@ -1714,7 +1972,7 @@ void Vita_NetPairStart(void) {
     sPending = 0; /* (it could not: the program starts again, as before) */
     link_close();
     adhoc_down();
-    Vita_NetRestartInto(gVitaNetRole, LINK_ADHOC, gVitaNetRules);
+    Vita_NetRestartInto(gVitaNetRole, gVitaNetLink, gVitaNetRules);
 }
 
 /* ------------------------------------------------------------------------------------------------- in the game */

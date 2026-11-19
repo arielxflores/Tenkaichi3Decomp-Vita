@@ -36,7 +36,8 @@ so they are as sharp as the moment allows without losing pictures.
 
 Two players: on a PS TV (or a Vita with a second controller paired), the second DualShock is player 2: the Versus
 Menu's Multiplayer → Two Controllers is the PS2's two-controller mode. Two Vitas can also play the versus mode against
-each other, ad hoc (Multiplayer → Ad Hoc: Host / Join) or over the same Wi-Fi network (experimental): see
+each other, ad hoc (Multiplayer → Ad Hoc), over the internet (Multiplayer → Online) or over the same Wi-Fi network
+(experimental): see
 [Multiplayer](#multiplayer-two-vitas-experimental).
 
 What changed in each version: [CHANGELOG.md](CHANGELOG.md).
@@ -310,7 +311,7 @@ Two Vitas can play the versus mode against each other: **ad hoc** (the two Vitas
 or over the **Wi-Fi** network both are connected to. Both need this same version of the game and the files of the
 same disc.
 
-1. In the game: Versus → **Multiplayer**, then **Ad Hoc: Host** on one Vita and **Ad Hoc: Join** on the other
+1. In the game: Versus → **Multiplayer** → **Ad Hoc**, then **Ad Hoc: Host** on one Vita and **Ad Hoc: Join** on the other
    (**Two Controllers** is the console's own two-player mode, for a PS TV or a paired controller). It all happens
    there, in the versus menu: the system's own ad hoc dialog connects the two Vitas over the menu, then the menu's
    message window says who is waited for (Triangle gives up). The host's Battle Settings are the match's; the one
@@ -324,7 +325,7 @@ The other way, which also has **Wi-Fi**: press SELECT a few times as the game st
 menu (Host a match / Join a match, ad hoc or Wi-Fi; the one who joins picks the host from a list). A match begun
 there ends with the program starting again. There the host also chooses the battle: **one fighter each** or
 **teams** (the versus mode's team select: up to five fighters each, switching and fusion). From the versus menu,
-**L / R on Ad Hoc: Host** chooses the same (the line in the message window says which).
+**L / R on Ad Hoc: Host** (or Online: Host) chooses the same (the line in the message window says which).
 
 - A match has a save of its own (`ux0:data/bt3/net_saves/`) with everything unlocked; your own save is not touched.
   The two games have to be exactly the same, so mods, the stages and songs added from outside the disc, the European
@@ -344,14 +345,18 @@ there ends with the program starting again. There the host also chooses the batt
 
 ### Over the internet (1.2.6)
 
-Press SELECT a few times as the game starts, then **Multiplayer**:
+In the game: Versus → **Multiplayer** → **Online**:
 
-1. The host chooses **Host a match (internet)**. The game asks the host's router to let the match in (UPnP) and shows
-   the host's **internet address** (four numbers, such as `203.0.113.7`). Tell it to the other player (a message, a
-   call, Discord).
-2. The other player chooses **Join a match (internet)** and types that address with the system's keyboard (the last
-   one typed is offered again). The game finds the host, measures the time there and back, and joins.
-3. From there on it is the same as a match on the same network: the character select, the host is player 1.
+1. The host chooses **Online: Host** (L / R: one fighter each or teams). The game asks the host's router to let the
+   match in (UPnP) and the message window shows the host's **internet address** (four numbers, such as
+   `203.0.113.7`). Tell it to the other player (a message, a call, Discord).
+2. The other player chooses **Online: Join** and types that address with the system's keyboard (the last one typed is
+   offered again, so playing the same friend again is CROSS, CROSS). The game finds the host, measures the time there
+   and back, and joins.
+3. From there on it is the same as an ad hoc match: the match loads, then the character select; the host is player 1.
+
+The start menu (SELECT a few times as the game starts) → Multiplayer → Host / Join a match (internet) does the same on
+a screen of its own, should the versus menu's way not work.
 
 - **The other player cannot join** ("No answer yet"): the host's router does not let the match in. The host's screen
   says whether the router opened the way by itself (UPnP). If not, turn UPnP on in the router's settings, or forward
