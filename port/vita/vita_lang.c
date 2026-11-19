@@ -185,7 +185,7 @@ static const char *const kEs[][2] = {
     /* (1.2.6) the versus menu's Online (vita_optart.c, vita_net.c) */
     {"Play a Vita nearby (ad hoc:\nno router needed).", "Juega con una Vita cercana\n(ad hoc: sin router)."},
     {"Play over the internet: the\nhost's address is all it takes.", "Juega por internet: basta con\nla dirección de quien la crea."},
-    {"Back to Two Controllers,\nAd Hoc and Online.", "Volver a Dos Controles,\nAd Hoc y En Línea."},
+    {"Back to Online, Ad Hoc and\nTwo Controllers.", "Volver a En Línea, Ad Hoc y\nDos Controles."},
     {"Join online: type the host's\naddress (kept for next time).", "Únete por internet: escribe la\ndirección (se guarda)."},
     {"Host online: one fighter\neach. L / R: teams.", "Crea partida en línea: uno\ncontra uno. L / R: equipos."},
     {"Host online: teams (up to\nfive). L / R: one each.", "Crea partida en línea: por\nequipos. L / R: uno contra uno."},

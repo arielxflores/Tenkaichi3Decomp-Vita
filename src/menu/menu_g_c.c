@@ -7,8 +7,8 @@ DuelMenu *gDuelMenu = NULL; /* 0x3B38E8 */
 
 #ifdef PORT_VITA
 /* The Vita's Multiplayer (the second plate, the console's 1P VS 2P): a choice of how, in the battle type's three plates
-   (port/vita/vita_optart.c Vita_VersusNetPlates), on three levels (1.2.6): Two Controllers (the console's two-player
-   mode, as before: needs a second controller), Ad Hoc and Online; then for Ad Hoc: Host / Join / Back, for Online
+   (port/vita/vita_optart.c Vita_VersusNetPlates), on three levels (1.2.6): Online, Ad Hoc and Two Controllers (the
+   console's two-player mode, as before: needs a second controller); then for Ad Hoc: Host / Join / Back, for Online
    (over the internet, by the host's address): Online: Host / Online: Join / Back. Hosting or joining finds the other
    Vita from here (the system's dialog over the menu, the wait in the message window: sVitaPair below) and begins the
    match against it (port/vita/vita_net.c), with the host's battle settings: the game alone starts again inside the
@@ -20,8 +20,8 @@ static s32 sVitaNet;      /* the choice is open */
 static s32 sVitaNetKeep;  /* the battle type's cursor, kept while the choice has its plates */
 static s32 sVitaNetGo;    /* 1 host, 2 join: chosen, the screen fades out */
 static s32 sVitaNetGoLink; /* (and how: 1 ad hoc, 3 online) */
-static s32 sVitaNetLevel; /* (1.2.6) the plates shown: 1 Two Controllers / Ad Hoc / Online, 2 ad hoc's, 3 online's */
-static s32 sVitaNetHow = 1; /* the last of Ad Hoc (1) and Online (2) chosen: the cursor's place when the choice opens */
+static s32 sVitaNetLevel; /* (1.2.6) the plates shown: 1 Online / Ad Hoc / Two Controllers, 2 ad hoc's, 3 online's */
+static s32 sVitaNetHow;   /* the last of Online (0) and Ad Hoc (1) chosen: the cursor's place when the choice opens */
 static s32 sVitaNetWait;  /* frames until the game starts again */
 /* Hosting and joining in the running game (port/vita/vita_net.c Vita_NetPairBegin and on; the game alone starts again
    for the match, vita_warm.c): the system's ad hoc dialog over the menu, then the message window says who is waited
@@ -438,9 +438,9 @@ void DuelMenu_Draw(void) {
         DM_ROW_UV(i, 0x200);
         sprintf(name, "mc_mode_%d", i + 1);
 #ifdef PORT_VITA
-        if (i == 0) { /* (Multiplayer's choice: Two Controllers greyed without a second controller) */
+        { /* (Multiplayer's choice: Two Controllers, the third plate, greyed without a second controller) */
             Flash_FindLabel(flash, NULL, name, &ref);
-            Flash_ClipSetColor(flash, &ref, sVitaNet && sVitaNetLevel == 1 && (DM->flags & DUELMENU_NO_PAD2) ? 0.4f : 1.0f);
+            Flash_ClipSetColor(flash, &ref, i == 2 && sVitaNet && sVitaNetLevel == 1 && (DM->flags & DUELMENU_NO_PAD2) ? 0.4f : 1.0f);
         }
 #endif
         DM_SET_UV(name, "mc_mode_text_off");
@@ -703,7 +703,7 @@ static void DuelMenu_VitaNetOpen(void) {
     Vita_VersusNetPlates(1);
     Vita_VersusNetHostKind(sVitaNetTeam);
     sVitaNet = 1;
-    DM->sel[DUEL_LEVEL_TYPE] = (DM->flags & DUELMENU_NO_PAD2) ? sVitaNetHow : 0;
+    DM->sel[DUEL_LEVEL_TYPE] = (DM->flags & DUELMENU_NO_PAD2) ? sVitaNetHow : 2;
     DuelMenu_VitaNetSay();
     DM_LEVEL_GOTO("fl_on_start");
     Snd_PlaySe(1, 1);
@@ -757,7 +757,7 @@ static void DuelMenu_VitaNetInput(void) {
         Snd_PlaySe(1, 0);
     } else if (gPad[0].gamePressed & PADG_CROSS) {
         DM->idle = 0;
-        if (sVitaNetLevel == 1 && DM_CUR == 0) {
+        if (sVitaNetLevel == 1 && DM_CUR == 2) {
             if (DM->flags & DUELMENU_NO_PAD2) {
                 Snd_PlaySe(1, 7); /* (no second controller) */
                 return;
@@ -766,13 +766,13 @@ static void DuelMenu_VitaNetInput(void) {
             DM_LEVEL_GOTO("fl_on_start");
             DM_SAY(0, DM->sel[DUEL_LEVEL_TYPE] + 5);
             Snd_PlaySe(1, 1);
-        } else if (sVitaNetLevel == 1) { /* Ad Hoc or Online: its Host / Join / Back */
+        } else if (sVitaNetLevel == 1) { /* Online or Ad Hoc: its Host / Join / Back */
             sVitaNetHow = DM_CUR;
             Snd_PlaySe(1, 1);
-            DuelMenu_VitaNetLevel(DM_CUR == 1 ? 2 : 3, 0);
+            DuelMenu_VitaNetLevel(DM_CUR == 0 ? 3 : 2, 0);
         } else if (DM_CUR == 2) { /* Back */
             Snd_PlaySe(1, 2);
-            DuelMenu_VitaNetLevel(1, sVitaNetLevel - 1);
+            DuelMenu_VitaNetLevel(1, sVitaNetLevel == 3 ? 0 : 1);
         } else {
             s32 role = DM_CUR + 1, link = sVitaNetLevel == 3 ? 3 : 1; /* (1 host, 2 join; 1 ad hoc, 3 the internet) */
             if (Vita_NetPairBegin(role, link, DuelMenu_VitaNetRules(role))) {
@@ -790,10 +790,10 @@ static void DuelMenu_VitaNetInput(void) {
                 sVitaNetWait = 0x12; /* (the fade's 20 frames end the screen: the game starts again just before) */
             }
         }
-    } else if ((gPad[0].gamePressed & PADG_TRIANGLE) && sVitaNetLevel >= 2) { /* back to Two Controllers / Ad Hoc / Online */
+    } else if ((gPad[0].gamePressed & PADG_TRIANGLE) && sVitaNetLevel >= 2) { /* back to Online / Ad Hoc / Two Controllers */
         DM->idle = 0;
         Snd_PlaySe(1, 2);
-        DuelMenu_VitaNetLevel(1, sVitaNetLevel - 1);
+        DuelMenu_VitaNetLevel(1, sVitaNetLevel == 3 ? 0 : 1);
     } else if (gPad[0].gamePressed & PADG_TRIANGLE) {
         char name[64];
 

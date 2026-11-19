@@ -5,7 +5,7 @@
 New
 
 - **Multiplayer over the internet** (experimental): two Vitas play the versus mode from anywhere, by the host's
-  address. Versus → Multiplayer now offers **Two Controllers**, **Ad Hoc** and **Online**; Online has **Online: Host**,
+  address. Versus → Multiplayer now offers **Online** (first), **Ad Hoc** and **Two Controllers**; Online has **Online: Host**,
   which shows the host's internet address in the message window, and **Online: Join**, where the other player types
   it with the system's keyboard (the last address is offered again). All of it in the menu, as ad hoc is; the start
   menu (SELECT a few times as the game starts) → Multiplayer → Host / Join a match (internet) too. The game asks the

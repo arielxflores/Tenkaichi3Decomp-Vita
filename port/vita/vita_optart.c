@@ -16,7 +16,7 @@
  * The versus menu (src/menu/menu_g_c.c DuelMenu_Init):
  *   - section 8, textures 0 and 1 (the plates' lettering, plain and highlighted): "1P VS 2P" becomes "Multiplayer";
  *   - section 8, textures 2 and 3 (the battle types' lettering): while Multiplayer's choice is open, on its three
- *     levels (1.2.6), "Two Controllers" / "Ad Hoc" / "Online", "Ad Hoc: Host" / "Ad Hoc: Join" / "Back" and "Online:
+ *     levels (1.2.6), "Online" / "Ad Hoc" / "Two Controllers", "Ad Hoc: Host" / "Ad Hoc: Join" / "Back" and "Online:
  *     Host" / "Online: Join" / "Back" (Vita_VersusNetPlates, vita_vsnet*.h made by tools/gen_vsnet.py), and the
  *     message window's lines 5 to 7 (section 21) say what each does.
  * The button icons of the game's text (the boot file's member 8, src/battle/col_c_b.c FontIcon_Init), seen in the
@@ -132,7 +132,7 @@ typedef struct ArtSet {
     unsigned netCount;
     uint32_t netHash;             /* (the FNV-1a of the disc's bytes there) */
     unsigned netBytes;
-    const uint8_t *netSet[3];     /* (A: Two Controllers / Ad Hoc / Online; B: Ad Hoc: Host / Join / Back; C: Online:) */
+    const uint8_t *netSet[3];     /* (A: Online / Ad Hoc / Two Controllers; B: Ad Hoc: Host / Join / Back; C: Online:) */
 } ArtSet;
 #define COUNT(a) (sizeof(a) / sizeof((a)[0]))
 #define ART_SET(S) {(const ArtSection *)kOptArtSections##S, COUNT(kOptArtSections##S), kOptArtRuns##S, kOptArtBytes##S, kOptCapRuns##S, \
@@ -308,15 +308,15 @@ int Vita_VersusNetReady(void) {
 }
 
 /* (src/menu/menu_g_c.c) Multiplayer's choice (1.2.6: three levels) opens, changes level or closes: `level` 1 (the plates
-   read Two Controllers, Ad Hoc and Online), 2 (Ad Hoc: Host, Ad Hoc: Join, Back), 3 (Online: Host, Online: Join, Back),
-   0 (the battle types as the disc has them again); the message window's lines 5 to 7 say what the plates do. 0 when the
+   read Online, Ad Hoc and Two Controllers), 2 (Ad Hoc: Host, Ad Hoc: Join, Back), 3 (Online: Host, Online: Join, Back),
+   0 (the battle types as the disc has them again). (Online first, Two Controllers last: the order asked for); the message window's lines 5 to 7 say what the plates do. 0 when the
    screen's art is not the disc's: the choice is then not offered. The menus draw from the unpacked pack every frame, so
    the change shows at once. */
 static const char *const kVsNetLine[3][3] = {
-    {"Two players on this Vita,\nwith a second controller.", "Play a Vita nearby (ad hoc:\nno router needed).",
-     "Play over the internet: the\nhost's address is all it takes."},
-    {"", "Join a match that a Vita nearby\nhosts (ad hoc).", "Back to Two Controllers,\nAd Hoc and Online."},
-    {"", "Join online: type the host's\naddress (kept for next time).", "Back to Two Controllers,\nAd Hoc and Online."}};
+    {"Play over the internet: the\nhost's address is all it takes.", "Play a Vita nearby (ad hoc:\nno router needed).",
+     "Two players on this Vita,\nwith a second controller."},
+    {"", "Join a match that a Vita nearby\nhosts (ad hoc).", "Back to Online, Ad Hoc and\nTwo Controllers."},
+    {"", "Join online: type the host's\naddress (kept for next time).", "Back to Online, Ad Hoc and\nTwo Controllers."}};
 /* (1.2.5) the Host plate's line: the kind of battle hosted, L / R changing it (src/menu/menu_g_c.c) */
 static const char *const kVsHostKind[2][2] = {
     {"Host a match (ad hoc): one\nfighter each. L / R: teams.", "Host a match (ad hoc): teams\n(up to five). L / R: one each."},
