@@ -72,6 +72,15 @@ void *Port_LowAlloc(size_t size) {
     Low *l = calloc(1, sizeof(Low) + size);
 
     if (l == NULL) {
+        if (size >= 0x40000000u) { /* (1.2.5) a size no game file holds: one read from the disc's files was not right */
+            Vita_Fatal("out of memory (%u bytes)\n\n"
+                       "The game read a size no file of its disc holds: one of\n"
+                       "the disc's files is damaged (its copy is not the same as\n"
+                       "the disc, though its size may be). Copy the game's files\n"
+                       "again (best: the .iso itself, or the files unpacked again\n"
+                       "with 7-Zip). If that does not help, try another memory card.",
+                       (unsigned)size);
+        }
         Vita_Fatal("out of memory (%u bytes)", (unsigned)size);
     }
     l->size = (uint32_t)size;

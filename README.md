@@ -194,7 +194,8 @@ On a PS TV, or with a DualShock paired, the controller's own L2, R2, L3 and R3 b
 
 ### Start menu
 
-Hold SELECT while the game starts (from the LiveArea until the text screen shows) for:
+Press SELECT a few times as the game starts (from the LiveArea's Start until the text screen shows; holding it
+works too, but a Vita can pass on a button held since the LiveArea late) for:
 
 - **Game**: Budokai Tenkaichi 3 or [Budokai Tenkaichi 4](#budokai-tenkaichi-4-experimental). The choice is kept: BT4
   then starts each time, until you change it here again.
@@ -226,7 +227,7 @@ are also found in `ux0:bt3/bt4/`, `ux0:data/bt4/`, `ux0:bt4/`, beside BT3's imag
 `uma0:data/bt3/bt4/`. The first start that finds them says so, once.
 
 Then choose it in the game, **Options → Vita Settings → Game → BT4** (on the third page: Down from the lower row,
-twice), or hold SELECT while the game starts and choose **Game** in the [start menu](#start-menu). The
+twice), or press SELECT a few times as the game starts and choose **Game** in the [start menu](#start-menu). The
 way back is the same plate in BT4's own Vita Settings, or the start menu. BT4 keeps its own saves,
 settings and log in `ux0:data/bt3/bt4/`.
 
@@ -319,11 +320,11 @@ same disc.
    each player chooses with their own Vita. The host is player 1 and chooses the stage.
 3. Going back out of the character select ends the match: you are in the versus menu again, with your own save.
 
-The other way, which also has **Wi-Fi**: hold SELECT while the game starts and choose **Multiplayer** in the start
+The other way, which also has **Wi-Fi**: press SELECT a few times as the game starts and choose **Multiplayer** in the start
 menu (Host a match / Join a match, ad hoc or Wi-Fi; the one who joins picks the host from a list). A match begun
 there ends with the program starting again. There the host also chooses the battle: **one fighter each** or
-**teams** (the versus mode's team select: up to five fighters each, switching and fusion); a match from the versus
-menu is one fighter each.
+**teams** (the versus mode's team select: up to five fighters each, switching and fusion). From the versus menu,
+**L / R on Ad Hoc: Host** chooses the same (the line in the message window says which).
 
 - A match has a save of its own (`ux0:data/bt3/net_saves/`) with everything unlocked; your own save is not touched.
   The two games have to be exactly the same, so mods, the stages and songs added from outside the disc, the European

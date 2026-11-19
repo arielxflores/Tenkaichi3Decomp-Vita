@@ -215,8 +215,8 @@ void VitaEu_ChooseLanguage(void) {
             psvDebugScreenPrintf("  %s %s\e[39m\n", i == sel ? "\e[33m>" : " ", kNames[i]);
         }
         psvDebugScreenPrintf("\n  Up / down, then CROSS.\n  (Arriba / abajo, luego X.)\n\n"
-                             "  Hold SELECT while the game starts to choose again.\n"
-                             "  (Manten SELECT al iniciar el juego para elegir otra vez.)\n");
+                             "  Press SELECT a few times as the game starts to choose again.\n"
+                             "  (Pulsa SELECT varias veces al iniciar el juego para elegir otra vez.)\n");
         for (;;) {
             sceKernelDelayThread(16000);
             now = pad_now();

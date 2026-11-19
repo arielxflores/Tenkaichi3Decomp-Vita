@@ -1503,7 +1503,7 @@ static void find_disc(void) {
                                        "BT3's own files go in " HOME "/disc/. Budokai Tenkaichi 4\n"
                                        "is Team BT4's B14 Rev2 (its program is SLUS_219.78), not\n"
                                        "an older BT4 release made on BT3's files." : "",
-               sceIoGetstat("app0:bt4.bin", &e.d_stat) >= 0 ? "\n\nFor Budokai Tenkaichi 4: hold SELECT while the game starts." : ""
+               sceIoGetstat("app0:bt4.bin", &e.d_stat) >= 0 ? "\n\nFor Budokai Tenkaichi 4: press SELECT a few times as the game starts." : ""
 #else
                "", ""
 #endif
@@ -2399,12 +2399,12 @@ int __wrap_main(int argc, char **argv) {
             psvDebugScreenPrintf(VitaEu_Lang() == 1
                 ? "\n\e[32mSe encontro Budokai Tenkaichi 4 (ux0:data/bt3/bt4/).\e[39m\n\n"
                   "Este juego es BT3. Para jugar BT4: Opciones > Vita Settings >\n"
-                  "Juego, elige BT4 y pulsa X dos veces. O manten SELECT mientras\n"
-                  "el juego arranca. (Este aviso sale una sola vez.)\n\nPulsa X para seguir.\n"
+                  "Juego, elige BT4 y pulsa X dos veces. O pulsa SELECT varias\n"
+                  "veces al iniciar el juego. (Este aviso sale una sola vez.)\n\nPulsa X para seguir.\n"
                 : "\n\e[32mBudokai Tenkaichi 4 was found (ux0:data/bt3/bt4/).\e[39m\n\n"
                   "This is BT3. To play BT4: Options > Vita Settings > Game,\n"
-                  "choose BT4 and press CROSS twice. Or hold SELECT while the\n"
-                  "game starts. (This shows only once.)\n\nPress CROSS to go on.\n");
+                  "choose BT4 and press CROSS twice. Or press SELECT a few times\n"
+                  "as the game starts. (This shows only once.)\n\nPress CROSS to go on.\n");
             wait_buttons(SCE_CTRL_CROSS);
             psvDebugScreenPrintf("\e[H\e[2J");
             if ((fd = sceIoOpen(HOME "/bt4/found.txt", SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666)) >= 0) {

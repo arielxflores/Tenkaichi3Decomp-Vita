@@ -624,7 +624,7 @@ static int host_wait(void) {
     sSeed = (unsigned)(now_us() * 2654435761u) | 1u;
     sDelay = gVitaNetDelay >= 1 && gVitaNetDelay <= 8 ? gVitaNetDelay : sLink == LINK_WIFI ? 3 : 2;
     psvDebugScreenPrintf("\e[H\e[2J\n  Multiplayer: hosting a match (%s)\n\n  Waiting for another Vita to join ...\n\n"
-                         "  On the other Vita: hold SELECT while the game starts,\n  Multiplayer > Join a match (%s).\n\n"
+                         "  On the other Vita: press SELECT a few times as the game\n  starts, Multiplayer > Join a match (%s).\n\n"
                          "  You are player 1 (%s). Time limit: %s.\n\n  CIRCLE: cancel.\n",
                          sLink == LINK_ADHOC ? "ad hoc" : "Wi-Fi", sLink == LINK_ADHOC ? "ad hoc" : "Wi-Fi", sMyName, time_name(gVitaNetRules[0]));
     if (sLink == LINK_WIFI) {
@@ -744,8 +744,8 @@ static int join_wait(void) {
         if (redraw) {
             psvDebugScreenPrintf("\e[H\e[2J\n  Multiplayer: joining a match (%s)\n\n", sLink == LINK_ADHOC ? "ad hoc" : "Wi-Fi");
             if (count == 0) {
-                psvDebugScreenPrintf("  Looking for a Vita that hosts a match ...\n\n  On the other Vita: hold SELECT while the game starts,\n"
-                                     "  Multiplayer > Host a match (%s).\n", sLink == LINK_ADHOC ? "ad hoc" : "Wi-Fi");
+                psvDebugScreenPrintf("  Looking for a Vita that hosts a match ...\n\n  On the other Vita: press SELECT a few times as the game\n"
+                                     "  starts, Multiplayer > Host a match (%s).\n", sLink == LINK_ADHOC ? "ad hoc" : "Wi-Fi");
             } else {
                 psvDebugScreenPrintf("  Matches found:\n\n");
                 for (k = 0; k < count; k++) {

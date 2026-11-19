@@ -486,12 +486,12 @@ void Vita_StartMenu(void) {
             Vita_Log("vita: BT4 did not get going the last time: Budokai Tenkaichi 3 instead\n");
             psvDebugScreenPrintf(ES("\n  \e[33mBudokai Tenkaichi 4 did not get going the last time\e[39m\n"
                                     "  (see ux0:data/bt3/bt4/log.txt and crash.txt).\n\n"
-                                    "  Budokai Tenkaichi 3 starts instead. Hold SELECT while the\n"
-                                    "  game starts to choose BT4 again.\n\n  Press CROSS.\n",
+                                    "  Budokai Tenkaichi 3 starts instead. Press SELECT a few times\n"
+                                    "  as the game starts to choose BT4 again.\n\n  Press CROSS.\n",
                                     "\n  \e[33mBudokai Tenkaichi 4 no llego a arrancar la ultima vez\e[39m\n"
                                     "  (mira ux0:data/bt3/bt4/log.txt y crash.txt).\n\n"
-                                    "  En su lugar empieza Budokai Tenkaichi 3. Manten SELECT\n"
-                                    "  al iniciar el juego para elegir BT4 otra vez.\n\n  Pulsa X.\n"));
+                                    "  En su lugar empieza Budokai Tenkaichi 3. Pulsa SELECT varias\n"
+                                    "  veces al iniciar el juego para elegir BT4 otra vez.\n\n  Pulsa X.\n"));
             press(SCE_CTRL_CROSS);
             psvDebugScreenPrintf("\e[H\e[2J");
         } else if (!select_held()) {

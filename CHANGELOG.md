@@ -1,5 +1,21 @@
 # Changes (PS Vita port)
 
+## 1.2.5
+
+Fixed
+
+- **The start menu with SELECT.** SELECT was looked at in one moment as the game started, and a Vita can pass on a
+  button held since the LiveArea late: holding it often did nothing (pressing it a few times worked). Now SELECT
+  pressed or held at any moment of the game's first 2.5 seconds opens the start menu. The game's messages now say
+  "press SELECT a few times as the game starts".
+- **"out of memory (4294947232 bytes)"** now says what it means: one of the disc's files is damaged (its copy differs
+  from the disc, though its size may not), and to copy the game's files again or try another memory card.
+
+New
+
+- **Team battles from the versus menu**: Versus → Multiplayer → **Ad Hoc: Host**, L / R choose one fighter each or
+  teams (the line in the message window says which). The start menu's Multiplayer has the same choice.
+
 ## 1.2.4
 
 Fixed
