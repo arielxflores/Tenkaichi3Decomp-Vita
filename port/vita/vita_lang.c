@@ -166,6 +166,8 @@ static const char *const kEs[][2] = {
     {"Two players on this Vita,\nwith a second controller.", "Dos jugadores en esta Vita,\ncon un segundo control."},
     {"Host a match for a Vita nearby\n(ad hoc: no router needed).", "Crea una partida para una Vita\ncercana (ad hoc: sin router)."},
     {"Join a match that a Vita nearby\nhosts (ad hoc).", "Únete a la partida de una Vita\ncercana (ad hoc)."},
+    {"Host a match (ad hoc): one\nfighter each. L / R: teams.", "Crea partida (ad hoc): uno\ncontra uno. L / R: equipos."},
+    {"Host a match (ad hoc): teams\n(up to five). L / R: one each.", "Crea partida (ad hoc): por\nequipos. L / R: uno contra uno."},
     {"Connecting (ad hoc) ...", "Conectando (ad hoc) ..."},
     {"The ad hoc connection was\ncancelled.", "Se canceló la conexión\nad hoc."},
     {"The ad hoc connection was\nnot made.", "No se hizo la conexión\nad hoc."},

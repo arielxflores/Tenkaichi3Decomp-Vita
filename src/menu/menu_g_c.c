@@ -34,6 +34,21 @@ extern int Port_NetSession(void);
 extern void Port_NetLeave(void);
 static s32 sVitaPair;
 static u32 sVitaPairGen;
+/* (1.2.5) the host's kind of battle: L / R on Ad Hoc: Host (the plate's line says which), a team battle carried to
+   the match as 100 more in the battle settings' sixth (port/vita/vita_net.c Vita_NetEnter) */
+extern void Vita_VersusNetHostKind(int team);
+static s32 sVitaNetTeam;
+static const int *DuelMenu_VitaNetRules(s32 role) {
+    static int r[6];
+    s32 k;
+    for (k = 0; k < 6; k++) {
+        r[k] = ((const int *)gSaveData->rule)[k];
+    }
+    if (role == 1 && sVitaNetTeam) {
+        r[5] += 100;
+    }
+    return r;
+}
 #endif
 
 /*
@@ -611,7 +626,7 @@ void DuelMenu_Update(void) {
     if (sVitaNetGo != 0 && --sVitaNetWait <= 0) { /* (Ad Hoc: Host / Join, faded out: the game starts again for the match) */
         s32 role = sVitaNetGo;
         sVitaNetGo = 0;
-        Vita_NetRestartInto(role, 1, (const int *)gSaveData->rule);
+        Vita_NetRestartInto(role, 1, DuelMenu_VitaNetRules(role));
     }
     if (sVitaPair == 1) { /* looking for the other Vita: a step, and what it says into the message window */
         const char *line = NULL;
@@ -680,6 +695,7 @@ static void DuelMenu_VitaNetOpen(void) {
     DM->level = DUEL_LEVEL_TYPE;
     sVitaNetKeep = DM->sel[DUEL_LEVEL_TYPE];
     Vita_VersusNetPlates(1);
+    Vita_VersusNetHostKind(sVitaNetTeam);
     sVitaNet = 1;
     DM->sel[DUEL_LEVEL_TYPE] = (DM->flags & DUELMENU_NO_PAD2) ? 1 : 0;
     DuelMenu_VitaNetSay();
@@ -699,7 +715,13 @@ static void DuelMenu_VitaNetInput(void) {
     if (sVitaNetGo != 0 || sVitaPair != 0) {
         return; /* (fading out; or the other Vita is looked for: DuelMenu_Update) */
     }
-    if (gPad[0].gameRepeat & (PADG_UP | PADG_DOWN)) {
+    if (DM_CUR == 1 && (gPad[0].gamePressed & (PADG_L1 | PADG_R1))) { /* (Ad Hoc: Host: one fighter each / teams) */
+        DM->idle = 0;
+        sVitaNetTeam ^= 1;
+        Vita_VersusNetHostKind(sVitaNetTeam);
+        DuelMenu_VitaNetSay();
+        Snd_PlaySe(1, 1);
+    } else if (gPad[0].gameRepeat & (PADG_UP | PADG_DOWN)) {
         DM->idle = 0;
         DM_LEVEL_GOTO("fl_off_start");
         DM_CUR += (gPad[0].gameRepeat & PADG_UP) ? 2 : 1;
@@ -718,7 +740,7 @@ static void DuelMenu_VitaNetInput(void) {
             DM_LEVEL_GOTO("fl_on_start");
             DM_SAY(0, DM->sel[DUEL_LEVEL_TYPE] + 5);
             Snd_PlaySe(1, 1);
-        } else if (Vita_NetPairBegin(DM_CUR, (const int *)gSaveData->rule)) {
+        } else if (Vita_NetPairBegin(DM_CUR, DuelMenu_VitaNetRules(DM_CUR))) {
             /* in the running game: the system's dialog comes up over the menu, then the other Vita is waited for */
             Snd_PlaySe(1, 1);
             sVitaPair = 1;

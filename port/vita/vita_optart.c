@@ -304,6 +304,20 @@ int Vita_VersusNetReady(void) {
 static const char *const kVsNetLine[3] = {"Two players on this Vita,\nwith a second controller.",
                                           "Host a match for a Vita nearby\n(ad hoc: no router needed).",
                                           "Join a match that a Vita nearby\nhosts (ad hoc)."};
+/* (1.2.5) the Host plate's line: the kind of battle hosted, L / R changing it (src/menu/menu_g_c.c) */
+static const char *const kVsHostKind[2] = {"Host a match (ad hoc): one\nfighter each. L / R: teams.",
+                                           "Host a match (ad hoc): teams\n(up to five). L / R: one each."};
+static int sVsTeam;
+static const char *vs_net_line(unsigned k) {
+    return Vita_Tr(k == 1 ? kVsHostKind[sVsTeam] : kVsNetLine[k]);
+}
+
+void Vita_VersusNetHostKind(int team) {
+    sVsTeam = team != 0;
+    if (sVsText != NULL && sVsNetOn) {
+        write_slot(slot_of(sVsText, 7), vs_net_line(1));
+    }
+}
 
 int Vita_VersusNetPlates(int on) {
     const uint8_t *b;
@@ -327,7 +341,7 @@ int Vita_VersusNetPlates(int on) {
         }
         if (on) {
             memcpy(sVsLines[k], sl.p, sl.size);
-            write_slot(sl, Vita_Tr(kVsNetLine[k]));
+            write_slot(sl, vs_net_line(k));
         } else {
             memcpy(sl.p, sVsLines[k], sl.size);
         }
@@ -381,7 +395,7 @@ void Vita_VersusNetHelp(void) {
         return;
     }
     for (k = 0; k < 3; k++) {
-        write_slot(slot_of(sVsText, k + 6), Vita_Tr(kVsNetLine[k]));
+        write_slot(slot_of(sVsText, k + 6), vs_net_line((unsigned)k));
     }
 }
 

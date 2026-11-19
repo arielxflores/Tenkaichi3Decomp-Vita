@@ -21,6 +21,7 @@
 #include <psp2/io/fcntl.h>
 #include <psp2/io/stat.h>
 #include <psp2/kernel/threadmgr.h>
+#include <psp2/kernel/processmgr.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -72,8 +73,30 @@ static unsigned press(unsigned mask) {
     }
 }
 
+/* (1.2.5) SELECT seen at any moment of the program's first 2.5 seconds, not only at this one: a player held it as the
+   game started and nothing happened (1.2.4). The buttons can reach a program that has just started late, and one
+   held from the bubble's tap and let go early was not seen. Waits out the rest of those 2.5 s once at most. */
 static int select_held(void) {
-    return (pad_now() & SCE_CTRL_SELECT) != 0 || gVitaStartMenuForce;
+    static int seen = -1;
+    if (gVitaStartMenuForce) {
+        return 1;
+    }
+    if (seen < 0) {
+        seen = 0;
+        for (;;) {
+            if (pad_now() & SCE_CTRL_SELECT) {
+                seen = 1;
+                break;
+            }
+            if (sceKernelGetProcessTimeWide() >= 2500000ull) {
+                break;
+            }
+            sceKernelDelayThread(16000);
+        }
+        Vita_Log("vita: SELECT %s %u ms into the program\n", seen ? "seen" : "not held, looked for until",
+                 (unsigned)(sceKernelGetProcessTimeWide() / 1000));
+    }
+    return seen || (pad_now() & SCE_CTRL_SELECT) != 0;
 }
 
 static int exists(const char *path) {
@@ -364,11 +387,11 @@ static int net_menu(void) {
     static const char *const kTimeEs[6] = {"el del juego (240 s)", "60 segundos", "90 segundos", "180 segundos", "240 segundos", "sin limite"};
     const char *const *kTime = sEs ? kTimeEs : kTimeEn;
     /* (1.2.4) the battle when hosting: single fighters or teams (the versus mode's two kinds; gVitaNetRules[5] carries
-       it to the other Vita as 100 + the kind, a value the save's rules never take: vita_net.c Vita_NetEnter) */
+       a team battle to the other Vita as 99, a value the save's rules never take: vita_net.c Vita_NetEnter) */
     static const char *const kKindEn[2] = {"one fighter each", "teams (up to 5 each, switching, fusion)"};
     static const char *const kKindEs[2] = {"un luchador cada uno", "equipos (hasta 5, cambios, fusion)"};
     const char *const *kKind = sEs ? kKindEs : kKindEn;
-    int sel = 0, time = gVitaNetRules[0] + 1, team = gVitaNetRules[5] == 101;
+    int sel = 0, time = gVitaNetRules[0] + 1, team = gVitaNetRules[5] >= 99;
     unsigned p;
 
     for (;;) {
@@ -422,7 +445,7 @@ static int net_menu(void) {
             gVitaNetRole = (sel & 1) ? 2 : 1;
             gVitaNetLink = sel < 2 ? 1 : 2;
             gVitaNetRules[0] = time - 1;
-            gVitaNetRules[5] = 100 + team; /* (the host's choice; the one who joins gets the host's) */
+            gVitaNetRules[5] = team ? 99 : -1; /* (the host's choice; the one who joins gets the host's) */
             Vita_Log("vita: start menu: multiplayer, %s, %s\n", gVitaNetRole == 1 ? "host" : "join", gVitaNetLink == 1 ? "ad hoc" : "Wi-Fi");
             return 1;
         }
