@@ -416,8 +416,8 @@ void Vita_GameSwitch(void) {
 }
 
 #ifndef BT3_BT4
-/* Multiplayer: host or join, ad hoc or Wi-Fi; the time limit the host gives the match. 1: a choice was made (the
-   game then starts as a match: vita_net.c). */
+/* Multiplayer: host or join, ad hoc, Wi-Fi or the internet (1.2.6); the time limit the host gives the match. 1: a
+   choice was made (the game then starts as a match: vita_net.c). */
 static int net_menu(void) {
     extern int gVitaNetRole, gVitaNetLink, gVitaNetRules[6];
     static const char *const kTimeEn[6] = {"the game's (240 s)", "60 seconds", "90 seconds", "180 seconds", "240 seconds", "none"};
@@ -432,20 +432,27 @@ static int net_menu(void) {
     unsigned p;
 
     for (;;) {
-        static const char *const kItemEn[7] = {"Host a match (ad hoc)", "Join a match (ad hoc)", "Host a match (Wi-Fi, the same network)",
-                                               "Join a match (Wi-Fi, the same network)", "Time limit when hosting: ", "Battle when hosting: ", "Back"};
-        static const char *const kItemEs[7] = {"Crear una partida (ad hoc)", "Unirse a una partida (ad hoc)", "Crear una partida (Wi-Fi, la misma red)",
-                                               "Unirse a una partida (Wi-Fi, la misma red)", "Tiempo limite al crearla: ", "Combate al crearla: ", "Volver"};
+        enum { N_ITEMS = 9, I_TIME = 6, I_KIND = 7, I_BACK = 8 };
+        static const char *const kItemEn[N_ITEMS] = {"Host a match (ad hoc)", "Join a match (ad hoc)", "Host a match (Wi-Fi, the same network)",
+                                                     "Join a match (Wi-Fi, the same network)", "Host a match (internet)",
+                                                     "Join a match (internet: type the host's address)", "Time limit when hosting: ",
+                                                     "Battle when hosting: ", "Back"};
+        static const char *const kItemEs[N_ITEMS] = {"Crear una partida (ad hoc)", "Unirse a una partida (ad hoc)", "Crear una partida (Wi-Fi, la misma red)",
+                                                     "Unirse a una partida (Wi-Fi, la misma red)", "Crear una partida (internet)",
+                                                     "Unirse a una partida (internet, por direccion)",
+                                                     "Tiempo limite al crearla: ", "Combate al crearla: ", "Volver"};
         const char *const *kItem = sEs ? kItemEs : kItemEn;
         int i;
         psvDebugScreenPrintf(ES("\e[H\e[2J\n  Multiplayer: a match against another Vita\n\n", "\e[H\e[2J\n  Multijugador: una partida contra otra Vita\n\n"));
-        for (i = 0; i < 7; i++) {
-            psvDebugScreenPrintf("  %s %s%s\e[39m\n", i == sel ? "\e[33m>" : " ", kItem[i], i == 4 ? kTime[time] : i == 5 ? kKind[team] : "");
+        for (i = 0; i < N_ITEMS; i++) {
+            psvDebugScreenPrintf("  %s %s%s\e[39m\n", i == sel ? "\e[33m>" : " ", kItem[i], i == I_TIME ? kTime[time] : i == I_KIND ? kKind[team] : "");
         }
         psvDebugScreenPrintf(ES("\n  Both Vitas need this same version of the game and the\n"
                                 "  same disc files. Ad hoc: the two Vitas near each other,\n"
                                 "  no router (the system asks to connect). Wi-Fi: both\n"
-                                "  connected to the same network (Settings > Network).\n\n"
+                                "  connected to the same network (Settings > Network).\n"
+                                "  Internet: the host's screen shows its address; the\n"
+                                "  other player types it (see the README if it fails).\n\n"
                                 "  The match is the versus mode, player 1 (the host)\n"
                                 "  against player 2 (one fighter each, or teams: the host\n"
                                 "  chooses), everything unlocked, with a save of\n"
@@ -455,7 +462,9 @@ static int net_menu(void) {
                                 "\n  Las dos Vitas necesitan esta misma version del juego y\n"
                                 "  los mismos archivos del disco. Ad hoc: las dos Vitas\n"
                                 "  cerca, sin router (el sistema pide conectar). Wi-Fi:\n"
-                                "  las dos en la misma red (Ajustes > Red).\n\n"
+                                "  las dos en la misma red (Ajustes > Red). Internet:\n"
+                                "  la pantalla de quien la crea muestra su direccion; el\n"
+                                "  otro jugador la escribe (si falla, mira el README).\n\n"
                                 "  La partida es el modo versus, jugador 1 (quien la crea)\n"
                                 "  contra jugador 2 (un luchador cada uno, o equipos:\n"
                                 "  elige quien la crea), todo desbloqueado, con una partida\n"
@@ -467,23 +476,24 @@ static int net_menu(void) {
             return 0;
         }
         if (p & SCE_CTRL_UP) {
-            sel = (sel + 6) % 7;
+            sel = (sel + 8) % 9;
         } else if (p & SCE_CTRL_DOWN) {
-            sel = (sel + 1) % 7;
-        } else if (sel == 4 && (p & (SCE_CTRL_CROSS | SCE_CTRL_RIGHT))) {
+            sel = (sel + 1) % 9;
+        } else if (sel == 6 && (p & (SCE_CTRL_CROSS | SCE_CTRL_RIGHT))) {
             time = (time + 1) % 6;
-        } else if (sel == 4 && (p & SCE_CTRL_LEFT)) {
+        } else if (sel == 6 && (p & SCE_CTRL_LEFT)) {
             time = (time + 5) % 6;
-        } else if (sel == 5 && (p & (SCE_CTRL_CROSS | SCE_CTRL_RIGHT | SCE_CTRL_LEFT))) {
+        } else if (sel == 7 && (p & (SCE_CTRL_CROSS | SCE_CTRL_RIGHT | SCE_CTRL_LEFT))) {
             team ^= 1;
-        } else if ((p & SCE_CTRL_CROSS) && sel == 6) {
+        } else if ((p & SCE_CTRL_CROSS) && sel == 8) {
             return 0;
-        } else if ((p & SCE_CTRL_CROSS) && sel < 4) {
+        } else if ((p & SCE_CTRL_CROSS) && sel < 6) {
             gVitaNetRole = (sel & 1) ? 2 : 1;
-            gVitaNetLink = sel < 2 ? 1 : 2;
+            gVitaNetLink = sel / 2 + 1; /* (1 ad hoc, 2 Wi-Fi, 3 internet) */
             gVitaNetRules[0] = time - 1;
             gVitaNetRules[5] = team ? 99 : -1; /* (the host's choice; the one who joins gets the host's) */
-            Vita_Log("vita: start menu: multiplayer, %s, %s\n", gVitaNetRole == 1 ? "host" : "join", gVitaNetLink == 1 ? "ad hoc" : "Wi-Fi");
+            Vita_Log("vita: start menu: multiplayer, %s, %s\n", gVitaNetRole == 1 ? "host" : "join",
+                     gVitaNetLink == 1 ? "ad hoc" : gVitaNetLink == 3 ? "internet" : "Wi-Fi");
             return 1;
         }
     }

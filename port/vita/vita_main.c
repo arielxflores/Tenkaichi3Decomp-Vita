@@ -1937,9 +1937,19 @@ static void read_settings(void) {
         } else if (strcmp(line, "nettest") == 0) { /* the one-Vita test of a multiplayer match, n seconds (vita_net.c) */
             extern int gVitaNetTest;
             gVitaNetTest = atoi(eq);
-        } else if (strcmp(line, "netdelay") == 0) { /* (the host) the match's input delay in blanks, 1..8 (vita_net.c) */
+        } else if (strcmp(line, "netdelay") == 0) { /* (the host) the match's input delay in blanks, 1..20 (vita_net.c) */
             extern int gVitaNetDelay;
             gVitaNetDelay = atoi(eq);
+        } else if (strcmp(line, "nethost") == 0) { /* (tests) host a match at once: 1 ad hoc, 2 Wi-Fi, 3 internet (vita_net.c) */
+            extern int gVitaNetRole, gVitaNetLink;
+            gVitaNetRole = 1;
+            gVitaNetLink = atoi(eq) >= 1 && atoi(eq) <= 3 ? atoi(eq) : 3;
+        } else if (strcmp(line, "netjoin") == 0) { /* (tests) join the internet match at this address at once, no keyboard (vita_net.c) */
+            extern int gVitaNetRole, gVitaNetLink;
+            extern char gVitaNetAddr[64];
+            gVitaNetRole = 2;
+            gVitaNetLink = 3;
+            snprintf(gVitaNetAddr, sizeof(gVitaNetAddr), "%s", eq);
         } else if (strcmp(line, "netwarm") == 0) { /* 0: the versus menu's Multiplayer starts the program again for a match (vita_warm.c) */
             extern int gVitaWarmOff;
             gVitaWarmOff = atoi(eq) == 0;

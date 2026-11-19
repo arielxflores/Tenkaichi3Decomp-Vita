@@ -1,5 +1,20 @@
 # Changes (PS Vita port)
 
+## 1.2.6
+
+New
+
+- **Multiplayer over the internet** (experimental): two Vitas play the versus mode from anywhere, by the host's
+  address. Start menu (SELECT a few times as the game starts) → Multiplayer → **Host a match (internet)** shows the
+  host's internet address; the other player chooses **Join a match (internet)** and types it. The game asks the
+  host's router to let the match in (UPnP), finds the host's address as the internet sees it (STUN), says when the
+  router cannot be passed (a second router, the provider's own) and what to do, and sets the input delay from the
+  measured time there and back. No server and no account. See the README's Multiplayer → Over the internet.
+- **Multiplayer: what was lost is sent again from what the other Vita says it has.** Each packet carried the last
+  12 inputs only, enough for the short input delays of ad hoc and Wi-Fi; with the longer delays of the internet a
+  stretch of lost packets could leave both Vitas waiting until the connection was given up. Each Vita now says what
+  it has of the other's inputs, and the rest is sent again from there.
+
 ## 1.2.5
 
 Fixed

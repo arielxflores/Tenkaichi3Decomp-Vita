@@ -58,7 +58,7 @@ SAMPLES = pathlib.Path(os.environ.get("VITA_SAMPLES", SDK.parent / "samples"))  
 TITLE_ID = os.environ.get("BT3_VITA_TITLE_ID") or ("BTTD00008" if DEV else "BTTD00010")
 TITLE = os.environ.get("BT3_VITA_TITLE") or ("BT3 (development)" if DEV else "Dragon Ball Z: BT3")
 VPK = os.environ.get("BT3_VITA_VPK") or (("Tenkaichi3Decomp-Vita-dev" if DEV else "Tenkaichi3Decomp-Vita") + ("-pgo" + PGO if PGO else "") + ".vpk")
-APP_VER = "01.25"  # the version the LiveArea and VitaShell show (README "Changes")
+APP_VER = "01.26"  # the version the LiveArea and VitaShell show (README "Changes")
 
 # A few names exist both in the game's side and in the SDK's libraries with other meanings: the internals of the
 # PS2's maths library (port/third_party/newlib_libm), the PS2 C library's character table, and the generic soft-float
@@ -235,8 +235,8 @@ def port_sources():
             (V / "vita_vufast_wrap.c", "hard"), (V / "vita_tls.c", "hard"), (V / "vita_clib.c", "hard"),
             (V / "vita_crash.c", "hard"), (V / "vita_eu.c", "hard"), (V / "vita_lang.c", "hard"), (V / "vita_read.c", "hard"), (V / "vita_start.c", "hard"), (V / "vita_pgo.c", "hard"),
             (V / "vita_iso.c", "hard")]
-    # multiplayer: a match against another Vita, ad hoc or over Wi-Fi (z3xox's lockstep design); BT4's too
-    out += [(V / "vita_net.c", "hard"), (V / "vita_warm.c", "hard")]
+    # multiplayer: a match against another Vita, ad hoc, over Wi-Fi or the internet (z3xox's lockstep design); BT4's too
+    out += [(V / "vita_net.c", "hard"), (V / "vita_warm.c", "hard"), (V / "vita_reach.c", "hard")]
     if BT4:  # BT4's own services (port/vita/bt4) and the game-side rules of BT4decomp's platform layer
         out += [(V / "bt4/vita_bt4.c", "hard"), (V / "bt4/vita_bt4_shim.c", "hard")]
         out += [(GROOT / "port/src" / (n + ".c"), "bt4ee") for n in ("bt3_gameplay_rules", "bt3_bombardment", "bt3_zcounter2")]

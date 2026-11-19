@@ -303,8 +303,8 @@ songs folder, a line `file|Name In The Menu` each; the files they do not name fo
 
 **Experimental**: players have played one-on-one matches on two Vitas; team battles (1.2.4) have not been played on
 two Vitas yet. A match may stop with a desync or a lost connection; please report what happens, with
-`ux0:data/bt3/log.txt` from both Vitas. Online play
-over the internet (as the PC version's lobbies) is not there yet.
+`ux0:data/bt3/log.txt` from both Vitas. Since 1.2.6 two Vitas can also play over the **internet**, by the host's
+address ([below](#over-the-internet-126)); playing against the PC version is not possible.
 
 Two Vitas can play the versus mode against each other: **ad hoc** (the two Vitas near each other, no router needed)
 or over the **Wi-Fi** network both are connected to. Both need this same version of the game and the files of the
@@ -341,6 +341,31 @@ there ends with the program starting again. There the host also chooses the batt
   for the system's dialog to show over them; where they are not, the program starts again by itself.
 - The two games stay in step by sending each other the buttons pressed, as the PC version's online play does: when
   the connection is slow, both wait for it. If the two games ever stop agreeing (a desync), `log.txt` says so.
+
+### Over the internet (1.2.6)
+
+Press SELECT a few times as the game starts, then **Multiplayer**:
+
+1. The host chooses **Host a match (internet)**. The game asks the host's router to let the match in (UPnP) and shows
+   the host's **internet address** (four numbers, such as `203.0.113.7`). Tell it to the other player (a message, a
+   call, Discord).
+2. The other player chooses **Join a match (internet)** and types that address with the system's keyboard (the last
+   one typed is offered again). The game finds the host, measures the time there and back, and joins.
+3. From there on it is the same as a match on the same network: the character select, the host is player 1.
+
+- **The other player cannot join** ("No answer yet"): the host's router does not let the match in. The host's screen
+  says whether the router opened the way by itself (UPnP). If not, turn UPnP on in the router's settings, or forward
+  **UDP port 18630** to the host's Vita there (its own address on the network is on the host's screen; "port
+  forwarding"), or let the other player host instead. A router forwarding another port to the Vita's 18630 works
+  too: then type the address with that port, `203.0.113.7:20000`.
+- **"This network shares one internet address with others"**: the host is behind a second router or the internet
+  provider's own (carrier-grade NAT, common on mobile hotspots): nothing from outside can come in. The other player
+  hosts.
+- The input delay is set from the time there and back: the farther apart the two Vitas, the later a button takes
+  effect (about 50 ms more for every 100 ms of ping). Within a country it plays well; across an ocean it is sluggish.
+  There is no rollback (the Vita has no time to play frames twice).
+- Both need this same version of the game and the same disc files, as on the same network. Nothing else is needed:
+  no server, no account; the address is only between the two players.
 
 Multiplayer is new: when something goes wrong, `ux0:data/bt3/log.txt` from both Vitas helps.
 

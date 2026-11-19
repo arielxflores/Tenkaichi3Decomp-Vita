@@ -31,7 +31,11 @@
  *
  * The line: ad hoc is the PSP's ad hoc mode as the Vita has it (the system's own dialog connects the two Vitas,
  * then PDP sockets; the order of calls as in Rinnegatamante's vitaQuake), Wi-Fi is UDP on the local network. The host
- * says so by broadcast a few times a second; the one who joins picks it from a list.
+ * says so by broadcast a few times a second; the one who joins picks it from a list. Internet (1.2.6) is the same UDP,
+ * the one who joins typing the host's address: the host asks its router to let the port in (UPnP) and finds its own
+ * address as the internet sees it (STUN), both in vita_reach.c, and shows that address; the one who joins asks that
+ * address for the match (T_PROBE), measures the time there and back on the way, and the host sets the input delay
+ * from it. A lost stretch of packets is sent again from what the other Vita says it has (each T_INPUT's "have").
  *
  * Testing on one Vita (development build): bt3.txt nettest=<seconds> runs a match with no line, both players'
  * buttons from a fixed script and the game's thread held up at random moments, and writes the game's state every
@@ -44,6 +48,7 @@
 #include <psp2/ctrl.h>
 #include <psp2/display.h>
 #include <psp2/gxm.h>
+#include <psp2/ime_dialog.h>
 #include <psp2/io/fcntl.h>
 #include <psp2/io/stat.h>
 #include <psp2/kernel/processmgr.h>
@@ -74,23 +79,25 @@ extern void Vita_TextScreen(void);                         /* vita_vgl.c */
 #define NET_SAVES HOME "/net_saves"
 #define NET_LOG HOME "/net_test.txt"
 
-enum { MAGIC = 0x56335442 /* "BT3V" */, NET_VERSION = 1, NET_PORT = 18630, PAD = 18, RING = 1024, REDUNDANT = 12,
+enum { MAGIC = 0x56335442 /* "BT3V" */, NET_VERSION = 2, NET_PORT = 18630, PAD = 18, RING = 1024, REDUNDANT = 12,
+       SEND_MAX = 26 /* (inputs in one packet at most: 36 + 26 * 18 bytes) */, DELAY_MAX = 20,
        SYNC_EVERY = 30, SYNC_SLOTS = 16, NAME_LEN = 24, PKT_MAX = 512 };
-enum { T_OFFER = 1, T_JOIN, T_WELCOME, T_REFUSE, T_READY, T_ALIVE, T_ARRIVED, T_INPUT, T_BYE };
+enum { T_OFFER = 1, T_JOIN, T_WELCOME, T_REFUSE, T_READY, T_ALIVE, T_ARRIVED, T_INPUT, T_BYE, T_PROBE };
 enum { WHY_VERSION = 1, WHY_DATA = 2, WHY_BUSY = 3, WHY_FLOAT = 4 };
 enum { BYE_LEFT = 1, BYE_LOST = 2, BYE_APART = 3, BYE_QUIT = 4, BYE_OVER = 5 /* both came to the match's end */ };
-enum { LINK_NONE = 0, LINK_ADHOC = 1, LINK_WIFI = 2 };
+enum { LINK_NONE = 0, LINK_ADHOC = 1, LINK_WIFI = 2, LINK_NET = 3 /* (1.2.6) the internet, by the host's address */ };
 
 static const uint8_t kIdle[PAD] = {0xFF, 0xFF, 0x80, 0x80, 0x80, 0x80};
 
 /* ------------------------------------------------------------------------------------------------- what was chosen */
 int gVitaNetRole;     /* the start menu's choice: 0 none, 1 host (player 1), 2 join (player 2) */
-int gVitaNetLink;     /* LINK_ADHOC or LINK_WIFI */
+int gVitaNetLink;     /* LINK_ADHOC, LINK_WIFI or LINK_NET */
+char gVitaNetAddr[64]; /* (internet, the one who joins) the host's address as typed: "a.b.c.d", a name, either with ":port" */
 /* (the host) the battle settings of the match, the save's rule[0..5] (Duel Time: 0..4 = 60, 90, 180, 240 s, none; COM
    Level; Referee; Transformations, two; Map Setting); -1: the game's own default. From the start menu (the time) or
    from the versus menu's Multiplayer (all six, the host's own settings: Vita_NetRestartInto). */
 int gVitaNetRules[6] = {-1, -1, -1, -1, -1, -1};
-int gVitaNetDelay = -1; /* bt3.txt netdelay=<blanks> (testing): the input delay the host asks for */
+int gVitaNetDelay = -1; /* bt3.txt netdelay=<blanks> (testing): the input delay the host asks for (1..DELAY_MAX) */
 int gVitaNetTest;     /* (development build) bt3.txt nettest=<seconds>: the one-Vita test of the match's sameness */
 
 static int sOn;       /* the game runs as a match (from its start) */
@@ -108,6 +115,26 @@ static int sDelay = 2;
 static char sMyName[NAME_LEN] = "Player", sTheirName[NAME_LEN] = "the other player";
 static unsigned long long sMyBuild, sMyData;
 static uint32_t sJoinNonce; /* (the one who joins: its greeting's number, answered again if the host asks once more) */
+static uint32_t sJoinRtt;   /* (internet) the time there and back the one who joins measured, ms (its T_JOIN carries it) */
+
+extern int Reach_Resolve(const char *name, uint32_t *ip);
+extern int Reach_IsPrivate(uint32_t ip);
+extern int Reach_UpnpOpen(const char *myIp, int port, char *extIp, int extSize, char *why, int whySize);
+extern void Reach_UpnpClose(void);
+extern int Reach_StunServers(uint32_t *ip, uint16_t *port, int max);
+extern int Reach_StunRequest(uint8_t *out);
+extern int Reach_StunTake(const uint8_t *p, int n, uint32_t *ip, uint16_t *port);
+
+static const char *link_name(int kind) {
+    return kind == 1 ? "ad hoc" : kind == 3 ? "internet" : "Wi-Fi";
+}
+
+/* (internet) the input delay for a time there and back of `rtt` ms: the input made now must reach the other Vita
+   before it plays that blank, half the time there and back plus 12 ms to spare, in blanks of 16.7 ms, and one more */
+static int net_delay(uint32_t rtt) {
+    int d = (int)((rtt / 2 + 12) * 60 + 999) / 1000 + 1;
+    return d < 3 ? 3 : d > DELAY_MAX ? DELAY_MAX : d;
+}
 
 /* ------------------------------------------------------------------------------------------------- small helpers */
 static uint64_t now_us(void) {
@@ -140,6 +167,7 @@ typedef struct { uint8_t mac[6]; uint16_t port; uint32_t ip; } NetAddr;
 static int sLink, sSock = -1, sNetInit, sAdhocInit;
 static SceUID sPoolId = -1;
 static NetAddr sPeer, sMine;
+static NetAddr sNetTarget; /* (internet, the one who joins) the host's address, found from gVitaNetAddr */
 static char sErr[240];
 static char sMyIp[16];
 
@@ -435,12 +463,15 @@ static int link_open(int kind) {
         memset(&sMine, 0, sizeof(sMine));
         sceNetInetPton(SCE_NET_AF_INET, sMyIp, &sMine.ip);
         sMine.port = sceNetHtons(NET_PORT);
-        Vita_Log("net: Wi-Fi, address %s, socket %08x\n", sMyIp, (unsigned)sSock);
+        Vita_Log("net: %s, address %s, socket %08x\n", link_name(kind), sMyIp, (unsigned)sSock);
         return 1;
     }
 }
 
 static void link_close(void) {
+    if (sLink == LINK_NET) {
+        Reach_UpnpClose(); /* (the router's port given back, when it was opened) */
+    }
     if (sSock >= 0) {
         if (sLink == LINK_ADHOC) {
             sceNetAdhocPdpDelete(sSock, 0);
@@ -613,6 +644,78 @@ static int cancel_pressed(void) {
 }
 
 /* The host: tells the network a few times a second, takes the first Vita that asks and fits. 1: a player joined. */
+/* (internet, the host) the router asked to let the match in, and this Vita's address as the internet sees it; then the
+   host's screen: the address to tell the other player, and what to do when they cannot reach it. */
+static void host_reach(void) {
+    char ext[20] = "", why[160] = "", pub[20] = "";
+    uint8_t req[20], in[PKT_MAX];
+    uint32_t sip[3], pubIp = 0, extIp = 0;
+    uint16_t sport[3], pubPort = 0;
+    uint64_t t0, last = 0;
+    int upnp, ns, k, n;
+    NetAddr from, to;
+
+    psvDebugScreenPrintf("\e[H\e[2J\n  Multiplayer: hosting a match (internet)\n\n  Asking your router to let the other player in (UPnP) ...\n");
+    upnp = Reach_UpnpOpen(sMyIp, NET_PORT, ext, sizeof(ext), why, sizeof(why));
+    psvDebugScreenPrintf("  Finding this Vita's internet address ...\n");
+    ns = Reach_StunServers(sip, sport, 3);
+    Reach_StunRequest(req);
+    for (t0 = now_us(); ns > 0 && pubIp == 0 && now_us() - t0 < 2000000;) {
+        if (now_us() - last > 400000) { /* (from the match's own socket: the address and port the match is seen at) */
+            for (k = 0; k < ns; k++) {
+                memset(&to, 0, sizeof(to));
+                to.ip = sip[k];
+                to.port = sport[k];
+                link_send(&to, req, 20);
+            }
+            last = now_us();
+        }
+        while ((n = link_recv(in, sizeof(in), &from)) > 0) {
+            if (Reach_StunTake(in, n, &pubIp, &pubPort)) {
+                break;
+            }
+        }
+        sceKernelDelayThread(10000);
+    }
+    if (pubIp != 0) {
+        sceNetInetNtop(SCE_NET_AF_INET, &pubIp, pub, sizeof(pub));
+    }
+    if (ext[0] != '\0') {
+        sceNetInetPton(SCE_NET_AF_INET, ext, &extIp);
+    }
+    Vita_Log("net: internet host: UPnP %s%s, the router's address %s, seen from the internet as %s:%u (STUN, %d servers)\n",
+             upnp ? "opened the port" : "no: ", upnp ? "" : why, ext[0] ? ext : "-", pub[0] ? pub : "-", (unsigned)sceNetNtohs(pubPort), ns);
+    psvDebugScreenPrintf("\e[H\e[2J\n  Multiplayer: hosting a match (internet)\n\n");
+    if (pub[0] != '\0') {
+        psvDebugScreenPrintf("  Tell the other player this address:  \e[33m%s\e[39m\n", pub);
+    } else {
+        psvDebugScreenPrintf("  \e[33mThis Vita's internet address could not be found\e[39m\n  (is the network connected to the internet?).\n");
+    }
+    psvDebugScreenPrintf("  On their Vita: press SELECT a few times as the game\n  starts, Multiplayer > Join a match (internet), and\n"
+                         "  type it. (On this same network: %s.)\n\n", sMyIp);
+    if (upnp) {
+        psvDebugScreenPrintf("  Your router lets the match in (UPnP: UDP port %d\n  goes to this Vita while you host).\n", NET_PORT);
+    } else {
+        psvDebugScreenPrintf("  Your router: %s.\n  If the other player cannot join: in your router's\n"
+                             "  settings, forward UDP port %d to this Vita (%s),\n  or let the other player host.\n",
+                             why, NET_PORT, sMyIp);
+    }
+    if ((extIp != 0 && pubIp != 0 && extIp != pubIp) || (extIp != 0 && Reach_IsPrivate(extIp))) {
+        psvDebugScreenPrintf("\n  \e[33mThis network shares one internet address with others\n  (a second router, or your provider's): the other player\n"
+                             "  most likely cannot reach you. Let them host instead.\e[39m\n");
+        Vita_Log("net: internet host: behind a second router or the provider's (router %s, internet %s)\n", ext, pub);
+    }
+    { /* (what was found, for the tests that play the other side from a computer: net_host.txt) */
+        SceUID fd = sceIoOpen(HOME "/net_host.txt", SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
+        if (fd >= 0) {
+            char t[160];
+            int l = snprintf(t, sizeof(t), "%s %s %d %s\n", sMyIp, pub[0] ? pub : "-", upnp, ext[0] ? ext : "-");
+            sceIoWrite(fd, t, (SceSize)l);
+            sceIoClose(fd);
+        }
+    }
+}
+
 static int host_wait(void) {
     uint8_t pkt[PKT_MAX], in[PKT_MAX];
     uint64_t lastOffer = 0, lastWelcome = 0, since = now_us();
@@ -622,11 +725,17 @@ static int host_wait(void) {
 
     sSession = (uint32_t)(now_us() ^ (now_us() >> 21)) | 1u;
     sSeed = (unsigned)(now_us() * 2654435761u) | 1u;
-    sDelay = gVitaNetDelay >= 1 && gVitaNetDelay <= 8 ? gVitaNetDelay : sLink == LINK_WIFI ? 3 : 2;
-    psvDebugScreenPrintf("\e[H\e[2J\n  Multiplayer: hosting a match (%s)\n\n  Waiting for another Vita to join ...\n\n"
-                         "  On the other Vita: press SELECT a few times as the game\n  starts, Multiplayer > Join a match (%s).\n\n"
-                         "  You are player 1 (%s). Time limit: %s.\n\n  CIRCLE: cancel.\n",
-                         sLink == LINK_ADHOC ? "ad hoc" : "Wi-Fi", sLink == LINK_ADHOC ? "ad hoc" : "Wi-Fi", sMyName, time_name(gVitaNetRules[0]));
+    sDelay = gVitaNetDelay >= 1 && gVitaNetDelay <= DELAY_MAX ? gVitaNetDelay : sLink != LINK_ADHOC ? 3 : 2;
+    if (sLink == LINK_NET) {
+        host_reach();
+        psvDebugScreenPrintf("\n  Waiting for the other player ... You are player 1\n  (%s). Time limit: %s.\n\n  CIRCLE: cancel.\n", sMyName,
+                             time_name(gVitaNetRules[0]));
+    } else {
+        psvDebugScreenPrintf("\e[H\e[2J\n  Multiplayer: hosting a match (%s)\n\n  Waiting for another Vita to join ...\n\n"
+                             "  On the other Vita: press SELECT a few times as the game\n  starts, Multiplayer > Join a match (%s).\n\n"
+                             "  You are player 1 (%s). Time limit: %s.\n\n  CIRCLE: cancel.\n",
+                             link_name(sLink), link_name(sLink), sMyName, time_name(gVitaNetRules[0]));
+    }
     if (sLink == LINK_WIFI) {
         psvDebugScreenPrintf("  (this Vita's address: %s)\n", sMyIp);
     }
@@ -668,6 +777,24 @@ static int host_wait(void) {
                 continue;
             }
             type = in[4];
+            if (type == T_PROBE && !joined && n >= 20) { /* (internet: the one who joins asks this address; answered to it alone,
+                                                            its clock sent back: the time there and back) */
+                int k = head(pkt, T_OFFER);
+                if (n >= 36 && (get64(in + 20) != sMyBuild || get64(in + 28) != sMyData) && lines < 6) {
+                    char where[40];
+                    lines++;
+                    addr_text(&from, where, sizeof(where));
+                    Vita_Log("net: internet: %s asked for the match with %s\n", where, get64(in + 20) != sMyBuild ? "another version" : "other disc files");
+                    psvDebugScreenPrintf("\n  \e[33mA Vita at %s tried to join: %s.\e[39m\n", where,
+                                         refusal(get64(in + 20) != sMyBuild ? WHY_VERSION : WHY_DATA));
+                }
+                put64(pkt + k, sMyBuild);
+                put64(pkt + k + 8, sMyData);
+                name_put(pkt + k + 16, sMyName);
+                memcpy(pkt + k + 16 + NAME_LEN, in + 12, 8);
+                link_send(&from, pkt, k + 16 + NAME_LEN + 8);
+                continue;
+            }
             if (type == T_JOIN && n >= 12 + 16 + NAME_LEN + 4 && get32(in + 8) == sSession) {
                 uint32_t why = 0;
                 char name[NAME_LEN];
@@ -691,15 +818,23 @@ static int host_wait(void) {
                 }
                 if (!joined) {
                     char where[40];
+                    uint32_t rtt = n >= 12 + 16 + NAME_LEN + 8 ? get32(in + 28 + NAME_LEN + 4) : 0;
                     sPeer = from;
                     nonce = get32(in + 28 + NAME_LEN);
                     snprintf(sTheirName, sizeof(sTheirName), "%s", name);
                     joined = 1;
                     since = t;
                     lastWelcome = 0;
+                    if (sLink == LINK_NET && !(gVitaNetDelay >= 1 && gVitaNetDelay <= DELAY_MAX)) {
+                        sDelay = net_delay(rtt); /* (the time there and back the one who joins measured) */
+                    }
                     addr_text(&from, where, sizeof(where));
-                    Vita_Log("net: %s (%s) asks to join\n", name, where);
-                    psvDebugScreenPrintf("\n  %s is joining ...\n", name);
+                    Vita_Log("net: %s (%s) asks to join (time there and back %u ms: input delay %d)\n", name, where, (unsigned)rtt, sDelay);
+                    if (sLink == LINK_NET) {
+                        psvDebugScreenPrintf("\n  %s is joining (ping %u ms) ...\n", name, (unsigned)rtt);
+                    } else {
+                        psvDebugScreenPrintf("\n  %s is joining ...\n", name);
+                    }
                 }
             } else if (type == T_READY && joined && same_addr(&from, &sPeer) && get32(in + 8) == sSession && n >= 16 && get32(in + 12) == nonce) {
                 Vita_Log("net: %s joined: match %08x, seed %08x, input delay %d\n", sTheirName, (unsigned)sSession, sSeed, sDelay);
@@ -717,19 +852,33 @@ typedef struct { NetAddr addr; uint32_t session; char name[NAME_LEN]; int fits; 
 static int join_wait(void) {
     Offer list[4];
     uint8_t pkt[PKT_MAX], in[PKT_MAX];
-    int count = 0, sel = 0, asking = -1, redraw = 1, k;
-    uint64_t lastAsk = 0, askSince = 0;
-    uint32_t nonce = (uint32_t)now_us() | 1u;
+    int count = 0, sel = 0, asking = -1, redraw = 1, k, nRtt = 0, autoTried = 0, helpShown = 0;
+    uint64_t lastAsk = 0, askSince = 0, lastProbe = 0, start = now_us(), firstOffer = 0;
+    uint32_t nonce = (uint32_t)now_us() | 1u, rtts[8];
     unsigned prev = pad_now();
     NetAddr from;
     char note[200] = "";
 
     memset(list, 0, sizeof(list));
+    sJoinRtt = 0;
     for (;;) {
         uint64_t t = now_us();
         unsigned now = pad_now(), pressed = now & ~prev;
         int n;
         prev = now;
+        if (sLink == LINK_NET && t - lastProbe > 250000) { /* (internet: the host's address asked, with this Vita's clock
+                                                              and what it is: the host can say when the versions differ) */
+            k = head(pkt, T_PROBE);
+            put64(pkt + k, t);
+            put64(pkt + k + 8, sMyBuild);
+            put64(pkt + k + 16, sMyData);
+            link_send(&sNetTarget, pkt, k + 24);
+            lastProbe = t;
+        }
+        if (sLink == LINK_NET && !helpShown && count == 0 && t - start > 6000000) {
+            helpShown = 1;
+            redraw = 1;
+        }
         for (k = 0; k < count; k++) { /* (a host not heard for five seconds has gone) */
             if (t - list[k].seen > 5000000 && k != asking) {
                 list[k] = list[--count];
@@ -742,8 +891,14 @@ static int join_wait(void) {
             }
         }
         if (redraw) {
-            psvDebugScreenPrintf("\e[H\e[2J\n  Multiplayer: joining a match (%s)\n\n", sLink == LINK_ADHOC ? "ad hoc" : "Wi-Fi");
-            if (count == 0) {
+            psvDebugScreenPrintf("\e[H\e[2J\n  Multiplayer: joining a match (%s)\n\n", link_name(sLink));
+            if (count == 0 && sLink == LINK_NET) {
+                psvDebugScreenPrintf("  Asking %s for its match ...\n", gVitaNetAddr);
+                if (helpShown) {
+                    psvDebugScreenPrintf("\n  No answer yet. Check the address on the host's screen.\n  If it is right, the host's router does not let the\n"
+                                         "  match in: the host's screen says what to do (or you\n  host and they join).\n");
+                }
+            } else if (count == 0) {
                 psvDebugScreenPrintf("  Looking for a Vita that hosts a match ...\n\n  On the other Vita: press SELECT a few times as the game\n"
                                      "  starts, Multiplayer > Host a match (%s).\n", sLink == LINK_ADHOC ? "ad hoc" : "Wi-Fi");
             } else {
@@ -757,7 +912,9 @@ static int join_wait(void) {
             if (note[0] != '\0') {
                 psvDebugScreenPrintf("\n  \e[33m%s\e[39m\n", note);
             }
-            if (asking >= 0) {
+            if (asking >= 0 && sLink == LINK_NET) {
+                psvDebugScreenPrintf("\n  Joining %s (ping %u ms) ...\n", list[asking].name, (unsigned)sJoinRtt);
+            } else if (asking >= 0) {
                 psvDebugScreenPrintf("\n  Joining %s ...\n", list[asking].name);
             }
             redraw = 0;
@@ -785,7 +942,8 @@ static int join_wait(void) {
             put64(pkt + k + 8, sMyData);
             name_put(pkt + k + 16, sMyName);
             put32(pkt + k + 16 + NAME_LEN, nonce);
-            link_send(&list[asking].addr, pkt, k + 16 + NAME_LEN + 4);
+            put32(pkt + k + 16 + NAME_LEN + 4, sJoinRtt); /* (internet: the host sets the input delay from it) */
+            link_send(&list[asking].addr, pkt, k + 16 + NAME_LEN + 8);
             lastAsk = t;
             if (t - askSince > 10000000) {
                 snprintf(note, sizeof(note), "%s did not answer.", list[asking].name);
@@ -820,6 +978,21 @@ static int join_wait(void) {
                     list[at].fits = fits;
                     list[at].seen = t;
                     name_get(list[at].name, in + 28);
+                    if (sLink == LINK_NET && from.ip == sNetTarget.ip && n >= 12 + 16 + NAME_LEN + 8) { /* (the answer to a probe) */
+                        uint64_t sent = get64(in + 28 + NAME_LEN);
+                        if (sent != 0 && sent <= t && t - sent < 5000000) {
+                            uint32_t m = 0;
+                            int j;
+                            rtts[nRtt++ % 8] = (uint32_t)((t - sent) / 1000);
+                            for (j = 0; j < (nRtt < 8 ? nRtt : 8); j++) {
+                                m = rtts[j] > m ? rtts[j] : m; /* (the slowest of the last eight: the delay must cover it) */
+                            }
+                            sJoinRtt = m;
+                        }
+                        if (firstOffer == 0) {
+                            firstOffer = t;
+                        }
+                    }
                 }
             } else if (asking >= 0 && same_addr(&from, &list[asking].addr) && get32(in + 8) == list[asking].session && n >= 16 &&
                        get32(in + 12) == nonce) {
@@ -830,7 +1003,7 @@ static int join_wait(void) {
                 } else if (type == T_WELCOME && n >= 12 + 20 + NAME_LEN) {
                     sPeer = from;
                     sSeed = get32(in + 16);
-                    sDelay = in[20] >= 1 && in[20] <= 8 ? in[20] : 2;
+                    sDelay = in[20] >= 1 && in[20] <= DELAY_MAX ? in[20] : 2;
                     for (k = 0; k < 6; k++) {
                         gVitaNetRules[k] = (int8_t)in[24 + k];
                     }
@@ -843,6 +1016,19 @@ static int join_wait(void) {
                     Vita_Log("net: joined %s: match %08x, seed %08x, input delay %d, battle settings %d %d %d %d %d %d\n", sTheirName, (unsigned)sSession,
                              sSeed, sDelay, gVitaNetRules[0], gVitaNetRules[1], gVitaNetRules[2], gVitaNetRules[3], gVitaNetRules[4], gVitaNetRules[5]);
                     return 1;
+                }
+            }
+        }
+        if (sLink == LINK_NET && asking < 0 && !autoTried && firstOffer != 0 && (nRtt >= 4 || t - firstOffer > 2000000)) {
+            for (k = 0; k < count; k++) { /* (internet: the host at the address typed answered, a few times: joined at once) */
+                if (list[k].addr.ip == sNetTarget.ip && list[k].fits) {
+                    sel = asking = k;
+                    askSince = t;
+                    lastAsk = 0;
+                    note[0] = '\0';
+                    autoTried = redraw = 1;
+                    Vita_Log("net: internet: %s answered at %s (time there and back up to %u ms): joining\n", list[k].name, gVitaNetAddr, (unsigned)sJoinRtt);
+                    break;
                 }
             }
         }
@@ -910,7 +1096,7 @@ void Vita_NetRestartInto(int role, int link, const int *rules) {
         sceIoWrite(fd, text, (SceSize)n);
         sceIoClose(fd);
     }
-    Vita_Log("net: the versus menu chose %s (%s): the game starts again for the match\n", role == 1 ? "host" : "join", link == LINK_ADHOC ? "ad hoc" : "Wi-Fi");
+    Vita_Log("net: the versus menu chose %s (%s): the game starts again for the match\n", role == 1 ? "host" : "join", link_name(link));
     restart();
 }
 
@@ -938,7 +1124,7 @@ int Vita_NetStartFile(void) {
     for (k = 0; k < 6; k++) {
         gVitaNetRules[k] = k + 2 < n ? r[k] : -1;
     }
-    Vita_Log("net: started again for a match from the versus menu: %s, %s\n", role == 1 ? "host" : "join", link == LINK_ADHOC ? "ad hoc" : "Wi-Fi");
+    Vita_Log("net: started again for a match from the versus menu: %s, %s\n", role == 1 ? "host" : "join", link_name(link));
     return 1;
 }
 
@@ -997,6 +1183,151 @@ static void match_undo(void) {
     }
 }
 
+/* (internet, the one who joins) the host's address typed with the system's keyboard (the last one offered again,
+   kept in net_address.txt), then found: sNetTarget. 1: there is one. */
+#define NET_ADDR_FILE HOME "/net_address.txt"
+
+static int net_target(void);
+
+static int ask_address(void) {
+    static SceWChar16 title[64], init[64], buf[64];
+    static const char kTitle[] = "The host's internet address (on the host's screen)";
+    SceDisplayFrameBuf text;
+    SceImeDialogParam p;
+    SceImeDialogResult res;
+    char last[64] = "";
+    int back = 0, front = 1, r, i, ok = 0;
+    SceUID fd;
+
+    if (gVitaNetAddr[0] != '\0') { /* (the development build's bt3.txt netjoin=<address>: no keyboard) */
+        return net_target();
+    }
+    fd = sceIoOpen(NET_ADDR_FILE, SCE_O_RDONLY, 0);
+
+    if (fd >= 0) {
+        int n = sceIoRead(fd, last, sizeof(last) - 1);
+        sceIoClose(fd);
+        last[n > 0 ? n : 0] = '\0';
+        last[strcspn(last, "\r\n")] = '\0';
+    }
+    for (i = 0; i < 63 && kTitle[i] != '\0'; i++) {
+        title[i] = (SceWChar16)kTitle[i];
+    }
+    title[i] = 0;
+    for (i = 0; i < 63 && last[i] != '\0'; i++) {
+        init[i] = (SceWChar16)(unsigned char)last[i];
+    }
+    init[i] = 0;
+    memset(buf, 0, sizeof(buf));
+    app_util();
+    memset(&text, 0, sizeof(text));
+    text.size = sizeof(text);
+    sceDisplayGetFrameBuf(&text, SCE_DISPLAY_SETBUF_NEXTFRAME);
+    if (!dlg_gxm_up()) {
+        dlg_gxm_down();
+        sceDisplaySetFrameBuf(&text, SCE_DISPLAY_SETBUF_NEXTFRAME);
+        return 0;
+    }
+    sceImeDialogParamInit(&p);
+    p.supportedLanguages = SCE_IME_LANGUAGE_ENGLISH;
+    p.languagesForced = SCE_TRUE;
+    p.type = SCE_IME_TYPE_URL;
+    p.option = SCE_IME_OPTION_NO_AUTO_CAPITALIZATION;
+    p.textBoxMode = SCE_IME_DIALOG_TEXTBOX_MODE_WITH_CLEAR;
+    p.title = title;
+    p.maxTextLength = 63;
+    p.initialText = init;
+    p.inputTextBuffer = buf;
+    r = sceImeDialogInit(&p);
+    Vita_Log("net: the keyboard for the host's address: %08x\n", (unsigned)r);
+    if (r < 0) {
+        snprintf(sErr, sizeof(sErr), "the system's keyboard did not open (%08x)", (unsigned)r);
+    } else {
+        for (;;) {
+            SceCommonDialogUpdateParam up;
+            if (sceImeDialogGetStatus() == SCE_COMMON_DIALOG_STATUS_FINISHED) {
+                break;
+            }
+            memset(sDlgBuf[back], 0, 4 * DLG_STRIDE * DLG_H);
+            memset(&up, 0, sizeof(up));
+            up.renderTarget.colorFormat = SCE_GXM_COLOR_FORMAT_A8B8G8R8;
+            up.renderTarget.surfaceType = SCE_GXM_COLOR_SURFACE_LINEAR;
+            up.renderTarget.width = DLG_W;
+            up.renderTarget.height = DLG_H;
+            up.renderTarget.strideInPixels = DLG_STRIDE;
+            up.renderTarget.colorSurfaceData = sDlgBuf[back];
+            up.renderTarget.depthSurfaceData = NULL;
+            up.displaySyncObject = sDlgSync[back];
+            sceCommonDialogUpdate(&up);
+            sceGxmPadHeartbeat(&sDlgSurf[back], sDlgSync[back]);
+            sceGxmDisplayQueueAddEntry(sDlgSync[front], sDlgSync[back], &sDlgBuf[back]);
+            front = back;
+            back ^= 1;
+            sceDisplayWaitVblankStart();
+        }
+        memset(&res, 0, sizeof(res));
+        sceImeDialogGetResult(&res);
+        sceImeDialogTerm();
+        ok = res.button == SCE_IME_DIALOG_BUTTON_ENTER;
+        if (!ok) {
+            snprintf(sErr, sizeof(sErr), "the match was cancelled");
+        }
+    }
+    dlg_gxm_down();
+    sceDisplaySetFrameBuf(&text, SCE_DISPLAY_SETBUF_NEXTFRAME);
+    if (!ok) {
+        return 0;
+    }
+    /* the text: letters, digits and . - : only (spaces and a typed "http://" left out) */
+    for (i = 0, r = 0; buf[i] != 0 && r < (int)sizeof(gVitaNetAddr) - 1; i++) {
+        SceWChar16 ch = buf[i];
+        if ((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch == '.' || ch == '-' || ch == ':') {
+            gVitaNetAddr[r++] = (char)ch;
+        }
+    }
+    gVitaNetAddr[r] = '\0';
+    if (strncasecmp(gVitaNetAddr, "http:", 5) == 0) {
+        memmove(gVitaNetAddr, gVitaNetAddr + 5, strlen(gVitaNetAddr + 5) + 1);
+    }
+    if (gVitaNetAddr[0] == '\0') {
+        snprintf(sErr, sizeof(sErr), "no address was typed");
+        return 0;
+    }
+    return net_target();
+}
+
+/* gVitaNetAddr kept for next time, and found: sNetTarget. 1: found. */
+static int net_target(void) {
+    char host[64], *c;
+    int port = NET_PORT;
+    uint32_t ip;
+    SceUID fd = sceIoOpen(NET_ADDR_FILE, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
+    if (fd >= 0) {
+        sceIoWrite(fd, gVitaNetAddr, strlen(gVitaNetAddr));
+        sceIoClose(fd);
+    }
+    snprintf(host, sizeof(host), "%s", gVitaNetAddr);
+    c = NULL;
+    c = strrchr(host, ':');
+    if (c != NULL) { /* (":port": another port the host's router sends on to it) */
+        *c = '\0';
+        port = atoi(c + 1);
+        if (port <= 0 || port > 65535) {
+            port = NET_PORT;
+        }
+    }
+    psvDebugScreenPrintf("\e[H\e[2J\n  Multiplayer: joining a match (internet)\n\n  Looking up %s ...\n", host);
+    if (!Reach_Resolve(host, &ip)) {
+        snprintf(sErr, sizeof(sErr), "the address \"%s\" was not found (check it on the host's screen)", gVitaNetAddr);
+        return 0;
+    }
+    memset(&sNetTarget, 0, sizeof(sNetTarget));
+    sNetTarget.ip = ip;
+    sNetTarget.port = sceNetHtons((unsigned short)port);
+    Vita_Log("net: internet: the host's address %s (port %d)\n", gVitaNetAddr, port);
+    return 1;
+}
+
 /* (vita_main.c, after the disc's files were found and before the game starts) the start menu chose Multiplayer:
    the line, the other Vita, and the match set up. Comes back only with a match; else the game starts again. */
 void Vita_NetConnect(void) {
@@ -1020,13 +1351,18 @@ void Vita_NetConnect(void) {
     sMyBuild = build_id();
     psvDebugScreenPrintf("\e[H\e[2J\n  Multiplayer: checking this Vita's game files ...\n");
     sMyData = data_id();
-    psvDebugScreenPrintf("\n  Multiplayer: starting the %s connection ...\n", gVitaNetLink == LINK_ADHOC ? "ad hoc" : "Wi-Fi");
+    psvDebugScreenPrintf("\n  Multiplayer: starting the %s connection ...\n", link_name(gVitaNetLink));
     ok = link_open(gVitaNetLink);
     if (ok) {
         my_name();
-        ok = gVitaNetRole == 1 ? host_wait() : join_wait();
-        if (!ok) {
-            snprintf(sErr, sizeof(sErr), "the match was cancelled");
+        if (gVitaNetRole == 2 && gVitaNetLink == LINK_NET) {
+            ok = ask_address();
+        }
+        if (ok) {
+            ok = gVitaNetRole == 1 ? host_wait() : join_wait();
+            if (!ok) {
+                snprintf(sErr, sizeof(sErr), "the match was cancelled");
+            }
         }
     }
     if (!ok) {
@@ -1179,7 +1515,7 @@ int Vita_NetPairPoll(const char **line, unsigned *gen) {
                 if (sPair.role == 1) {
                     sSession = (uint32_t)(now_us() ^ (now_us() >> 21)) | 1u;
                     sSeed = (unsigned)(now_us() * 2654435761u) | 1u;
-                    sDelay = gVitaNetDelay >= 1 && gVitaNetDelay <= 8 ? gVitaNetDelay : 2;
+                    sDelay = gVitaNetDelay >= 1 && gVitaNetDelay <= DELAY_MAX ? gVitaNetDelay : 2;
                     sPair.state = PAIR_HOST;
                     pair_say("Waiting for a player to join ...\n(Triangle: cancel)");
                 } else {
@@ -1314,7 +1650,7 @@ int Vita_NetPairPoll(const char **line, unsigned *gen) {
                 } else if (type == T_WELCOME && n >= 12 + 20 + NAME_LEN) {
                     sPeer = from;
                     sSeed = get32(in + 16);
-                    sDelay = in[20] >= 1 && in[20] <= 8 ? in[20] : 2;
+                    sDelay = in[20] >= 1 && in[20] <= DELAY_MAX ? in[20] : 2;
                     for (k = 0; k < 6; k++) {
                         gVitaNetRules[k] = (int8_t)in[24 + k];
                     }
@@ -1494,15 +1830,24 @@ static void send_arrived(uint32_t tick, int answer) {
     link_send(&sPeer, pkt, k + 8);
 }
 
+/* The newest REDUNDANT inputs, and from further back when the other Vita says it has less (a lost stretch of
+   packets, longer than REDUNDANT: SEND_MAX at a time from the first it lacks). */
+static uint32_t sTheirHave; /* (what the other Vita says it has of this one's inputs) */
+
 static void send_inputs(void) {
-    uint8_t pkt[32 + REDUNDANT * PAD];
-    uint32_t n = sHave[sMe] < REDUNDANT ? sHave[sMe] : REDUNDANT, base = sHave[sMe] - n, i;
+    uint8_t pkt[36 + SEND_MAX * PAD];
+    uint32_t hi = sHave[sMe], base = hi < REDUNDANT ? 0 : hi - REDUNDANT, n, i;
     int k = head(pkt, T_INPUT);
+    if (sTheirHave < base) {
+        base = sTheirHave;
+    }
+    n = hi - base > SEND_MAX ? SEND_MAX : hi - base;
     put32(pkt + k, base);
     put32(pkt + k + 4, n);
     put32(pkt + k + 8, sNoteOutTick);
     put64(pkt + k + 12, sNoteOutValue);
-    k += 20;
+    put32(pkt + k + 20, sHave[!sMe]); /* (what this Vita has of the other's) */
+    k += 24;
     for (i = 0; i < n; i++) {
         memcpy(pkt + k + i * PAD, sIn[sMe][(base + i) % RING], PAD);
     }
@@ -1581,6 +1926,7 @@ static void session_reset(void) {
     sApartCount = sCompared = 0;
     memset(sIn, 0, sizeof(sIn));
     sHave[0] = sHave[1] = 0;
+    sTheirHave = 0;
     sTick = 0;
     sArrivedFlag = sMet = 0;
     sMyArrival = sTheirArrival = 0;
@@ -1686,16 +2032,19 @@ static int receive(void) {
             }
             break;
         case T_INPUT:
-            if (n >= 32) {
-                uint32_t base = get32(in + 12), cnt = get32(in + 16), i, other = (uint32_t)!sMe;
+            if (n >= 36) {
+                uint32_t base = get32(in + 12), cnt = get32(in + 16), i, other = (uint32_t)!sMe, have = get32(in + 32);
                 note_take(get32(in + 20), get64(in + 24));
-                if (cnt > REDUNDANT || n < 32 + (int)(cnt * PAD) || !sMet) {
+                if (cnt > SEND_MAX || n < 36 + (int)(cnt * PAD) || !sMet) {
                     break;
+                }
+                if (have > sTheirHave && have <= sHave[sMe]) {
+                    sTheirHave = have;
                 }
                 for (i = 0; i < cnt; i++) {
                     uint32_t t = base + i;
                     if (t == sHave[other] && t < sHave[sMe] + RING / 2) {
-                        memcpy(sIn[other][t % RING], in + 32 + i * PAD, PAD);
+                        memcpy(sIn[other][t % RING], in + 36 + i * PAD, PAD);
                         sHave[other] = t + 1;
                     }
                 }
@@ -1803,6 +2152,7 @@ static void meet(uint32_t tick) {
         }
         sHave[k] = tick + (uint32_t)sDelay;
     }
+    sTheirHave = tick + (uint32_t)sDelay; /* (both start from here: what came before is no one's) */
     Vita_Log("net: both at the character select at blank %u (%u ms after the game started); the other Vita's blank %u\n", (unsigned)tick,
              (unsigned)((now_us() - sStartUs) / 1000), (unsigned)sTheirArrival);
     if (sTheirArrival != tick) {
@@ -1906,7 +2256,7 @@ void Port_NetBeginTick(unsigned tick) {
         gVitaNetWaiting = 1;
         while (sHave[!sMe] <= tick) {
             uint64_t now = now_us();
-            if (now - last > 4000) {
+            if (now - last > (sLink == LINK_NET ? 10000u : 4000u)) {
                 send_inputs(); /* (the other may be waiting for a packet that was lost) */
                 last = now;
             }
