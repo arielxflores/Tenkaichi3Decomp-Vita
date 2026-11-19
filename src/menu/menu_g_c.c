@@ -711,7 +711,14 @@ static void DuelMenu_VitaNetClose(void) {
     DM->sel[DUEL_LEVEL_TYPE] = sVitaNetKeep;
 }
 
+static s32 sVitaNetSayAgain;
+
 static void DuelMenu_VitaNetInput(void) {
+    if (sVitaNetSayAgain) { /* (the line written anew below: the window lays a line out when its number changes, so it
+                               was given none for a picture: build 335 kept showing "one fighter each") */
+        sVitaNetSayAgain = 0;
+        DuelMenu_VitaNetSay();
+    }
     if (sVitaNetGo != 0 || sVitaPair != 0) {
         return; /* (fading out; or the other Vita is looked for: DuelMenu_Update) */
     }
@@ -719,7 +726,8 @@ static void DuelMenu_VitaNetInput(void) {
         DM->idle = 0;
         sVitaNetTeam ^= 1;
         Vita_VersusNetHostKind(sVitaNetTeam);
-        DuelMenu_VitaNetSay();
+        DM->voiceLine = -1;
+        sVitaNetSayAgain = 1;
         Snd_PlaySe(1, 1);
     } else if (gPad[0].gameRepeat & (PADG_UP | PADG_DOWN)) {
         DM->idle = 0;

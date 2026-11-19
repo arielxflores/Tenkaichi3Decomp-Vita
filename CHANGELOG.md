@@ -6,8 +6,9 @@ Fixed
 
 - **The start menu with SELECT.** SELECT was looked at in one moment as the game started, and a Vita can pass on a
   button held since the LiveArea late: holding it often did nothing (pressing it a few times worked). Now SELECT
-  pressed or held at any moment of the game's first 2.5 seconds opens the start menu. The game's messages now say
-  "press SELECT a few times as the game starts".
+  pressed or held at any moment from the game's start until its start menu's turn comes (and for a second after)
+  opens the start menu, however long the start takes. The game's messages now say "press SELECT a few times as the
+  game starts".
 - **"out of memory (4294947232 bytes)"** now says what it means: one of the disc's files is damaged (its copy differs
   from the disc, though its size may not), and to copy the game's files again or try another memory card.
 - **With the PSVshell plugin installed** the fights are drawn at 720 x 408 always. PSVshell's hook of the display

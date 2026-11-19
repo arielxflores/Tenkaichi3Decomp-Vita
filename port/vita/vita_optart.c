@@ -314,6 +314,7 @@ static const char *vs_net_line(unsigned k) {
 
 void Vita_VersusNetHostKind(int team) {
     sVsTeam = team != 0;
+    Vita_Log("vita: versus menu: hosting %s\n", sVsTeam ? "a team battle" : "one fighter each");
     if (sVsText != NULL && sVsNetOn) {
         write_slot(slot_of(sVsText, 7), vs_net_line(1));
     }

@@ -73,28 +73,65 @@ static unsigned press(unsigned mask) {
     }
 }
 
-/* (1.2.5) SELECT seen at any moment of the program's first 2.5 seconds, not only at this one: a player held it as the
-   game started and nothing happened (1.2.4). The buttons can reach a program that has just started late, and one
-   held from the bubble's tap and let go early was not seen. Waits out the rest of those 2.5 s once at most. */
+/* (1.2.5) SELECT seen at any moment from the program's start until the start menu's turn, and for a second after: a
+   player held it as the game started and nothing happened (1.2.4). The buttons can reach a program that has just
+   started late, and the steps before the start menu's turn can take long (25 s on a Vita with the European languages
+   and a crash report: build 335), so one look, or a window counted from the program's start, missed it. A small thread
+   started first thing (Vita_StartSelectWatch, from vita_main.c) keeps looking until select_held() is asked. */
+static volatile int sSelSeen, sSelStop;
+static volatile unsigned sSelSeenMs;
+
+static int select_watch(SceSize args, void *argp) {
+    (void)args;
+    (void)argp;
+    while (!sSelStop) {
+        if (pad_now() & SCE_CTRL_SELECT) {
+            sSelSeenMs = (unsigned)(sceKernelGetProcessTimeWide() / 1000);
+            sSelSeen = 1;
+            break;
+        }
+        sceKernelDelayThread(10000);
+    }
+    return sceKernelExitDeleteThread(0);
+}
+
+void Vita_StartSelectWatch(void) {
+    SceUID th = sceKernelCreateThread("bt3_select", select_watch, 0x10000100, 0x1000, 0, 0, NULL);
+    if (th >= 0) {
+        sceKernelStartThread(th, 0, NULL);
+    }
+}
+
 static int select_held(void) {
     static int seen = -1;
     if (gVitaStartMenuForce) {
         return 1;
     }
     if (seen < 0) {
-        seen = 0;
-        for (;;) {
-            if (pad_now() & SCE_CTRL_SELECT) {
-                seen = 1;
-                break;
-            }
-            if (sceKernelGetProcessTimeWide() >= 2500000ull) {
-                break;
-            }
-            sceKernelDelayThread(16000);
+        uint64_t until = sceKernelGetProcessTimeWide() + 1000000ull; /* (and a second more from here) */
+        if (until < 2500000ull) {
+            until = 2500000ull;
         }
-        Vita_Log("vita: SELECT %s %u ms into the program\n", seen ? "seen" : "not held, looked for until",
-                 (unsigned)(sceKernelGetProcessTimeWide() / 1000));
+        seen = 0;
+        while (!sSelSeen) {
+            if (pad_now() & SCE_CTRL_SELECT) {
+                sSelSeenMs = (unsigned)(sceKernelGetProcessTimeWide() / 1000);
+                sSelSeen = 1;
+                break;
+            }
+            if (sceKernelGetProcessTimeWide() >= until) {
+                break;
+            }
+            sceKernelDelayThread(10000);
+        }
+        sSelStop = 1;
+        seen = sSelSeen;
+        if (seen) {
+            Vita_Log("vita: SELECT seen %u ms into the program (the start menu's turn at %u ms)\n", sSelSeenMs,
+                     (unsigned)(sceKernelGetProcessTimeWide() / 1000));
+        } else {
+            Vita_Log("vita: SELECT not seen from the program's start until %u ms into it\n", (unsigned)(sceKernelGetProcessTimeWide() / 1000));
+        }
     }
     return seen || (pad_now() & SCE_CTRL_SELECT) != 0;
 }

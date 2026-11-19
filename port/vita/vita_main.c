@@ -2217,7 +2217,7 @@ static int game_thread(SceSize args, void *argp) {
    it was in. Until the game's thread starts the log is written line by line (the log thread's tenth of a second could
    lose the last lines before a crash). */
 static void start_step(const char *what) {
-    logf_("vita: start: %s\n", what);
+    logf_("vita: start: %s (%u ms)\n", what, (unsigned)(sceKernelGetProcessTimeWide() / 1000));
 }
 
 /* The plugins taiHEN loads (their file names, from ur0:tai and ux0:tai config.txt), in the log: a start that fails
@@ -2277,6 +2277,10 @@ int __wrap_main(int argc, char **argv) {
     scePowerSetGpuXbarClockFrequency(166);
     sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);
     sceCtrlSetSamplingModeExt(SCE_CTRL_MODE_ANALOG_WIDE); /* a DualShock's sticks through the Ext2 reads (PS TV, a second pad) */
+    {   /* (1.2.5) SELECT looked for from now on: the start menu (vita_start.c, BT4's too) */
+        extern void Vita_StartSelectWatch(void);
+        Vita_StartSelectWatch();
+    }
     psvDebugScreenInit();
     sceIoMkdir("ux0:data", 0777);
     sceIoMkdir(HOME, 0777);
