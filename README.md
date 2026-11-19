@@ -89,6 +89,9 @@ ux0:data/bt3/disc/DATA/ZS3USOP.PSS        (and the other files of the DATA folde
 Then copy the `disc` folder to `ux0:data/bt3/`. Either way, the game checks at start that the files are the
 unmodified USA release and tells you if they are not.
 
+With an SD2Vita mounted as `uma0:` (a memory card as `ux0:`), the image or the `disc` folder can be in
+`uma0:data/bt3/` instead (BT4's in `uma0:data/bt3/bt4/`). Saves, settings, mods and the log stay in `ux0:data/bt3/`.
+
 ### Languages
 
 **Options → Language/Sound → Language** (the page's first row) sets the language of the text and of the voices
@@ -144,9 +147,11 @@ On a PS TV, or with a DualShock paired, the controller's own L2, R2, L3 and R3 b
 - **Options → Vita Settings** (the Options screen's first row; the rows are Vita Settings, Controls, Sound, Save/Load) has ten settings on three
   pages (Down from the lower row turns the page):
   - **Touch**: for each of L2, R2, L3 and R3, where it is touched: its quarter of the rear pad, a corner of the
-    front screen (L2 / R2 the bottom corners, L3 / R3 the top ones), or nowhere (Off). A finger resting on the rear
-    pad's lower half stops counting as L3 / R3 after a second, so the hands holding the Vita cannot hold R3 (which
-    stops the fighter from moving); lift it and touch again to press it. SELECT + L / R also give L2 / R2.
+    front screen (L2 / R2 the bottom corners, L3 / R3 the top ones), or nowhere (Off). A touch of L3 / R3 is a short
+    press (a transformation), so that the hands holding the Vita cannot hold R3 (which stops the fighter from
+    moving); lift the finger and touch again to press it again. **Fusion** is R3 held with left, up or right: hold
+    the direction, then touch R3 and keep both (R3 stays held while the direction does). SELECT + L / R also give
+    L2 / R2.
   - **Clashes**: **Square** (the default) wins beam struggles and rush clashes by pressing Square again and again,
     instead of turning the left stick; the prompt shows Square. **Stick** turns the stick, as on the PS2 (the d-pad
     works too).
@@ -217,7 +222,8 @@ ux0:data/bt3/bt4/DATA/PZS4US0.AFS     (to PZS4US3.AFS, and the other files of th
 
 The image is about 6 GB, more than one file can be on a memory card or SD card formatted as FAT32: on such a card
 copy the unpacked files instead (each of them is smaller), or use a card formatted as exFAT. The image or the files
-are also found in `ux0:bt3/bt4/`, `ux0:data/bt4/`, `ux0:bt4/` or beside BT3's image in `ux0:data/bt3/`.
+are also found in `ux0:bt3/bt4/`, `ux0:data/bt4/`, `ux0:bt4/`, beside BT3's image in `ux0:data/bt3/`, or in
+`uma0:data/bt3/bt4/`. The first start that finds them says so, once.
 
 Then choose it in the game, **Options → Vita Settings → Game → BT4** (on the third page: Down from the lower row,
 twice), or hold SELECT while the game starts and choose **Game** in the [start menu](#start-menu). The
@@ -294,8 +300,9 @@ songs folder, a line `file|Name In The Menu` each; the files they do not name fo
 
 ## Multiplayer (two Vitas, experimental)
 
-**Experimental**: matches between two Vitas have not been tested on two real Vitas yet. They may stop with a
-desync or a lost connection; please report what happens, with `ux0:data/bt3/log.txt` from both Vitas. Online play
+**Experimental**: players have played one-on-one matches on two Vitas; team battles (1.2.4) have not been played on
+two Vitas yet. A match may stop with a desync or a lost connection; please report what happens, with
+`ux0:data/bt3/log.txt` from both Vitas. Online play
 over the internet (as the PC version's lobbies) is not there yet.
 
 Two Vitas can play the versus mode against each other: **ad hoc** (the two Vitas near each other, no router needed)
@@ -314,7 +321,9 @@ same disc.
 
 The other way, which also has **Wi-Fi**: hold SELECT while the game starts and choose **Multiplayer** in the start
 menu (Host a match / Join a match, ad hoc or Wi-Fi; the one who joins picks the host from a list). A match begun
-there ends with the program starting again.
+there ends with the program starting again. There the host also chooses the battle: **one fighter each** or
+**teams** (the versus mode's team select: up to five fighters each, switching and fusion); a match from the versus
+menu is one fighter each.
 
 - A match has a save of its own (`ux0:data/bt3/net_saves/`) with everything unlocked; your own save is not touched.
   The two games have to be exactly the same, so mods, the stages and songs added from outside the disc, the European
@@ -346,6 +355,13 @@ Multiplayer is new: when something goes wrong, `ux0:data/bt3/log.txt` from both 
   card formatted as FAT32, which cannot hold a larger file (copy `SLUS_216.78`, `BIN` and `DATA` from it instead, or
   format the card as exFAT). Before 1.2.3 such an image was used anyway, and the game went silent or closed when a
   fight loaded something from the missing part.
+- **"The disc's file ... is ... MB, but its own index needs ... MB"**: that file of the `DATA` folder was not copied
+  (or unpacked from the `.iso`) whole. Copy it again and check that it has the same size as on your computer, or
+  copy the `.iso` itself. Before 1.2.4 the game started anyway and stopped with "out of memory (4294947232 bytes)"
+  or closed when it reached the missing part.
+- **"`ux0:data/bt3/bt4/` has BT3's program"**: BT3's own files go in `ux0:data/bt3/disc/` (or its `.iso` in
+  `ux0:data/bt3/`); `bt4/` is for Team BT4's B14 Rev2 only (its program is `SLUS_219.78`). Older BT4 releases made on
+  BT3's files do not run.
 - **The fights' picture is smaller than the menus' (it fills only part of the screen)**: the fights are drawn at
   640 x 368 (720 x 408 with `fightres=720`) and the Vita's display scales them to the screen. The Sharpscale plugin in
   a scaling mode other than Original (Integer, for one) shows them unscaled instead: set it back to Original.

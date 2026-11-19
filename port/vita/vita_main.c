@@ -2389,8 +2389,10 @@ int __wrap_main(int argc, char **argv) {
     {   /* (1.2.4) BT4 found: the first start that finds it says where it is chosen (players put the .iso in place and
            looked for BT4 in the game). Once: ux0:data/bt3/bt4/found.txt. */
         extern int Vita_GameSwitchCheck(void);
+        extern int Port_NetSession(void);
         SceIoStat st;
-        if (sMode != 1 && sceIoGetstat(HOME "/bt4/found.txt", &st) < 0 && Vita_GameSwitchCheck() == 0) { /* (not in a test's demo) */
+        if (sMode != 1 && !Port_NetSession() && sceIoGetstat(HOME "/bt4/found.txt", &st) < 0 && Vita_GameSwitchCheck() == 0) {
+            /* (not in a test's demo, nor as a match begins: the other Vita is waiting) */
             extern int VitaEu_Lang(void);
             SceUID fd;
             logf_("vita: BT4 found notice shown\n");

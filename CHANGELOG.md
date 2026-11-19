@@ -1,8 +1,35 @@
 # Changes (PS Vita port)
 
+## 1.2.4
+
+Fixed
+
+- **Fusion from the touch panels.** Since 1.2 a touch of R3 (the rear pad's lower right quarter, or its front
+  corner) was always a short press, so that a hand resting on the rear pad could not hold R3 and stop the fighter;
+  but the game's fusion is R3 held with left, up or right, which could no longer be done. Now R3 touched while left,
+  up or right is held stays held as long as the direction is (at most a second and a half): hold the direction, touch
+  R3 and keep both. A touch without a direction is still a short press (transformations).
+- **BT3 no longer takes the files in `ux0:data/bt3/bt4/` for its disc.** Files there with BT3's program name
+  (BT3's own files put there, or an older BT4 release made on BT3's files) were used as BT3's disc, and the game
+  stopped at once with "out of memory (4294947232 bytes)". The "files were not found" message now says where BT3's
+  files go and which BT4 release the package runs.
+- **A data file that was not copied whole is named at the start.** The game checks the disc's `DATA/*.AFS` files
+  against their own index: one cut short (a copy or an unpacking that did not finish) is named with its size and the
+  size it needs, instead of the game crashing when it reaches the missing part.
+
+New
+
+- **Budokai Tenkaichi 4 found**: the first start that finds BT4's files says how to switch to it (Options → Vita
+  Settings → Game, or SELECT held while the game starts). Once.
+- **uma0**: the disc's files (its image, or `SLUS_216.78`, `BIN` and `DATA`) and BT4's are also found in
+  `uma0:data/bt3/` (`disc/`, `bt4/`), for an SD2Vita mounted as uma0 beside a memory card. Saves, settings and mods
+  stay in `ux0:data/bt3/`.
+- **Multiplayer team battles**: hosting from the start menu, the host chooses one fighter each or teams (the versus
+  mode's team select: up to five fighters each, switching and fusion).
+
 ## 1.2.3
 
-Faster (manumastro's work, his pull request #6)
+Faster (manumastro's work, pull request #6)
 
 - **Detailed stages stay fast.** Three causes, all in the copies of the game's model calls the port keeps: their
   cache filled up over a session and was never emptied (a stage played after others ran without it), the kept parts'
