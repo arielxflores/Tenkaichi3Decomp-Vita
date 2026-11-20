@@ -304,8 +304,8 @@ songs folder, a line `file|Name In The Menu` each; the files they do not name fo
 
 **Experimental**: players have played one-on-one matches on two Vitas; team battles (1.2.4) have not been played on
 two Vitas yet. A match may stop with a desync or a lost connection; please report what happens, with
-`ux0:data/bt3/log.txt` from both Vitas. Since 1.2.6 two Vitas can also play over the **internet**, by the host's
-address ([below](#over-the-internet-126)); playing against the PC version is not possible.
+`ux0:data/bt3/log.txt` from both Vitas. Since 1.3 two Vitas can also play over the **internet**, by the host's
+address ([below](#over-the-internet-13)); playing against the PC version is not possible.
 
 Two Vitas can play the versus mode against each other: **ad hoc** (the two Vitas near each other, no router needed)
 or over the **Wi-Fi** network both are connected to. Both need this same version of the game and the files of the
@@ -343,7 +343,7 @@ there ends with the program starting again. There the host also chooses the batt
 - The two games stay in step by sending each other the buttons pressed, as the PC version's online play does: when
   the connection is slow, both wait for it. If the two games ever stop agreeing (a desync), `log.txt` says so.
 
-### Over the internet (1.2.6)
+### Over the internet (1.3)
 
 In the game: Versus → **Multiplayer** → **Online**:
 
@@ -402,7 +402,7 @@ Multiplayer is new: when something goes wrong, `ux0:data/bt3/log.txt` from both 
   a scaling mode other than Original (Integer, for one) shows them unscaled instead: set it back to Original.
 - **The picture breaks up, flickers or freezes with plugins installed** (PSVshell, vitacheat and other plugins
   that hook the display or the game): start the game once with them turned off in `ur0:tai/config.txt` (or with
-  a plugin manager), then turn them back on one at a time to find the one at fault. Since 1.2.5 the game draws the
+  a plugin manager), then turn them back on one at a time to find the one at fault. Since 1.3 the game draws the
   fights at 720 x 408 always when PSVshell is installed, which avoids the trouble seen with it so far. The game
   needs no overclocking plugin (see the notes below).
 - **The game stops** (the picture freezes, the music plays on): the game writes `ux0:data/bt3/hang.txt` when its

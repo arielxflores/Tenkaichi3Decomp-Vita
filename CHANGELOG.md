@@ -1,11 +1,11 @@
 # Changes (PS Vita port)
 
-## 1.2.6
+## 1.3
 
 New
 
 - **Multiplayer over the internet** (experimental): two Vitas play the versus mode from anywhere, by the host's
-  address. Versus → Multiplayer now offers **Online** (first), **Ad Hoc** and **Two Controllers**; Online has **Online: Host**,
+  code. Versus → Multiplayer now offers **Online** (first), **Ad Hoc** and **Two Controllers**; Online has **Online: Host**,
   which shows the host's **code** in the message window (eight letters and digits, `2420-7E1Y`: the host's internet
   address written shorter, with a check letter against typos; no server), and **Online: Join**, where the other
   player types it with the system's keyboard (the last one is offered again). All of it in the menu, as ad hoc is; the start
@@ -17,8 +17,8 @@ New
   12 inputs only, enough for the short input delays of ad hoc and Wi-Fi; with the longer delays of the internet a
   stretch of lost packets could leave both Vitas waiting until the connection was given up. Each Vita now says what
   it has of the other's inputs, and the rest is sent again from there.
-
-## 1.2.5
+- **Team battles from the versus menu**: Versus → Multiplayer → **Online: Host** or **Ad Hoc: Host**, L / R choose one
+  fighter each or teams (the line in the message window says which). The start menu's Multiplayer has the same choice.
 
 Fixed
 
@@ -33,11 +33,8 @@ Fixed
   held back the moment the game reads the graphics chip's time from, so the game took the chip for much slower than
   it was and changed the fights' size again and again (hundreds of times an hour): a PS TV's picture broke up, and a
   Vita froze after an hour of play. `fightres=auto` in `bt3.txt` has the sizes chosen as they go again.
-
-New
-
-- **Team battles from the versus menu**: Versus → Multiplayer → **Ad Hoc: Host**, L / R choose one fighter each or
-  teams (the line in the message window says which). The start menu's Multiplayer has the same choice.
+- **A long black screen as the game started** (24 seconds on the test Vita), spent removing old log files that were
+  not there, before anything was shown and while SELECT went unseen. The released game no longer does it.
 
 ## 1.2.4
 
