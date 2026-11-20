@@ -2275,12 +2275,17 @@ static void log_plugins(void) {
     logf_("vita: plugins: %s\n", out[0] ? out : "(no taiHEN config.txt readable)");
 }
 
+/* (1.2.6) the program's first steps timed (ms of its own time): the start menu's turn came 24 s in on the test Vita */
+static unsigned sFirst[10];
+#define FIRST(k) (sFirst[k] = (unsigned)(sceKernelGetProcessTimeWide() / 1000))
+
 int __wrap_main(int argc, char **argv) {
     SceUID th;
     int logThread = 0;
 
     (void)argc;
     (void)argv;
+    FIRST(0);
     scePowerSetArmClockFrequency(444); /* the console's own top speed: no overclocking */
     scePowerSetBusClockFrequency(222);
     scePowerSetGpuClockFrequency(222);
@@ -2291,10 +2296,13 @@ int __wrap_main(int argc, char **argv) {
         extern void Vita_StartSelectWatch(void);
         Vita_StartSelectWatch();
     }
+    FIRST(1);
     psvDebugScreenInit();
+    FIRST(2);
     sceIoMkdir("ux0:data", 0777);
     sceIoMkdir(HOME, 0777);
     sceIoMkdir(HOME "/mods", 0777); /* (where mods go: vita_file.c) */
+    FIRST(3);
 #ifdef PORT_VITA_RELEASE
     {   /* the released program's log, appended to at every start, kept under 1 MB: a longer one becomes log-prev.txt
            (the one before it is let go) and this run starts a new one */
@@ -2306,6 +2314,7 @@ int __wrap_main(int argc, char **argv) {
     }
 #endif
     sLog = fopen(HOME "/log" SFX, "a");
+    FIRST(4);
     logf_("\n======== new run ========\n");
 #ifndef PORT_VITA_RELEASE /* (the released program splits no log: logsplit= is a test setting) */
     {   /* the parts of a log split before (logsplit=): this run's own, if any, are made anew. Only those there are
@@ -2322,6 +2331,7 @@ int __wrap_main(int argc, char **argv) {
         }
     }
 #endif
+    FIRST(5);
 #ifdef PORT_VITA_RELEASE
     gVitaReport = 0;
     logf_("vita: Dragon Ball Z Budokai Tenkaichi 3 (Tenkaichi3Decomp) for the PS Vita, built " __DATE__ " " __TIME__ ", processor clock %d MHz\n", scePowerGetArmClockFrequency());
@@ -2337,12 +2347,14 @@ int __wrap_main(int argc, char **argv) {
             Vita_WatchThread(6, lt, "log");
         }
     }
+    FIRST(6);
     {   /* the watchdog: any core, above everything of ours */
         SceUID wd = sceKernelCreateThread("bt3_watchdog", watchdog_thread, 64, 0x4000, 0, 0, NULL);
         if (wd >= 0) {
             sceKernelStartThread(wd, 0, NULL);
         }
     }
+    FIRST(7);
     if (freopen(HOME "/out" SFX, "w", stdout) != NULL) { /* what the port's own code prints */
         setvbuf(stdout, NULL, _IOLBF, 0);
     }
@@ -2356,7 +2368,12 @@ int __wrap_main(int argc, char **argv) {
 #ifndef PORT_VITA_RELEASE
     setenv("BT3_TRACE", "600", 1); /* the fight's state every 600 blanks into out.txt: comparable with a PC run */
 #endif
+    FIRST(8);
     log_plugins();
+    FIRST(9);
+    logf_("vita: the first steps at (ms): main %u, SELECT watched %u, text screen %u, folders %u, log opened %u, its parts gone %u, "
+          "log thread %u, watchdog %u, out / err %u, plugins read %u\n", sFirst[0], sFirst[1], sFirst[2], sFirst[3], sFirst[4], sFirst[5],
+          sFirst[6], sFirst[7], sFirst[8], sFirst[9]);
     start_step("settings");
     read_settings();
     {   /* (a BT3_PGO=gen build: where its counts go, vita_pgo.c) */

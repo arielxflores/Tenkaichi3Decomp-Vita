@@ -96,7 +96,9 @@ static int select_watch(SceSize args, void *argp) {
 }
 
 void Vita_StartSelectWatch(void) {
-    SceUID th = sceKernelCreateThread("bt3_select", select_watch, 0x10000100, 0x1000, 0, 0, NULL);
+    /* (above the main thread: it looks every 10 ms even while the start's first steps keep that thread busy: build 338
+       saw a press only 24 s in) */
+    SceUID th = sceKernelCreateThread("bt3_select", select_watch, 96, 0x1000, 0, 0, NULL);
     if (th >= 0) {
         sceKernelStartThread(th, 0, NULL);
     }

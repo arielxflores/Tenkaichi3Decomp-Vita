@@ -28,6 +28,7 @@ static s32 sVitaNetWait;  /* frames until the game starts again */
    for. 1 looking for the other Vita, 2 found: the screen fades out, 3 it failed: the reason stays until a button,
    4 given up or read: the choice takes buttons again from the next frame. */
 extern int Vita_NetPairBegin(int role, int link, const int *rules);
+extern void Vita_Log(const char *fmt, ...);
 extern int Vita_NetPairPoll(const char **line, unsigned *gen);
 extern int Vita_NetPairDialog(void);
 extern void Vita_NetPairCancel(void);
@@ -732,6 +733,10 @@ static void DuelMenu_VitaNetLevel(s32 level, s32 cur) {
 }
 
 static void DuelMenu_VitaNetInput(void) {
+    if (gPad[0].gamePressed != 0) { /* (1.2.6, while L / R's teams did nothing in the tests: what each press brings) */
+        Vita_Log("vita: versus menu: Multiplayer level %d, plate %d: pressed %08x\n", (int)sVitaNetLevel, (int)DM_CUR,
+                 (unsigned)gPad[0].gamePressed);
+    }
     if (sVitaNetSayAgain) { /* (the line written anew below: the window lays a line out when its number changes, so it
                                was given none for a picture: build 335 kept showing "one fighter each") */
         sVitaNetSayAgain = 0;
