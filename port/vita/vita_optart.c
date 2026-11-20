@@ -316,7 +316,7 @@ static const char *const kVsNetLine[3][3] = {
     {"Play over the internet: the\nhost's address is all it takes.", "Play a Vita nearby (ad hoc:\nno router needed).",
      "Two players on this Vita,\nwith a second controller."},
     {"", "Join a match that a Vita nearby\nhosts (ad hoc).", "Back to Online, Ad Hoc and\nTwo Controllers."},
-    {"", "Join online: type the host's\naddress (kept for next time).", "Back to Online, Ad Hoc and\nTwo Controllers."}};
+    {"", "Join online: type the host's\ncode (kept for next time).", "Back to Online, Ad Hoc and\nTwo Controllers."}};
 /* (1.2.5) the Host plate's line: the kind of battle hosted, L / R changing it (src/menu/menu_g_c.c) */
 static const char *const kVsHostKind[2][2] = {
     {"Host a match (ad hoc): one\nfighter each. L / R: teams.", "Host a match (ad hoc): teams\n(up to five). L / R: one each."},

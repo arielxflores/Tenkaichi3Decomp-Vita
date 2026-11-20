@@ -489,3 +489,103 @@ int Reach_StunTake(const uint8_t *p, int n, uint32_t *ip, uint16_t *port) {
     }
     return 0;
 }
+
+/* ------------------------------------------------------------------------------------------------- the host's code */
+/* (1.2.6) The host's code: its internet address (and its port, when not 18630) in eight letters and digits, the last a
+   check, in groups of four ("K7F2-9QXM"; twelve with a port). Crockford's base 32: no I, L, O or U, and I and L typed
+   read as 1, O as 0, small letters as capitals. No server: the code is the address written shorter, the same each time
+   for the same address. */
+static const char kB32[] = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+
+static int b32_val(char c) {
+    const char *p;
+    if (c >= 'a' && c <= 'z') {
+        c = (char)(c - 32);
+    }
+    if (c == 'I' || c == 'L') {
+        return 1;
+    }
+    if (c == 'O') {
+        return 0;
+    }
+    p = c != '\0' ? strchr(kB32, c) : NULL;
+    return p != NULL ? (int)(p - kB32) : -1;
+}
+
+/* (odd weights: one wrong letter always changes it) */
+static int b32_check(const int *v, int n) {
+    int k, sum = 0;
+    for (k = 0; k < n; k++) {
+        sum += (2 * k + 1) * v[k];
+    }
+    return sum % 32;
+}
+
+void Reach_CodeMake(uint32_t ip, int port, char *out, int size) {
+    uint64_t x = sceNetNtohl(ip);
+    int v[12], n = 0, k, o = 0, withPort = port != 18630;
+    x |= (uint64_t)withPort << 32; /* (35 bits: the address and a mark for a port that follows) */
+    for (k = 6; k >= 0; k--) {
+        v[n++] = (int)((x >> (5 * k)) & 31);
+    }
+    if (withPort) {
+        for (k = 3; k >= 0; k--) {
+            v[n++] = (port >> (5 * k)) & 31;
+        }
+    }
+    v[n] = b32_check(v, n);
+    n++;
+    for (k = 0; k < n && o < size - 2; k++) {
+        if (k != 0 && k % 4 == 0) {
+            out[o++] = '-';
+        }
+        out[o++] = kB32[v[k]];
+    }
+    out[o] = '\0';
+}
+
+/* text a code? 1: yes, *ip / *port from it; -1: it looks like one, with a mistake; 0: not a code (an address) */
+int Reach_CodeRead(const char *text, uint32_t *ip, int *port) {
+    int v[16], n = 0, k, withPort;
+    uint64_t x = 0;
+    for (; *text != '\0'; text++) {
+        int d;
+        if (*text == '-' || *text == ' ') {
+            continue;
+        }
+        if (*text == '.' || *text == ':') {
+            return 0;
+        }
+        d = b32_val(*text);
+        if (d < 0 || n >= 16) {
+            return 0;
+        }
+        v[n++] = d;
+    }
+    if (n != 8 && n != 12) {
+        return 0;
+    }
+    if (b32_check(v, n - 1) != v[n - 1]) {
+        return -1;
+    }
+    for (k = 0; k < 7; k++) {
+        x = (x << 5) | (uint64_t)v[k];
+    }
+    withPort = (int)(x >> 32);
+    if (withPort > 1 || (withPort == 1) != (n == 12)) {
+        return -1;
+    }
+    *ip = sceNetHtonl((uint32_t)x);
+    *port = 18630;
+    if (withPort) {
+        int p = 0;
+        for (k = 7; k < 11; k++) {
+            p = (p << 5) | v[k];
+        }
+        if (p <= 0 || p > 65535) {
+            return -1;
+        }
+        *port = p;
+    }
+    return 1;
+}

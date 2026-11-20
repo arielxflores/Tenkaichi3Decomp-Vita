@@ -124,6 +124,9 @@ extern void Reach_UpnpClose(void);
 extern int Reach_StunServers(uint32_t *ip, uint16_t *port, int max);
 extern int Reach_StunRequest(uint8_t *out);
 extern int Reach_StunTake(const uint8_t *p, int n, uint32_t *ip, uint16_t *port);
+extern void Reach_CodeMake(uint32_t ip, int port, char *out, int size);
+extern int Reach_CodeRead(const char *text, uint32_t *ip, int *port);
+static int sCodeBad; /* (the one who joins: what was typed looked like a host's code, with a mistake) */
 
 static const char *link_name(int kind) {
     return kind == 1 ? "ad hoc" : kind == 3 ? "internet" : "Wi-Fi";
@@ -651,6 +654,7 @@ typedef struct {
     int upnp, shared;          /* the router opened the port; this network shares one address with others */
     char why[160];             /* (not opened: why, in words) */
     char ext[20], pub[20];     /* the router's own address (UPnP), the one seen from the internet (STUN): "" not known */
+    char code[16];             /* (1.2.6) the host's code: the address seen from the internet in eight letters and digits */
 } Reach;
 static Reach sReach;
 
@@ -685,6 +689,7 @@ static void reach_work(Reach *r) {
     }
     if (pubIp != 0) {
         sceNetInetNtop(SCE_NET_AF_INET, &pubIp, r->pub, sizeof(r->pub));
+        Reach_CodeMake(pubIp, NET_PORT, r->code, sizeof(r->code));
     }
     if (r->ext[0] != '\0') {
         sceNetInetPton(SCE_NET_AF_INET, r->ext, &extIp);
@@ -697,7 +702,8 @@ static void reach_work(Reach *r) {
         SceUID fd = sceIoOpen(HOME "/net_host.txt", SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
         if (fd >= 0) {
             char t[160];
-            int l = snprintf(t, sizeof(t), "%s %s %d %s\n", sMyIp, r->pub[0] ? r->pub : "-", r->upnp, r->ext[0] ? r->ext : "-");
+            int l = snprintf(t, sizeof(t), "%s %s %d %s %s\n", sMyIp, r->pub[0] ? r->pub : "-", r->upnp, r->ext[0] ? r->ext : "-",
+                             r->code[0] ? r->code : "-");
             sceIoWrite(fd, t, (SceSize)l);
             sceIoClose(fd);
         }
@@ -712,7 +718,7 @@ static void host_reach(void) {
     reach_work(r);
     psvDebugScreenPrintf("\e[H\e[2J\n  Multiplayer: hosting a match (internet)\n\n");
     if (r->pub[0] != '\0') {
-        psvDebugScreenPrintf("  Tell the other player this address:  \e[33m%s\e[39m\n", r->pub);
+        psvDebugScreenPrintf("  Tell the other player this code:  \e[33m%s\e[39m\n  (or the address %s)\n", r->code, r->pub);
     } else {
         psvDebugScreenPrintf("  \e[33mThis Vita's internet address could not be found\e[39m\n  (is the network connected to the internet?).\n");
     }
@@ -1240,7 +1246,7 @@ static int ime_open(void) {
         last[n > 0 ? n : 0] = '\0';
         last[strcspn(last, "\r\n")] = '\0';
     }
-    utf8_to16(sImeTitle, 96, Vita_Tr("The host's internet address (the host's screen shows it)"));
+    utf8_to16(sImeTitle, 96, Vita_Tr("The host's code (or address), on the host's screen"));
     utf8_to16(sImeInit, 64, last);
     memset(sImeBuf, 0, sizeof(sImeBuf));
     sceImeDialogParamInit(&p);
@@ -1347,6 +1353,25 @@ static int net_target(int quiet) {
     if (fd >= 0) {
         sceIoWrite(fd, gVitaNetAddr, strlen(gVitaNetAddr));
         sceIoClose(fd);
+    }
+    sCodeBad = 0;
+    {   /* (1.2.6) a host's code, not an address */
+        uint32_t cip;
+        int cport, r = Reach_CodeRead(gVitaNetAddr, &cip, &cport);
+        if (r < 0) {
+            sCodeBad = 1;
+            snprintf(sErr, sizeof(sErr), "the code \"%s\" has a mistake (check it on the host's screen)", gVitaNetAddr);
+            return 0;
+        }
+        if (r > 0) {
+            char a[20];
+            memset(&sNetTarget, 0, sizeof(sNetTarget));
+            sNetTarget.ip = cip;
+            sNetTarget.port = sceNetHtons((unsigned short)cport);
+            sceNetInetNtop(SCE_NET_AF_INET, &cip, a, sizeof(a));
+            Vita_Log("net: internet: the host's code %s: %s (port %d)\n", gVitaNetAddr, a, cport);
+            return 1;
+        }
     }
     snprintf(host, sizeof(host), "%s", gVitaNetAddr);
     c = NULL;
@@ -1564,7 +1589,7 @@ int Vita_NetPairBegin(int role, int link, const int *rules) {
             }
             gVitaDialogOn = 1;
             sPair.state = PAIR_IME;
-            pair_say("Type the host's address ...");
+            pair_say("Type the host's code ...");
         }
         Vita_Log("net: versus menu: online, %s\n", role == 1 ? "host" : "join");
         return 1;
@@ -1676,7 +1701,11 @@ int Vita_NetPairPoll(const char **line, unsigned *gen) {
     case PAIR_RESOLVE:
         if (sJobDone) {
             if (!sPair.resolved) {
-                pair_fail("%.30s was not found:\ncheck the address.", gVitaNetAddr);
+                if (sCodeBad) {
+                    pair_fail("That code has a mistake:\ncheck it on the host's screen.");
+                } else {
+                    pair_fail("%.30s was not found:\ncheck the address.", gVitaNetAddr);
+                }
             } else {
                 sPair.nonce = (uint32_t)now_us() | 1u;
                 sPair.since = t;
@@ -1693,7 +1722,7 @@ int Vita_NetPairPoll(const char **line, unsigned *gen) {
                 switch (sPair.msgTurn++ % 4) {
                 case 0:
                     if (rc->pub[0] != '\0') {
-                        pair_say("Your address: %s\nTell it to the other player.", rc->pub);
+                        pair_say("Code for the other player:\n%s (or %s)", rc->code, rc->pub);
                     } else {
                         pair_say("Your internet address could\nnot be found (no internet?).");
                     }

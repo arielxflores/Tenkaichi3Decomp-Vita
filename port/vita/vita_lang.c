@@ -186,7 +186,7 @@ static const char *const kEs[][2] = {
     {"Play a Vita nearby (ad hoc:\nno router needed).", "Juega con una Vita cercana\n(ad hoc: sin router)."},
     {"Play over the internet: the\nhost's address is all it takes.", "Juega por internet: basta con\nla dirección de quien la crea."},
     {"Back to Online, Ad Hoc and\nTwo Controllers.", "Volver a En Línea, Ad Hoc y\nDos Controles."},
-    {"Join online: type the host's\naddress (kept for next time).", "Únete por internet: escribe la\ndirección (se guarda)."},
+    {"Join online: type the host's\ncode (kept for next time).", "Únete por internet: escribe el\ncódigo (se guarda)."},
     {"Host online: one fighter\neach. L / R: teams.", "Crea partida en línea: uno\ncontra uno. L / R: equipos."},
     {"Host online: teams (up to\nfive). L / R: one each.", "Crea partida en línea: por\nequipos. L / R: uno contra uno."},
     {"No internet: connect the Vita\nto Wi-Fi (Settings > Network).", "Sin internet: conecta la Vita\nal Wi-Fi (Ajustes > Red)."},
@@ -204,7 +204,10 @@ static const char *const kEs[][2] = {
     {"This network shares its address:\nlet the other player host.", "Esta red comparte dirección:\nque cree la partida el otro."},
     {"No answer from %.21s.\nCheck it, or host instead.", "%.21s no responde.\nRevísala, o crea tú la partida."},
     {"Joining %.23s\n(ping %u ms) ...", "Uniéndose a %.23s\n(ping %u ms) ..."},
-    {"The host's internet address (the host's screen shows it)", "La dirección de internet de quien crea la partida"},
+    {"The host's code (or address), on the host's screen", "El código (o la dirección) de quien crea la partida"},
+    {"Code for the other player:\n%s (or %s)", "Código para el otro jugador:\n%s (o %s)"},
+    {"Type the host's code ...", "Escribe el código de quien\ncrea la partida ..."},
+    {"That code has a mistake:\ncheck it on the host's screen.", "Ese código tiene un error:\nrevísalo en su pantalla."},
 };
 
 const char *Vita_Tr(const char *english) {

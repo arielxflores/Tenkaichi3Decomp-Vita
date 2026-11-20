@@ -348,11 +348,15 @@ there ends with the program starting again. There the host also chooses the batt
 In the game: Versus → **Multiplayer** → **Online**:
 
 1. The host chooses **Online: Host** (L / R: one fighter each or teams). The game asks the host's router to let the
-   match in (UPnP) and the message window shows the host's **internet address** (four numbers, such as
-   `203.0.113.7`). Tell it to the other player (a message, a call, Discord).
-2. The other player chooses **Online: Join** and types that address with the system's keyboard (the last one typed is
+   match in (UPnP) and the message window shows the host's **code**: eight letters and digits such as `2420-7E1Y`
+   (and its internet address beside it). Tell it to the other player (a message, a call, Discord).
+2. The other player chooses **Online: Join** and types that code with the system's keyboard (the last one typed is
    offered again, so playing the same friend again is CROSS, CROSS). The game finds the host, measures the time there
-   and back, and joins.
+   and back, and joins. The address works there too.
+
+The code is the host's internet address written shorter, with a last letter that catches a mistyped one: there is no
+server. It stays the same for the same home connection (until the internet provider changes its address), so it can
+be kept for next time; it is no more secret than the address itself, so share it only with whom you play.
 3. From there on it is the same as an ad hoc match: the match loads, then the character select; the host is player 1.
 
 The start menu (SELECT a few times as the game starts) → Multiplayer → Host / Join a match (internet) does the same on
@@ -362,7 +366,7 @@ a screen of its own, should the versus menu's way not work.
   says whether the router opened the way by itself (UPnP). If not, turn UPnP on in the router's settings, or forward
   **UDP port 18630** to the host's Vita there (its own address on the network is on the host's screen; "port
   forwarding"), or let the other player host instead. A router forwarding another port to the Vita's 18630 works
-  too: then type the address with that port, `203.0.113.7:20000`.
+  too: then type the address with that port, `203.0.113.7:20000`, instead of the code.
 - **"This network shares one internet address with others"**: the host is behind a second router or the internet
   provider's own (carrier-grade NAT, common on mobile hotspots): nothing from outside can come in. The other player
   hosts.

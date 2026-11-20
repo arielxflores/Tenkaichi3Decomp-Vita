@@ -437,11 +437,11 @@ static int net_menu(void) {
         enum { N_ITEMS = 9, I_TIME = 6, I_KIND = 7, I_BACK = 8 };
         static const char *const kItemEn[N_ITEMS] = {"Host a match (ad hoc)", "Join a match (ad hoc)", "Host a match (Wi-Fi, the same network)",
                                                      "Join a match (Wi-Fi, the same network)", "Host a match (internet)",
-                                                     "Join a match (internet: type the host's address)", "Time limit when hosting: ",
+                                                     "Join a match (internet: type the host's code)", "Time limit when hosting: ",
                                                      "Battle when hosting: ", "Back"};
         static const char *const kItemEs[N_ITEMS] = {"Crear una partida (ad hoc)", "Unirse a una partida (ad hoc)", "Crear una partida (Wi-Fi, la misma red)",
                                                      "Unirse a una partida (Wi-Fi, la misma red)", "Crear una partida (internet)",
-                                                     "Unirse a una partida (internet, por direccion)",
+                                                     "Unirse a una partida (internet, por codigo)",
                                                      "Tiempo limite al crearla: ", "Combate al crearla: ", "Volver"};
         const char *const *kItem = sEs ? kItemEs : kItemEn;
         int i;
@@ -453,8 +453,8 @@ static int net_menu(void) {
                                 "  same disc files. Ad hoc: the two Vitas near each other,\n"
                                 "  no router (the system asks to connect). Wi-Fi: both\n"
                                 "  connected to the same network (Settings > Network).\n"
-                                "  Internet: the host's screen shows its address; the\n"
-                                "  other player types it (see the README if it fails).\n\n"
+                                "  Internet: the host's screen shows a code; the other\n"
+                                "  player types it (see the README if it fails).\n\n"
                                 "  The match is the versus mode, player 1 (the host)\n"
                                 "  against player 2 (one fighter each, or teams: the host\n"
                                 "  chooses), everything unlocked, with a save of\n"
@@ -465,8 +465,8 @@ static int net_menu(void) {
                                 "  los mismos archivos del disco. Ad hoc: las dos Vitas\n"
                                 "  cerca, sin router (el sistema pide conectar). Wi-Fi:\n"
                                 "  las dos en la misma red (Ajustes > Red). Internet:\n"
-                                "  la pantalla de quien la crea muestra su direccion; el\n"
-                                "  otro jugador la escribe (si falla, mira el README).\n\n"
+                                "  la pantalla de quien la crea muestra un codigo; el\n"
+                                "  otro jugador lo escribe (si falla, mira el README).\n\n"
                                 "  La partida es el modo versus, jugador 1 (quien la crea)\n"
                                 "  contra jugador 2 (un luchador cada uno, o equipos:\n"
                                 "  elige quien la crea), todo desbloqueado, con una partida\n"
