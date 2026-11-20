@@ -353,16 +353,16 @@ In the game: Versus → **Multiplayer** → **Online**:
 2. The other player chooses **Online: Join** and types that code with the system's keyboard (the last one typed is
    offered again, so playing the same friend again is CROSS, CROSS). The game finds the host, measures the time there
    and back, and joins.
+3. From there on it is the same as an ad hoc match: the match loads, then the character select; the host is player 1.
 
 The code is the host's internet address written shorter, with a last letter that catches a mistyped one: there is no
 server. It stays the same for the same home connection (until the internet provider changes its address), so it can
 be kept for next time; it is no more secret than the address itself, so share it only with whom you play.
-3. From there on it is the same as an ad hoc match: the match loads, then the character select; the host is player 1.
 
 The start menu (SELECT a few times as the game starts) → Multiplayer → Host / Join a match (internet) does the same on
 a screen of its own, should the versus menu's way not work.
 
-- **The other player cannot join** ("No answer yet"): the host's router does not let the match in. The host's screen
+- **The other player cannot join** ("No answer from ..."): the host's router does not let the match in. The host's screen
   says whether the router opened the way by itself (UPnP). If not, turn UPnP on in the router's settings, or forward
   **UDP port 18630** to the host's Vita there (its own address on the network is on the host's screen; "port
   forwarding"), or let the other player host instead. A router forwarding another port to the Vita's 18630 works
@@ -374,7 +374,7 @@ a screen of its own, should the versus menu's way not work.
   effect (about 50 ms more for every 100 ms of ping). Within a country it plays well; across an ocean it is sluggish.
   There is no rollback (the Vita has no time to play frames twice).
 - Both need this same version of the game and the same disc files, as on the same network. Nothing else is needed:
-  no server, no account; the address is only between the two players.
+  no server, no account; the code is only between the two players.
 
 Multiplayer is new: when something goes wrong, `ux0:data/bt3/log.txt` from both Vitas helps.
 
