@@ -2297,14 +2297,21 @@ int __wrap_main(int argc, char **argv) {
 #endif
     sLog = fopen(HOME "/log" SFX, "a");
     logf_("\n======== new run ========\n");
-    {   /* the parts of a log split before (logsplit=): this run's own, if any, are made anew */
+#ifndef PORT_VITA_RELEASE /* (the released program splits no log: logsplit= is a test setting) */
+    {   /* the parts of a log split before (logsplit=): this run's own, if any, are made anew. Only those there are
+           removed: eight removals of files that were not there took 23.6 s on the test Vita (build 339), with the
+           screen black and SELECT unseen */
         int k;
         for (k = 2; k <= 9; k++) {
             char path[64];
+            SceIoStat st;
             snprintf(path, sizeof(path), HOME "/log-part%d" SFX, k);
-            sceIoRemove(path);
+            if (sceIoGetstat(path, &st) >= 0) {
+                sceIoRemove(path);
+            }
         }
     }
+#endif
 #ifdef PORT_VITA_RELEASE
     gVitaReport = 0;
     logf_("vita: Dragon Ball Z Budokai Tenkaichi 3 (Tenkaichi3Decomp) for the PS Vita, built " __DATE__ " " __TIME__ ", processor clock %d MHz\n", scePowerGetArmClockFrequency());
