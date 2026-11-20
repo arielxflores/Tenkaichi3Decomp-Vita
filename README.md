@@ -348,11 +348,11 @@ there ends with the program starting again. There the host also chooses the batt
 In the game: Versus → **Multiplayer** → **Online**:
 
 1. The host chooses **Online: Host** (L / R: one fighter each or teams). The game asks the host's router to let the
-   match in (UPnP) and the message window shows the host's **code**: eight letters and digits such as `2420-7E1Y`
-   (and its internet address beside it). Tell it to the other player (a message, a call, Discord).
+   match in (UPnP) and the message window shows the host's **code**: eight letters and digits such as `2420-7E1Y`.
+   Tell it to the other player (a message, a call, Discord).
 2. The other player chooses **Online: Join** and types that code with the system's keyboard (the last one typed is
    offered again, so playing the same friend again is CROSS, CROSS). The game finds the host, measures the time there
-   and back, and joins. The address works there too.
+   and back, and joins.
 
 The code is the host's internet address written shorter, with a last letter that catches a mistyped one: there is no
 server. It stays the same for the same home connection (until the internet provider changes its address), so it can

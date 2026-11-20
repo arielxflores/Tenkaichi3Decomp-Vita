@@ -8,7 +8,7 @@ New
   address. Versus → Multiplayer now offers **Online** (first), **Ad Hoc** and **Two Controllers**; Online has **Online: Host**,
   which shows the host's **code** in the message window (eight letters and digits, `2420-7E1Y`: the host's internet
   address written shorter, with a check letter against typos; no server), and **Online: Join**, where the other
-  player types it with the system's keyboard (the last one is offered again; an address works too). All of it in the menu, as ad hoc is; the start
+  player types it with the system's keyboard (the last one is offered again). All of it in the menu, as ad hoc is; the start
   menu (SELECT a few times as the game starts) → Multiplayer → Host / Join a match (internet) too. The game asks the
   host's router to let the match in (UPnP), finds the host's address as the internet sees it (STUN), says when the
   router cannot be passed (a second router, the provider's own) and what to do, and sets the input delay from the

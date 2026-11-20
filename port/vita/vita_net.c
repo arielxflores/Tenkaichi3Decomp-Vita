@@ -695,15 +695,15 @@ static void reach_work(Reach *r) {
         sceNetInetPton(SCE_NET_AF_INET, r->ext, &extIp);
     }
     r->shared = (extIp != 0 && pubIp != 0 && extIp != pubIp) || (extIp != 0 && Reach_IsPrivate(extIp));
-    Vita_Log("net: internet host: UPnP %s%s, the router's address %s, seen from the internet as %s:%u (STUN, %d servers)%s\n",
-             r->upnp ? "opened the port" : "no: ", r->upnp ? "" : r->why, r->ext[0] ? r->ext : "-", r->pub[0] ? r->pub : "-",
+    /* (no internet address in the log: players post their logs where anyone reads them) */
+    Vita_Log("net: internet host: UPnP %s%s, the router's address %s, seen from the internet %s (port %u, STUN, %d servers)%s\n",
+             r->upnp ? "opened the port" : "no: ", r->upnp ? "" : r->why, r->ext[0] ? "known" : "not told", r->pub[0] ? "as it" : "not",
              (unsigned)sceNetNtohs(pubPort), ns, r->shared ? "; behind a second router or the provider's" : "");
     { /* (what was found, for the tests that play the other side from a computer: net_host.txt) */
         SceUID fd = sceIoOpen(HOME "/net_host.txt", SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
         if (fd >= 0) {
             char t[160];
-            int l = snprintf(t, sizeof(t), "%s %s %d %s %s\n", sMyIp, r->pub[0] ? r->pub : "-", r->upnp, r->ext[0] ? r->ext : "-",
-                             r->code[0] ? r->code : "-");
+            int l = snprintf(t, sizeof(t), "%s %s %d %s\n", sMyIp, r->code[0] ? r->code : "-", r->upnp, r->shared ? "shared" : "own");
             sceIoWrite(fd, t, (SceSize)l);
             sceIoClose(fd);
         }
@@ -718,12 +718,11 @@ static void host_reach(void) {
     reach_work(r);
     psvDebugScreenPrintf("\e[H\e[2J\n  Multiplayer: hosting a match (internet)\n\n");
     if (r->pub[0] != '\0') {
-        psvDebugScreenPrintf("  Tell the other player this code:  \e[33m%s\e[39m\n  (or the address %s)\n", r->code, r->pub);
+        psvDebugScreenPrintf("  Tell the other player this code:  \e[33m%s\e[39m\n", r->code);
     } else {
         psvDebugScreenPrintf("  \e[33mThis Vita's internet address could not be found\e[39m\n  (is the network connected to the internet?).\n");
     }
-    psvDebugScreenPrintf("  On their Vita: Versus > Multiplayer > Online >\n  Online: Join, and type it. (On this same network:\n"
-                         "  %s.)\n\n", sMyIp);
+    psvDebugScreenPrintf("  On their Vita: Versus > Multiplayer > Online >\n  Online: Join, and type it.\n\n");
     if (r->upnp) {
         psvDebugScreenPrintf("  Your router lets the match in (UPnP: UDP port %d\n  goes to this Vita while you host).\n", NET_PORT);
     } else {
@@ -805,9 +804,9 @@ static int host_wait(void) {
                     char where[40];
                     lines++;
                     addr_text(&from, where, sizeof(where));
-                    Vita_Log("net: internet: %s asked for the match with %s\n", where, get64(in + 20) != sMyBuild ? "another version" : "other disc files");
-                    psvDebugScreenPrintf("\n  \e[33mA Vita at %s tried to join: %s.\e[39m\n", where,
-                                         refusal(get64(in + 20) != sMyBuild ? WHY_VERSION : WHY_DATA));
+                    (void)where;
+                    Vita_Log("net: internet: a Vita asked for the match with %s\n", get64(in + 20) != sMyBuild ? "another version" : "other disc files");
+                    psvDebugScreenPrintf("\n  \e[33mA Vita tried to join: %s.\e[39m\n", refusal(get64(in + 20) != sMyBuild ? WHY_VERSION : WHY_DATA));
                 }
                 put64(pkt + k, sMyBuild);
                 put64(pkt + k + 8, sMyData);
@@ -850,7 +849,8 @@ static int host_wait(void) {
                         sDelay = net_delay(rtt); /* (the time there and back the one who joins measured) */
                     }
                     addr_text(&from, where, sizeof(where));
-                    Vita_Log("net: %s (%s) asks to join (time there and back %u ms: input delay %d)\n", name, where, (unsigned)rtt, sDelay);
+                    Vita_Log("net: %s (%s) asks to join (time there and back %u ms: input delay %d)\n", name,
+                             sLink == LINK_NET ? "over the internet" : where, (unsigned)rtt, sDelay);
                     if (sLink == LINK_NET) {
                         psvDebugScreenPrintf("\n  %s is joining (ping %u ms) ...\n", name, (unsigned)rtt);
                     } else {
@@ -1055,7 +1055,7 @@ static int join_wait(void) {
                     lastAsk = 0;
                     note[0] = '\0';
                     autoTried = redraw = 1;
-                    Vita_Log("net: internet: %s answered at %s (time there and back up to %u ms): joining\n", list[k].name, gVitaNetAddr, (unsigned)sJoinRtt);
+                    Vita_Log("net: internet: %s answered (time there and back up to %u ms): joining\n", list[k].name, (unsigned)sJoinRtt);
                     break;
                 }
             }
@@ -1246,7 +1246,7 @@ static int ime_open(void) {
         last[n > 0 ? n : 0] = '\0';
         last[strcspn(last, "\r\n")] = '\0';
     }
-    utf8_to16(sImeTitle, 96, Vita_Tr("The host's code (or address), on the host's screen"));
+    utf8_to16(sImeTitle, 96, Vita_Tr("The host's code (on the host's screen)"));
     utf8_to16(sImeInit, 64, last);
     memset(sImeBuf, 0, sizeof(sImeBuf));
     sceImeDialogParamInit(&p);
@@ -1364,12 +1364,10 @@ static int net_target(int quiet) {
             return 0;
         }
         if (r > 0) {
-            char a[20];
             memset(&sNetTarget, 0, sizeof(sNetTarget));
             sNetTarget.ip = cip;
             sNetTarget.port = sceNetHtons((unsigned short)cport);
-            sceNetInetNtop(SCE_NET_AF_INET, &cip, a, sizeof(a));
-            Vita_Log("net: internet: the host's code %s: %s (port %d)\n", gVitaNetAddr, a, cport);
+            Vita_Log("net: internet: a host's code typed (port %d)\n", cport);
             return 1;
         }
     }
@@ -1393,7 +1391,7 @@ static int net_target(int quiet) {
     memset(&sNetTarget, 0, sizeof(sNetTarget));
     sNetTarget.ip = ip;
     sNetTarget.port = sceNetHtons((unsigned short)port);
-    Vita_Log("net: internet: the host's address %s (port %d)\n", gVitaNetAddr, port);
+    Vita_Log("net: internet: a host's address typed (port %d)\n", port);
     return 1;
 }
 
@@ -1671,7 +1669,7 @@ int Vita_NetPairPoll(const char **line, unsigned *gen) {
             sPair.state = PAIR_HOST;
             sPair.msgAt = 0;
             sPair.msgTurn = 0;
-            Vita_Log("net: versus menu: online host: %s, %s\n", rc->pub[0] ? rc->pub : "no address", rc->upnp ? "the router lets it in" : rc->why);
+            Vita_Log("net: versus menu: online host: %s, %s\n", rc->code[0] ? "the code shown" : "no address found", rc->upnp ? "the router lets it in" : rc->why);
         }
         break;
     case PAIR_IME:
@@ -1722,7 +1720,7 @@ int Vita_NetPairPoll(const char **line, unsigned *gen) {
                 switch (sPair.msgTurn++ % 4) {
                 case 0:
                     if (rc->pub[0] != '\0') {
-                        pair_say("Code for the other player:\n%s (or %s)", rc->code, rc->pub);
+                        pair_say("Your code: %s\nTell it to the other player.", rc->code);
                     } else {
                         pair_say("Your internet address could\nnot be found (no internet?).");
                     }
@@ -1908,7 +1906,7 @@ int Vita_NetPairPoll(const char **line, unsigned *gen) {
                     }
                     if (sPair.firstOffer == 0) {
                         sPair.firstOffer = t;
-                        Vita_Log("net: versus menu: %s answered at %s\n", name, gVitaNetAddr);
+                        Vita_Log("net: versus menu: %s answered\n", name);
                     }
                     sPair.host = from;
                     sPair.hostSession = get32(in + 8);

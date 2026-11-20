@@ -385,7 +385,7 @@ int Reach_UpnpOpen(const char *myIp, int port, char *extIp, int extSize, char *w
     }
     if (soap("GetExternalIPAddress", "", out, sizeof(out), &body) == 200 && body != NULL) {
         tag_text(body, "NewExternalIPAddress", extIp, extSize);
-        Vita_Log("reach: upnp: the router's internet address: %s\n", extIp);
+        Vita_Log("reach: upnp: the router told its internet address\n");
     }
     ok = add_mapping(myIp, port, 7200, &code);
     if (!ok && code == 725) { /* (OnlyPermanentLeasesSupported) */
